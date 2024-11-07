@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "naeural_client"
+version = "2.0.0"
+authors = [
+  { name="Stefan Saraev", email="saraevstefan@gmail.com" },
+  { name="Andrei Ionut Damian", email="andrei.damian@me.com" },
+  { name="Cristan Bleotiu", email="cristibleotiu@gmail.com" },
+]
+description = "`naeural_client` is the Python SDK required for client app development for the Naeural Edge Protocol framework"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "pika", 
+  "paho-mqtt", 
+  "numpy",
+  "pyopenssl>=23.0.0",
+  "cryptography>=39.0.0",
+  "python-dateutil",
+  "pyaml"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/NaeuralEdgeProtocol/naeural_client"
+"Bug Tracker" = "https://github.com/NaeuralEdgeProtocol/naeural_client/issues"

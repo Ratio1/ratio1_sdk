@@ -1,0 +1,11 @@
+AIXP_USERNAME=username
+AIXP_USER=username
+
+AIXP_PASSWORD=password
+AIXP_PASS=password
+AIXP_PWD=password
+
+AIXP_HOSTNAME=hostname
+AIXP_HOST=hostname
+
+AIXP_PORT=8888
