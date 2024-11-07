@@ -1,6 +1,7 @@
 import ast
 import inspect
 import os
+import importlib
 
 from naeural_client import BaseDecentrAIObject, _PluginsManagerMixin
 
@@ -62,7 +63,7 @@ def extract_methods_from_class(cls):
     for name, prop in inspect.getmembers(cls, predicate=lambda x: isinstance(x, property)):
         if not name.startswith('_'):
             docstring = inspect.getdoc(prop.fget)
-            methods.append((name, [], docstring, True))
+            methods.append((name, ['self'], docstring, True))
     return methods
 
 def get_all_methods(cls):
@@ -89,13 +90,6 @@ def get_class_from_source(source_code):
     return None
 
 def create_stub_file(log:Logger, source_filename, destination_filename):
-    with open(source_filename, 'r') as source_file:
-        source_code = source_file.read()
-
-    class_name = get_class_from_source(source_code)
-    if not class_name:
-        raise ValueError("No class found in the source file.")
-
     module_name = os.path.splitext(source_filename)[0].split(os.sep)
     module_name = '.'.join(module_name[:-1])
     module, class_name, _, _ = Utils(log)._get_module_name_and_class(
@@ -109,4 +103,5 @@ def create_stub_file(log:Logger, source_filename, destination_filename):
     
 # Example usage
 log = SBLogger()
-create_stub_file(log, r'core\business\default\custom_exec_01.py', 'plugin_template.py')
+full_path = os.path.join('naeural_core', 'business', 'default', 'custom_exec_01.py')
+create_stub_file(log, full_path, 'plugin_template.py')

@@ -1,6 +1,6 @@
 class CustomPluginTemplate:
   @property
-  def BytesIO():
+  def BytesIO(self):
     """
     provides access to BytesIO class from io package
     """
@@ -11,23 +11,23 @@ class CustomPluginTemplate:
 
   def DefaultDotDict(self, args):
     """
-    Returns a `DefaultDotDict` object that is a `dict` where you can use keys with dot 
+    Returns a `DefaultDotDict` object that is a `dict` where you can use keys with dot
     using the default initialization
-    
+
     Inputs
     ------
-    
+
       pass a `lambda: <type>` always
-    
+
     Returns
     -------
       DefaultDotDict : class
-     
+
     Example
     -------
      ```
        dct_dot = self.DefaultDotDict(lambda: str)
-       dct_dot.test1 = "test"       
+       dct_dot.test1 = "test"
        print(dct_dot.test1)
        print(dct_dot.test2)
      ```
@@ -35,62 +35,80 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def ElementTree():
+  def ElementTree(self):
     """
     provides access to ElementTree class from xml.etree package
+    """
+    raise NotImplementedError
+
+  def LogReader(self, buff_reader, size):
+    """
+    Returns a `LogReader` object that is used to read from a buffer reader.
+
+    Parameters
+    ----------
+    buff_reader : BufferedReader
+        the buffer from where to read
+    size : int, optional
+        the size of the buffer. The default is 100.
+
+    Returns
+    -------
+    LogReader : class
+        the log reader object.
     """
     raise NotImplementedError
 
   def NestedDefaultDotDict(self, args):
     """
     Returns a `NestedDefaultDotDict` object that is a `defaultdict(dict)` where you can use keys with dot
-    
+
     Returns
     -------
       defaultdict : class
-     
+
     Example
     -------
      ```
       dct_dot1 = self.NestedDefaultDotDict()
-      dct_dot1.test.a = "test"   
+      dct_dot1.test.a = "test"
       print(dct_dot1.test.a)
-       
+
       dct_dot2 = self.NestedDefaultDotDict({'test' : {'a' : 100, 'b' : {'c' : 200}}})
       print(dct_dot2.test.a)
       print(dct_dot2.test.b.c)
       print(dct_dot2.test.b.unk)
-        
+
     """
     raise NotImplementedError
 
   def NestedDotDict(self, args):
     """
     Returns a `NestedDotDict` object that is a `dict` where you can use keys with dot
-    
+
     Returns
     -------
       defaultdict : class
-     
+
     Example
     -------
      ```
        dct_dot = self.NestedDotDict({'test' : {'a' : 100}})
-       dct_dot.test.a = "test"   
+       dct_dot.test.a = "test"
        print(dct_dot.test.a)
     """
     raise NotImplementedError
 
   @property
-  def OrderedDict():
+  def OrderedDict(self):
     """
     Returns the definition for `OrderedDict`
-    
+
     Returns
     -------
     OrderedDict : class
       `OrderedDict` from standard python `collections` package.
-      
+
     Example
     -------
         ```
@@ -104,14 +122,14 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def PIL():
+  def PIL(self):
     """
     provides access to PIL package
     """
     raise NotImplementedError
 
   @property
-  def actual_plugin_resolution():
+  def actual_plugin_resolution(self):
     raise NotImplementedError
 
   def add_alerter_observation(self, value, alerter):
@@ -123,7 +141,7 @@ class CustomPluginTemplate:
   def add_debug_info(self, value, key):
     """
     Add debug info to the witness. The information will be stored in a new line.
-    
+
     Parameters
     ----------
     value : Any
@@ -146,12 +164,12 @@ class CustomPluginTemplate:
     """
     Adds a payload in the plugin instance output queue. If used inside plugins
     plese do NOT return the payload from _process as the payload will be duplicated
-    
+
     Parameters
     ----------
     payload : GeneralPayload or dict
       the payload
-    
+
     Returns
     -------
     None.
@@ -164,11 +182,11 @@ class CustomPluginTemplate:
     on a already created payload object.
     If used inside plugins plese do NOT return the payload from _process as the payload
     will be duplicated
-    
+
     Parameters
     ----------
     **kwargs : dict
-    
+
     Returns
     -------
     None.
@@ -193,7 +211,7 @@ class CustomPluginTemplate:
   def alerter_add_observation(self, value, alerter):
     """
     Add a new numerical value observation to the given alerter state machine instance
-    
+
     Parameters
     ----------
     value : float
@@ -201,7 +219,7 @@ class CustomPluginTemplate:
       that has been given via "ALERT_MODE".
     alerter : str, optional
       The identifier of the given alerter state machine. The default is 'default'.
-    
+
     Returns
     -------
     TYPE
@@ -209,26 +227,27 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
-  def alerter_create(self, alerter, raise_time, lower_time, value_count, raise_thr, lower_thr, alert_mode, alert_mode_lower, reduce_value, reduce_threshold, show_version):
+  def alerter_create(self, alerter, raise_time, lower_time, value_count, raise_thr, lower_thr, alert_mode,
+                     alert_mode_lower, reduce_value, reduce_threshold, show_version):
     raise NotImplementedError
 
   def alerter_get_current_frame_state(self, observation, alerter):
     """
     This function returns the possible next alerter position based on the current alerter state and the current observation.
-    
+
     If the current observation can change the alerter state from A to B, the function returns the position of the state B.
     (this ensures that an alertable observation will be saved to the alertable state, no matter the current alerter state)
-    
+
     If the current observation cannot change the alerter state from A to B, the function returns the position of the state A.
-    
+
     Parameters
     ----------
     observation : float
         The current observation
-    
+
     alerter : str, optional
         The alerter name, by default 'default'
-    
+
     Returns
     -------
     int
@@ -238,8 +257,8 @@ class CustomPluginTemplate:
 
   def alerter_get_last_alert_duration(self, alerter):
     """
-        
-        
+
+
     """
     raise NotImplementedError
 
@@ -258,12 +277,12 @@ class CustomPluginTemplate:
   def alerter_is_alert(self, alerter):
     """
     Returns `True` if the current state of the given `alerter` state machine is "raised"
-    
+
     Parameters
     ----------
     alerter : str, optional
       Identifier of the given alerter instance. The default is 'default'.
-    
+
     Returns
     -------
     TYPE
@@ -274,12 +293,12 @@ class CustomPluginTemplate:
   def alerter_is_new_alert(self, alerter):
     """
     Returns `True` if the current state of the given `alerter` state machine has just changed from "lowered" to "raised"
-    
+
     Parameters
     ----------
     alerter : str, optional
       Identifier of the given alerter instance. The default is 'default'.
-    
+
     Returns
     -------
     TYPE
@@ -290,12 +309,12 @@ class CustomPluginTemplate:
   def alerter_is_new_lower(self, alerter):
     """
     Returns `True` if the current state of the given `alerter` state machine has just changed from "raised" to "lowered"
-    
+
     Parameters
     ----------
     alerter : str, optional
       Identifier of the given alerter instance. The default is 'default'.
-    
+
     Returns
     -------
     TYPE
@@ -306,12 +325,12 @@ class CustomPluginTemplate:
   def alerter_is_new_raise(self, alerter):
     """
     Returns `True` if the current state of the given `alerter` state machine has just changed from "lowered" to "raised"
-    
+
     Parameters
     ----------
     alerter : str, optional
       Identifier of the given alerter instance. The default is 'default'.
-    
+
     Returns
     -------
     TYPE
@@ -325,15 +344,15 @@ class CustomPluginTemplate:
   def alerter_maybe_force_lower(self, max_raised_time, alerter):
     """
     Forces the given alerter to reset to "lowered" status if the current state is "raised"
-    
+
     Parameters
     ----------
     alerter : str, optional
       Identifier of the given alerter instance. The default is 'default'.
-      
+
     max_raised_time: float, optional
       The number of seconds after the raised alerter is forced to lower its status
-    
+
     Returns
     -------
     TYPE
@@ -347,12 +366,12 @@ class CustomPluginTemplate:
   def alerter_status_changed(self, alerter):
     """
     Returns `True` if the current state of the given `alerter` state machine has just changed
-    
+
     Parameters
     ----------
     alerter : str, optional
       Identifier of the given alerter instance. The default is 'default'.
-    
+
     Returns
     -------
     TYPE
@@ -366,12 +385,12 @@ class CustomPluginTemplate:
   def alerter_time_from_last_change(self, alerter):
     """
     Returns the number of seconds from the last change of the given alerter state machine
-    
+
     Parameters
     ----------
     alerter : str, optional
       Identifier of the given alerter instance. The default is 'default'.
-    
+
     Returns
     -------
     TYPE
@@ -380,21 +399,21 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def alerters_names():
+  def alerters_names(self):
     raise NotImplementedError
 
   def archive_config_keys(self, keys, defaults):
     """
     Method that allows resetting of a list of keys and saving the current value as `_LAST` keys
-    
+
     Parameters
     ----------
     keys : list
       List of keys to be archived.
-    
+
     defaults: list
       List of default values for all keys. Default is None
-    
+
     Returns
     -------
     None.
@@ -416,18 +435,31 @@ class CustomPluginTemplate:
   def base64_to_code(self, b64code, decompress):
     raise NotImplementedError
 
+  def base64_to_img(self, b64):
+    """
+    Transforms a base64 encoded image into a np.ndarray
+    Parameters
+    ----------
+    b64 : str
+      the base64 image
+    Returns
+    -------
+    np.ndarray: the decoded image
+    """
+    raise NotImplementedError
+
   def base64_to_str(self, b64, decompress):
     """
     Transforms a base64 encoded string into a normal string
-    
+
     Parameters
     ----------
     b64 : str
         the base64 encoded string
-        
+
     decompress : bool, optional
         if True, the string will be decompressed after decoding. The default is False.
-    
+
     Returns
     -------
     str: the decoded string
@@ -437,7 +469,7 @@ class CustomPluginTemplate:
   def basic_ts_create(self, series_min, train_hist, train_periods):
     """
     Returns a basic time-series prediction model instance
-    
+
     Parameters
     ----------
     series_min : int, optional
@@ -446,12 +478,12 @@ class CustomPluginTemplate:
       The training window size. The default is None.
     train_periods : int, optional
       how many windows to use. The default is None.
-    
+
     Returns
     -------
     BasicSeriesModel() object
-    
-    
+
+
     Example
     -------
       ```
@@ -464,21 +496,21 @@ class CustomPluginTemplate:
   def basic_ts_fit_predict(self, data, steps):
     """
     Takes a list of values and directly returns predictions using a basic AR model
-    
-    
+
+
     Parameters
     ----------
     data : list
       list of float values.
     steps : int
       number of prediction steps.
-    
+
     Returns
     -------
     yh : list
       the `steps` predicted values.
-    
-    
+
+
     Example
     -------
       ```
@@ -488,17 +520,37 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
+  @property
+  def bs4(self):
+    """
+    Provides access to the bs4 library
+
+    Returns
+    -------
+      package
+
+
+    Example
+    -------
+      ```
+
+      response = self.requests.get(url)
+      soup = self.bs4.BeautifulSoup(response.text, "html.parser")
+      ```
+    """
+    raise NotImplementedError
+
   def cacheapi_load_json(self, default, verbose):
     """
     Loads object json from the current plugin instance cache folder
-    
+
     Parameters
     ----------
     default : any, optional
         default value, by default {}
     verbose : bool, optional
          show information during process, by default True
-    
+
     Returns
     -------
     any
@@ -509,14 +561,14 @@ class CustomPluginTemplate:
   def cacheapi_load_pickle(self, default, verbose):
     """
     Loads object from the current plugin instance cache folder
-    
+
     Parameters
     ----------
     default : any, optional
         default value, by default None
     verbose : bool, optional
          show information during process, by default True
-    
+
     Returns
     -------
     any
@@ -527,12 +579,12 @@ class CustomPluginTemplate:
   def cacheapi_save_json(self, obj, verbose):
     """
     Save object json to the current plugin instance cache folder
-    
+
     Parameters
     ----------
     obj : any
         the json-able object to be saved
-        
+
     verbose : bool, optional
         show information during process, by default True
     """
@@ -541,7 +593,7 @@ class CustomPluginTemplate:
   def cacheapi_save_pickle(self, obj, verbose):
     """
     Save object to the current plugin instance cache folder
-    
+
     Parameters
     ----------
     obj : any
@@ -552,42 +604,42 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def cfg_alert_tracker_maxlen():
+  def cfg_alert_tracker_maxlen(self):
     raise NotImplementedError
 
   @property
-  def cfg_audit_dump_time():
+  def cfg_audit_dump_time(self):
     raise NotImplementedError
 
   @property
-  def cfg_cancel_witness():
+  def cfg_cancel_witness(self):
     raise NotImplementedError
 
   @property
-  def cfg_collect_payloads_until_seconds_export():
+  def cfg_collect_payloads_until_seconds_export(self):
     raise NotImplementedError
 
   @property
-  def cfg_demo_mode():
+  def cfg_demo_mode(self):
     raise NotImplementedError
 
   @property
-  def cfg_email_config():
+  def cfg_email_config(self):
     raise NotImplementedError
 
   @property
-  def cfg_interval_aggregation_seconds():
+  def cfg_interval_aggregation_seconds(self):
     raise NotImplementedError
 
   @property
-  def cfg_send_all_alerts():
+  def cfg_send_all_alerts(self):
     raise NotImplementedError
 
   def chatapi_ask(self, question, persona, user, set_witness, personas_folder):
     """
     Simple single-function API for accessing chat backend. Provides statefullness based on
     provided `user` for the caller plugin instance.
-    
+
     Parameters
     ----------
     question : str
@@ -598,13 +650,13 @@ class CustomPluginTemplate:
       A user name for tracking your session.
     set_witness : bool, optional
       If `True` then a witness will be generated. The default is True.
-    
+
     Returns
     -------
     result : str
       The response.
-    
-    
+
+
     Example
     -------
       ```
@@ -612,7 +664,7 @@ class CustomPluginTemplate:
         question="Who are you?",
         persona='codegen',
         user="John Doe",
-      )      
+      )
       ```
     """
     raise NotImplementedError
@@ -633,7 +685,7 @@ class CustomPluginTemplate:
     ----------
     data - dictionary
     mandatory_keys - list of mandatory keys
-    
+
     Returns
     -------
     """
@@ -642,12 +694,12 @@ class CustomPluginTemplate:
   def cmdapi_archive_all_pipelines(self, node_address):
     """
     Stop all active pipelines on destination Execution Engine
-    
+
     Parameters
     ----------
     node_address : str, optional
       Address of the target E2 instance. The default is `None` and will run on local E2.
-    
+
     Returns
     -------
     None.
@@ -663,15 +715,15 @@ class CustomPluginTemplate:
   def cmdapi_archive_pipeline(self, node_address, name):
     """
     Stop and archive a active pipeline on destination Execution Engine
-    
+
     Parameters
     ----------
     node_address : str, optional
       destination Execution Engine, `None` will default to local Execution Engine. The default is None.
     name : str, optional
-      Name of the pipeline. The default is `None` and will point to current pipeline where the plugin instance 
+      Name of the pipeline. The default is `None` and will point to current pipeline where the plugin instance
       is executed.
-    
+
     Returns
     -------
     None.
@@ -684,22 +736,22 @@ class CustomPluginTemplate:
   def cmdapi_batch_update_instance_config(self, lst_updates, node_address):
     """
     Send a batch of updates for multiple plugin instances within their individual pipelines
-    
+
     Parameters
     ----------
     lst_updates : list of dicts
         The list of updates for multiple plugin instances within their individual pipelines
-        
+
     node_address : str, optional
         Destination node, by default None
-        
+
     Returns
     -------
     None.
-    
+
     Example
     -------
-    
+
       ```python
       # in this example we are modifying the config for 2 instances of the same plugin `A_PLUGIN_01`
       # within the same pipeline `test123`
@@ -722,7 +774,7 @@ class CustomPluginTemplate:
             "PARAM2" : "value2",
           }
         },
-      ] 
+      ]
       plugin.cmdapi_batch_update_instance_config(lst_updates=lst_updates, node_address=None)
       ```
     """
@@ -740,19 +792,19 @@ class CustomPluginTemplate:
   def cmdapi_register_command(self, node_address, command_type, command_content):
     """
     Send a command to a particular Execution Engine
-    
+
     Parameters
     ----------
     node_address : str
       target Execution Engine.
     command_type : st
-      type of the command - can be one of 'RESTART','STATUS', 'STOP', 'UPDATE_CONFIG', 
-      'DELETE_CONFIG', 'ARCHIVE_CONFIG', 'DELETE_CONFIG_ALL', 'ARCHIVE_CONFIG_ALL', 'ACTIVE_PLUGINS', 
+      type of the command - can be one of 'RESTART','STATUS', 'STOP', 'UPDATE_CONFIG',
+      'DELETE_CONFIG', 'ARCHIVE_CONFIG', 'DELETE_CONFIG_ALL', 'ARCHIVE_CONFIG_ALL', 'ACTIVE_PLUGINS',
       'RELOAD_CONFIG_FROM_DISK', 'FULL_HEARTBEAT', 'TIMERS_ONLY_HEARTBEAT', 'SIMPLE_HEARTBEAT',
       'UPDATE_PIPELINE_INSTANCE', etc.
     command_content : dict
       the actual content - can be None for some commands.
-    
+
     Returns
     -------
     None.
@@ -768,33 +820,33 @@ class CustomPluginTemplate:
   def cmdapi_send_instance_command(self, pipeline, signature, instance_id, instance_command, node_address):
     """
     Sends a INSTANCE_COMMAND for a particular plugin instance in a given box/pipeline
-    
+
     Parameters
     ----------
     pipeline : str
-      Name of the pipeline. 
-      
+      Name of the pipeline.
+
     instance_id: str
       Name of the instance
-      
+
     signature: str
-      Name (signature) of the plugin     
-      
+      Name (signature) of the plugin
+
     instance_command: any
       The configuration for the given box/pipeline/plugin/instance. Can be a string, dict, etc
-    
+
     node_address : str, optional
       destination Execution Engine, `None` will default to local Execution Engine. The default is None.
-      
-      
+
+
     Returns
     -------
     None.
-    
+
     Example:
     --------
-    
-    
+
+
       ```
       pipeline = "test123"
       signature = "A_PLUGIN_01"
@@ -811,33 +863,33 @@ class CustomPluginTemplate:
         node_address=None,
       )
       ```
-        
+
     """
     raise NotImplementedError
 
   def cmdapi_send_pipeline_command(self, command, node_address, pipeline_name):
     """
     Sends a command to a particular pipeline on a particular destination E2 instance
-    
+
     Parameters
     ----------
     command : any
         the command content
-    
+
     node_address : str, optional
         name of the destination e2, by default None (self)
-    
+
     pipeline_name : str, optional
         name of the pipeline, by default None (self)
-        
-    
+
+
     Returns
     -------
     None.
-    
+
     Example
     -------
-    
+
       ```
       # send a command directly to the current pipeline
       plugin.cmdapi_send_pipeline_command(
@@ -858,21 +910,21 @@ class CustomPluginTemplate:
   def cmdapi_start_pipeline(self, config, node_address):
     """
     Sends a start pipeline to a particular destination Execution Engine
-    
+
     Parameters
     ----------
     node_address : str, optional
       destination Execution Engine, `None` will default to local Execution Engine. The default is None
       .
     config : dict
-      the pipeline configuration. 
-    
+      the pipeline configuration.
+
     Returns
     -------
     None.
-    
+
     Example:
-      
+
       ```
       config = {
         "NAME" : "test123",
@@ -884,50 +936,51 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
-  def cmdapi_start_pipeline_by_params(self, name, pipeline_type, node_address, url, reconnectable, live_feed, plugins, stream_config_metadata, cap_resolution, kwargs):
+  def cmdapi_start_pipeline_by_params(self, name, pipeline_type, node_address, url, reconnectable, live_feed, plugins,
+                                      stream_config_metadata, cap_resolution, kwargs):
     """
     Start a pipeline by defining specific pipeline params
-    
+
     Parameters
     ----------
     name : str
       Name of the pipeline.
-      
+
     pipeline_type : str
       type of the pipeline. Will point the E2 instance to a particular Data Capture Thread plugin
-      
+
     node_address : str, optional
       Address of the target E2 instance. The default is `None` and will run on local E2.
-      
+
     url : str, optional
       The optional URL that can be used by the DCT to acquire data. The default is None.
-      
+
     reconnectable : str, optional
       Attempts to reconnect after data stops if 'YES'. 'KEEP_ALIVE' will not reconnect to
-      data source but will leave the DCT in a "zombie" state waiting for external pipeline 
+      data source but will leave the DCT in a "zombie" state waiting for external pipeline
       close command.
       The default is 'YES'.
-      
+
     live_feed : bool, optional
       Will always try to generate the real-time datapoint (no queued data). The default is False.
-      
+
     plugins : list of dicts, optional
       Lists all the business plugins with their respective individual instances. The default is None.
-      
+
     stream_config_metadata : dict, optional
       Options (custom) for current DCT. The default is None.
-      
+
     cap_resolution : float, optional
       Desired frequency (in Hz) of the DCT data reading cycles. The default is None.
-      
-    
+
+
     Returns
     -------
     None (actually)
-    
+
     Example
     -------
-    
+
       ```
       name = "test123"
       pipeline_type = "Void"
@@ -944,8 +997,8 @@ class CustomPluginTemplate:
         }
       ]
       plugin.cmdapi_start_pipeline_by_params(
-        name=name, 
-        pipeline_type=pipeline_type, 
+        name=name,
+        pipeline_type=pipeline_type,
         plugins=plugins,
       )
       ```
@@ -955,38 +1008,38 @@ class CustomPluginTemplate:
   def cmdapi_start_simple_custom_pipeline(self, base64code, node_address, name, instance_config, kwargs):
     """
     Starts a CUSTOM_EXEC_01 plugin on a Void pipeline
-    
-    
+
+
     Parameters
     ----------
     base64code : str
       The base64 encoded string that will be used as custom exec plugin.
-      
+
     node_address : str, optional
       The destination processing node. The default is None and will point to current node.
-      
+
     name : str, optional
       Name of the pipeline. The default is None and will be uuid generated.
-      
+
     instance_config / kwargs: dict
       Dict with params for the instance that can be given either as a dict or as kwargs
-    
-    
+
+
     Returns
     -------
     name : str
       returns the name of the pipeline.
-      
-    
+
+
     Example
     -------
-    
+
       ```
       worker = plugin.cfg_destination                     # destination worker received in plugin json command
-      worker_code = plugin.cfg_worker_code                # base64 code that will be executed 
+      worker_code = plugin.cfg_worker_code                # base64 code that will be executed
       custom_code_param = plugin.cfg_custom_code_param    # a special param expected by the custom code
       pipeline_name = plugin.cmdapi_start_simple_custom_pipeline(
-        base64code=worker_code, 
+        base64code=worker_code,
         node_address=worker,
         custom_code_param=pcustom_code_param,
       )
@@ -1000,10 +1053,12 @@ class CustomPluginTemplate:
   def cmdapi_start_stream_by_config_on_other_box(self, node_address, config_stream):
     raise NotImplementedError
 
-  def cmdapi_start_stream_by_params_on_current_box(self, name, stream_type, url, reconnectable, live_feed, plugins, stream_config_metadata, cap_resolution, kwargs):
+  def cmdapi_start_stream_by_params_on_current_box(self, name, stream_type, url, reconnectable, live_feed, plugins,
+                                                   stream_config_metadata, cap_resolution, kwargs):
     raise NotImplementedError
 
-  def cmdapi_start_stream_by_params_on_other_box(self, node_address, name, stream_type, url, reconnectable, live_feed, plugins, stream_config_metadata, cap_resolution, kwargs):
+  def cmdapi_start_stream_by_params_on_other_box(self, node_address, name, stream_type, url, reconnectable, live_feed,
+                                                 plugins, stream_config_metadata, cap_resolution, kwargs):
     raise NotImplementedError
 
   def cmdapi_stop_current_box(self):
@@ -1030,40 +1085,40 @@ class CustomPluginTemplate:
   def cmdapi_update_instance_config(self, pipeline, signature, instance_id, instance_config, node_address):
     """
     Sends update config for a particular plugin instance in a given box/pipeline
-    
-    
+
+
     Parameters
     ----------
-      
+
     pipeline : str
-      Name of the pipeline. 
-      
+      Name of the pipeline.
+
     signature: str
-      Name (signature) of the plugin 
-      
+      Name (signature) of the plugin
+
     instance_id: str
       Name of the instance
-      
+
     instance_config: dict
       The configuration for the given box/pipeline/plugin/instance
-    
+
     node_address : str, optional
       destination Execution Engine, `None` will default to local Execution Engine. The default is None.
-    
+
     Returns
     -------
     None.
     """
     raise NotImplementedError
 
-  def code_to_base64(self, code, verbose, compress):
+  def code_to_base64(self, code, verbose, compress, return_errors):
     raise NotImplementedError
 
   @property
-  def const():
+  def const(self):
     """
     Provides access to E2 constants
-    
+
     Returns
     -------
     ct : package
@@ -1072,10 +1127,10 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def consts():
+  def consts(self):
     """
     Provides access to E2 constants
-    
+
     Returns
     -------
     ct : package
@@ -1086,14 +1141,14 @@ class CustomPluginTemplate:
   def convert_size(self, size, unit):
     """
     Given a size and a unit, it returns the size in the given unit
-    
+
     Parameters
     ----------
     size : int
         value to be converted
     unit : str
         one of the following: 'KB', 'MB', 'GB'
-    
+
     Returns
     -------
     _type_
@@ -1112,11 +1167,11 @@ class CustomPluginTemplate:
     Creates a payload and sends it to the output queue.
     If used inside plugins plese do NOT return the payload from _process as the payload
     will be duplicated
-    
+
     Parameters
     ----------
     **kwargs : dict
-    
+
     Returns
     -------
     None.
@@ -1126,7 +1181,7 @@ class CustomPluginTemplate:
   def create_basic_ts_model(self, series_min, train_hist, train_periods):
     """
     Returns a basic time-series prediction model instance
-    
+
     Parameters
     ----------
     series_min : int, optional
@@ -1135,12 +1190,12 @@ class CustomPluginTemplate:
       The training window size. The default is None.
     train_periods : int, optional
       how many windows to use. The default is None.
-    
+
     Returns
     -------
     BasicSeriesModel() object
-    
-    
+
+
     Example
     -------
       ```
@@ -1155,12 +1210,12 @@ class CustomPluginTemplate:
 
   def create_numpy_shared_memory_object(self, mem_name, mem_size, np_shape, np_type, create, is_buffer, kwargs):
     """
-    Create a shared memory for numpy arrays. 
+    Create a shared memory for numpy arrays.
     This method returns a `NumpySharedMemory` object that can be used to read/write numpy arrays from/to shared memory.
     Use this method instead of creating the object directly, as it requires the logger to be set.
-    
+
     For a complete set of parameters, check the `NumpySharedMemory` class from `core.utils.system_shared_memory`
-    
+
     Parameters
     ----------
     mem_name : str
@@ -1175,8 +1230,8 @@ class CustomPluginTemplate:
         create the shared memory if it does not exist, by default False
     is_buffer : bool, optional
         if True, the shared memory will be used as a buffer, by default False
-    
-    
+
+
     Returns
     -------
     NumPySharedMemory
@@ -1195,24 +1250,24 @@ class CustomPluginTemplate:
   def create_sre(self, kwargs):
     """
     Returns a Statefull Rule Engine instance
-    
-    
+
+
     Returns
     -------
     SRE()
-    
-    
+
+
     Example
     -------
       ```
-      eng = self.create_sre()  
+      eng = self.create_sre()
       # add a data stream
       eng.add_entity(
-        entity_id='dev_test_1', 
+        entity_id='dev_test_1',
         entity_props=['f1','f2','f3'],
         entity_rules=['state.f1.val == 0 and state.f2.val == 0 and prev.f2.val==1'],
       )
-    
+
       ```
     """
     raise NotImplementedError
@@ -1220,33 +1275,33 @@ class CustomPluginTemplate:
   def create_statefull_rule_engine(self, kwargs):
     """
     Returns a Statefull Rule Engine instance
-    
-    
+
+
     Returns
     -------
     SRE()
-    
-    
+
+
     Example
     -------
       ```
-      eng = self.create_statefull_rule_engine()  
+      eng = self.create_statefull_rule_engine()
       # add a data stream
       eng.add_entity(
-        entity_id='dev_test_1', 
+        entity_id='dev_test_1',
         entity_props=['f1','f2','f3'],
         entity_rules=['state.f1.val == 0 and state.f2.val == 0 and prev.f2.val==1'],
       )
-    
+
       ```
     """
     raise NotImplementedError
 
   @property
-  def ct():
+  def ct(self):
     """
     Provides access to E2 constants
-    
+
     Returns
     -------
     ct : package
@@ -1255,21 +1310,27 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def current_exec_iteration():
+  def current_exec_iteration(self):
     """
     Returns the current loop exec iteration
     """
     raise NotImplementedError
 
   @property
-  def current_process_iteration():
+  def current_process_iteration(self):
     """
     Returns the current process iteration
     """
     raise NotImplementedError
 
+  def custom_print(self, print_queue, args, kwargs):
+    """
+    Custom print function that will be used in the plugin code.
+    """
+    raise NotImplementedError
+
   @property
-  def cv2():
+  def cv2(self):
     """
     provides access to computer vision library
     """
@@ -1278,7 +1339,7 @@ class CustomPluginTemplate:
   def dataapi_all_metadata(self):
     """
     API for accessing the concatenated stream metadata and metadata from all inputs
-    
+
     Returns
     -------
     dict
@@ -1301,7 +1362,7 @@ class CustomPluginTemplate:
             [{'TLBR_POS' : ...}, {'TLBR_POS' : ...}, {'TLBR_POS' : ...}],
             [{'TLBR_POS' : ...}]
           ],
-    
+
           'anomaly_detection_model' : [
             'True/False'
           ]
@@ -1318,22 +1379,22 @@ class CustomPluginTemplate:
     """
     API for accessing the first image in the 'INPUTS' list
     (shortcut for `dataapi_specific_image`, most of the cases will have a single image on a stream)
-    
+
     Parameters
     ----------
     full : bool, optional
       Passed to `dataapi_specific_image`
       The default value is False
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image`
       The default value is False
-    
+
     Returns
     -------
     dict (if full==True) / np.ndarray (if full==False)
       Returned by `dataapi_specific_image`
-    
+
     Raises
     ------
     IndexError
@@ -1345,22 +1406,22 @@ class CustomPluginTemplate:
     """
     API for accessing the first image global inferences
     (shortcut for `dataapi_specific_image_global_inferences`, most of the cases will have a single image on a stream)
-    
+
     Parameters
     ----------
     how : str, optional
       Passed to `dataapi_specific_image_global_inferences`
       The default value is None
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_global_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_global_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1372,26 +1433,26 @@ class CustomPluginTemplate:
     """
     API for accessing the first image inferences
     (shortcut for `dataapi_specific_image_inferences`, most of the cases will have a single image on a stream)
-    
+
     Parameters
     ----------
     how : str, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     mode : str, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1403,22 +1464,22 @@ class CustomPluginTemplate:
     """
     API for accessing the first image instance inferences
     (shortcut for `dataapi_specific_image_instance_inferences`, most of the cases will have a single image on a stream)
-    
+
     Parameters
     ----------
     how : str, optional
       Passed to `dataapi_specific_image_instance_inferences`
       The default value is None ('list')
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_instance_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_instance_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1430,22 +1491,22 @@ class CustomPluginTemplate:
     """
     API for accessing the first image plugin inferences
     (shortcut for `dataapi_specific_image_plugin_inferences`, most of the cases will have a single image on a stream)
-    
+
     Parameters
     ----------
     how : str, optional
       Passed to `dataapi_specific_image_plugin_inferences`
       The default value is None
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_plugin_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_plugin_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1457,22 +1518,22 @@ class CustomPluginTemplate:
     """
     API for accessing the first image plugin positional inferences
     (shortcut for `dataapi_specific_image_plugin_positional_inferences`, most of the cases will have a single image on a stream)
-    
+
     Parameters
     ----------
     how : str, optional
       Passed to `dataapi_specific_image_plugin_positional_inferences`
       The default value is None
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_plugin_positional_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_plugin_positional_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1488,7 +1549,7 @@ class CustomPluginTemplate:
     full : bool, optional
       Specifies whether the images are returned full (the whole input dictionary) or not (just the value of 'IMG' in the input dictionary)
       The default value is False
-    
+
     Returns
     -------
     dict{int : dict} (if full==True) / dict{int : np.ndarray} (if full=False)
@@ -1502,7 +1563,7 @@ class CustomPluginTemplate:
             'TYPE' : 'IMG',
             'METADATA' : {Dictionary with current input metadata}
           },
-    
+
           1 : {
             'IMG' : np.ndarray(2),
             'STRUCT_DATA' : None,
@@ -1511,9 +1572,9 @@ class CustomPluginTemplate:
             'METADATA' : {Dictionary with current input metadata}
           }
         } if full==True
-    
+
         or
-    
+
         {
           0 : np.ndarray(1),
           1 : np.ndarray(2)
@@ -1534,7 +1595,7 @@ class CustomPluginTemplate:
     """
     API for accessing just the images inferences.
     Filters the output of `dataapi_inferences`, keeping only the AI engines that run on images
-    
+
     Returns
     -------
     dict{str:list}
@@ -1547,7 +1608,7 @@ class CustomPluginTemplate:
     API for accessing the images inferences, filtered by confidence threshold, object types and target zone.
     More specifically, all the instance inferences are the plugin inferences that intersects (based on PRC_INTERSECT)
     with the configured target zone.
-    
+
     Returns
     -------
     dict{str:list}
@@ -1561,7 +1622,7 @@ class CustomPluginTemplate:
     More specifically, all the plugin inferences are the global inferences that surpass a configured confidence
     threshold and have a specific type. For example, an object detector basically infers for all the objects in
     COCO dataset. But, a certain plugin may need only persons and dogs.
-    
+
     Returns
     -------
     dict{str:list}
@@ -1585,16 +1646,16 @@ class CustomPluginTemplate:
   def dataapi_inference_results(self, model_name, idx):
     """
     Returns the inference results for a specific model and a specific input index.
-    
+
     Parameters
     ----------
     model_name : str
       The name of the model for which the inference results are requested.
-    
+
     idx : int, optional
       The index of the input for which the inference results are requested.
       The default value is 0.
-    
+
     Returns
     -------
     list
@@ -1607,17 +1668,17 @@ class CustomPluginTemplate:
     Returns
     -------
     dict{str:list}
-      the inferences that come from the serving plugins configured for the current plugin instance. 
-      Each key is the name of the serving plugin (AI engine). 
+      the inferences that come from the serving plugins configured for the current plugin instance.
+      Each key is the name of the serving plugin (AI engine).
       Each value is a list where each item in the list is an inference.
-    
+
       Example:
         {
           'object_detection_model' : [
             [{'TLBR_POS' : ...}, {'TLBR_POS' : ...}, {'TLBR_POS' : ...}],
             [{'TLBR_POS' : ...}]
           ],
-    
+
           'anomaly_detection_model' : [
             'True/False'
           ]
@@ -1628,12 +1689,12 @@ class CustomPluginTemplate:
   def dataapi_inferences_by_model(self, model_name):
     """
     Returns the inference results for a specific model.
-    
+
     Parameters
     ----------
     model_name : str
       The name of the model for which the inference results are requested.
-    
+
     Returns
     -------
     list
@@ -1647,7 +1708,7 @@ class CustomPluginTemplate:
     -------
     dict{str:dict}
       the inference metadata that comes from the serving plugins configured for the current plugin instance
-    
+
       Example:
         {
           'object_detection_model' : {'SYSTEM_TYME' : ..., 'VER' : ..., 'PICKED_INPUT' : 'IMG'},
@@ -1660,18 +1721,18 @@ class CustomPluginTemplate:
     """
     API for accessing the metadata of the first input
     (shortcut for `dataapi_specific_input_metadata`, most of the cases will have a single input on a stream)
-    
+
     Parameters
     ----------
     raise_if_error : bool, optional
       Passed to `dataapi_specific_input_metadata`
       The default value is False
-    
+
     Returns
     -------
     dict
       Returned by `dataapi_specific_input_metadata`
-    
+
     Raises
     ------
     IndexError
@@ -1693,7 +1754,7 @@ class CustomPluginTemplate:
     API for accessing the concatenated metadata from all inputs (images and structured datas together)
     This is not the same as the stream metadata that points to the overall params of the execution
     pipeline.
-    
+
     Returns
     -------
     dict
@@ -1704,7 +1765,7 @@ class CustomPluginTemplate:
   def dataapi_plugin_input(self):
     """
     Alias for `self.dataapi_full_input`
-    
+
     Returns
     -------
     dict
@@ -1724,7 +1785,7 @@ class CustomPluginTemplate:
   def dataapi_specific_image(self, idx, full, raise_if_error):
     """
     API for accessing a specific image in the 'INPUTS' list
-    
+
     Parameters
     ----------
     idx : int, optional
@@ -1732,21 +1793,21 @@ class CustomPluginTemplate:
       Attention! If there is a metastream that collects 3 inputs - ['IMG', 'STRUCT_DATA', 'IMG'], for accessing the last
       image, `idx` should be 1!
       The default value is 0
-    
+
     full : bool, optional
       Passed to `dataapi_images`
       The default value is False
-    
+
     raise_if_error : bool, optional
       Whether to raise IndexError or not when the requested index is out of range.
       The default value is False
-    
+
     Returns
     -------
     dict (if full==True) / np.ndarray (if full==False)
       dict -> the whole input dictionary
       np.ndarray -> the value of 'IMG' in the input dictionary
-    
+
     Raises
     ------
     IndexError
@@ -1758,26 +1819,26 @@ class CustomPluginTemplate:
     """
     API for accessing a specific image global inferences
     (shortcut for `dataapi_specific_image_inferences`)
-    
+
     Parameters
     ----------
     idx : int, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     how : str, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1789,7 +1850,7 @@ class CustomPluginTemplate:
     """
     API for accesing inferences for a specific image (global, plugin or instance inferences)
     See `dataapi_images_global_inferences`, `dataapi_images_plugin_inferences`, `dataapi_images_instance_inferences`
-    
+
     Parameters
     ----------
     idx : int, optional
@@ -1797,28 +1858,28 @@ class CustomPluginTemplate:
       Attention! If there is a metastream that collects 3 inputs - ['IMG', 'STRUCT_DATA', 'IMG'], for accessing the last
       image, `idx` should be 1!
       The default value is 0
-    
+
     how : str, optional
       Could be: 'list' or 'dict'
       Specifies how the inferences are returned. If 'list', then the AI engine information will be lost and all the
       inferences from all the employed AI engines will be concatenated in a list; If 'dict', then the AI engine information
       will be preserved.
       The default value is None ('list')
-    
+
     mode : str, optional
       Could be: 'global', 'plugin' or 'instance'
       Specifies which inferences are requested.
       The default value is None ('instance')
-    
+
     raise_if_error : bool, optional
       Whether to raise IndexError or not when the requested index is out of range.
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       the requested image inferences (global, plugin or instance) in the requested format (dict or list)
-    
+
     Raises
     ------
     IndexError
@@ -1830,26 +1891,26 @@ class CustomPluginTemplate:
     """
     API for accessing a specific image inferences for the current plugin instance
     (shortcut for `dataapi_specific_image_inferences`)
-    
+
     Parameters
     ----------
     idx : int, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     how : str, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None ('list')
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1861,26 +1922,26 @@ class CustomPluginTemplate:
     """
     API for accessing a specific image plugin inferences
     (shortcut for `dataapi_specific_image_inferences`)
-    
+
     Parameters
     ----------
     idx : int, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     how : str, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1892,26 +1953,26 @@ class CustomPluginTemplate:
     """
     API for accessing a specific image plugin positional inferences
     (shortcut for `dataapi_specific_image_inferences`)
-    
+
     Parameters
     ----------
     idx : int, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     how : str, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is None
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_image_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_image_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -1922,17 +1983,17 @@ class CustomPluginTemplate:
   def dataapi_specific_input(self, idx, raise_if_error):
     """
     API for accessing a specific index (by its index in the 'INPUTS' list).
-    
+
     Parameters
     ----------
     idx : int, optional
       The index of the input in the 'INPUTS' list
       The default value is 0.
-    
+
     raise_if_error : bool, optional
       Whether to raise IndexError or not when the requested index is out of range.
       The default value is False
-    
+
     Returns
     -------
     dict
@@ -1945,7 +2006,7 @@ class CustomPluginTemplate:
           'TYPE' : 'IMG',
           'METADATA' : {Dictionary with current input metadata}
         }
-    
+
     Raises
     ------
     IndexError
@@ -1956,22 +2017,22 @@ class CustomPluginTemplate:
   def dataapi_specific_input_init_data(self, idx, raise_if_error):
     """
     API for accessing the initial data of a specific input
-    
+
     Parameters
     ----------
     idx : int, optional
       Passed to `dataapi_specific_input`
       The default value is 0
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_input`
       The default value is False
-    
+
     Returns
     -------
     dict
       the value of "INIT_DATA" key in the requested input
-    
+
     Raises
     ------
     IndexError
@@ -1982,22 +2043,22 @@ class CustomPluginTemplate:
   def dataapi_specific_input_metadata(self, idx, raise_if_error):
     """
     API for accessing the metadata of a specific input
-    
+
     Parameters
     ----------
     idx : int, optional
       Passed to `dataapi_specific_input`
       The default value is 0
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_input`
       The default value is False
-    
+
     Returns
     -------
     dict
       the value of "METADATA" key in the requested input
-    
+
     Raises
     ------
     IndexError
@@ -2008,7 +2069,7 @@ class CustomPluginTemplate:
   def dataapi_specific_struct_data(self, idx, full, raise_if_error):
     """
     API for accessing a specific structured data in the 'INPUTS' list
-    
+
     Parameters
     ----------
     idx : int, optional
@@ -2016,21 +2077,21 @@ class CustomPluginTemplate:
       Attention! If there is a metastream that collects 3 inputs - ['IMG', 'STRUCT_DATA', 'IMG'], for accessing the structured data
       `idx` should be 0!
       The default value is 0
-    
+
     full : bool, optional
       Passed to `dataapi_struct_datas`
       The default value is False
-    
+
     raise_if_error : bool, optional
       Whether to raise IndexError or not when the requested index is out of range.
       The default value is True
-    
+
     Returns
     -------
     dict (if full==True) / object (if full==False)
       dict -> the whole input dictionary
       object -> the value of 'STRUCT_DATA' in the input dictionary
-    
+
     Raises
     ------
     IndexError
@@ -2041,7 +2102,7 @@ class CustomPluginTemplate:
   def dataapi_specific_struct_data_inferences(self, idx, how, raise_if_error):
     """
     API for accesing a specific structured data inferences
-    
+
     Parameters
     ----------
     idx : int, optional
@@ -2049,23 +2110,23 @@ class CustomPluginTemplate:
       Attention! If there is a metastream that collects 3 inputs - ['IMG', 'STRUCT_DATA', 'IMG'], for accessing the structured data,
       `idx` should be 0!
       The default value is 0
-    
+
     how : str, optional
       Could be: 'list' or 'dict'
       Specifies how the inferences are returned. If 'list', then the AI engine information will be lost and all the
       inferences from all the employed AI engines will be concatenated in a list; If 'dict', then the AI engine information
       will be preserved.
       The default value is None ('list')
-    
+
     raise_if_error : bool, optional
       Whether to raise IndexError or not when the requested index is out of range.
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       the requested structured data inferences in the requested format (dict or list)
-    
+
     Raises
     ------
     IndexError
@@ -2080,7 +2141,7 @@ class CustomPluginTemplate:
     """
     This function serves returns all the params that configured the current execution
     pipeline where the plugin instance is executed.
-    
+
     Returns
     -------
     dict
@@ -2101,22 +2162,22 @@ class CustomPluginTemplate:
     """
     API for accessing the first structured data in the 'INPUTS' list
     (shortcut for `dataapi_specific_struct_data`, most of the cases will have a single structured data on a stream)
-    
+
     Parameters
     ----------
     full : bool, optional
       Passed to `dataapi_specific_struct_data`
       The default value is False
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_struct_data`
       The default value is True
-    
+
     Returns
     -------
     dict (if full==True) / object (if full==False)
       Returned by `dataapi_specific_struct_data`
-    
+
     Raises
     ------
     IndexError
@@ -2128,22 +2189,22 @@ class CustomPluginTemplate:
     """
     API for accesing a the first structured data inferences
     (shortcut for `dataapi_specific_struct_data_inferences`, most of the cases will have a single struct data on a stream)
-    
+
     Parameters
     ----------
     how : str, optional
       Passed to `dataapi_specific_struct_data_inferences`
       The default value is None
-    
+
     raise_if_error : bool, optional
       Passed to `dataapi_specific_struct_data_inferences`
       The default value is False
-    
+
     Returns
     -------
     dict (if how == 'dict') or list (if how == 'list')
       returned by `dataapi_specific_struct_data_inferences`
-    
+
     Raises
     ------
     IndexError
@@ -2154,13 +2215,13 @@ class CustomPluginTemplate:
   def dataapi_struct_datas(self, full):
     """
     API for accessing all the structured datas in the 'INPUTS' list
-    
+
     Parameters
     ----------
     full : bool, optional
       Specifies whether the structured datas are returned full (the whole input dictionary) or not (just the value of 'STRUCT_DATA' in the input dictionary)
       The default value is False
-    
+
     Returns
     -------
     dict{int : dict} (if full==True) / dict{int : object} (if full==False)
@@ -2175,9 +2236,9 @@ class CustomPluginTemplate:
             'METADATA' : {Dictionary with current input metadata}
           }
         } if full==True
-    
+
         or
-    
+
         {
           0 : an_object
         } if full==False
@@ -2188,7 +2249,7 @@ class CustomPluginTemplate:
     """
     API for accessing just the structured datas inferences.
     Filters the output of `dataapi_inferences`, keeping only the AI engines that run on structured datas
-    
+
     Returns
     -------
     dict{str:list}
@@ -2197,15 +2258,15 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def datetime():
+  def datetime(self):
     """
     Proxy for the `datetime.datetime`
-    
+
     Returns
     -------
       datetime : datetime object
-      
-      
+
+
     Example
     -------
       ```
@@ -2217,20 +2278,20 @@ class CustomPluginTemplate:
   def datetime_to_str(self, dt, fmt):
     """
     Returns the string representation of current datetime or of a given datetime
-    
+
     Parameters
     ----------
     dt : datetime, optional
       a given datetime. The default is `None` and will generate string for current date.
     fmt : str, optional
       datetime format. The default is '%Y-%m-%d %H:%M:%S'.
-    
+
     Returns
     -------
     str
       the datetime in string format.
-      
-    
+
+
     Example
     -------
       ```
@@ -2246,22 +2307,22 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def deepcopy():
+  def deepcopy(self):
     """
     This method allows us to use the method deepcopy
     """
     raise NotImplementedError
 
   @property
-  def defaultdict():
+  def defaultdict(self):
     """
     provides access to defaultdict class
-    
-    
+
+
     Returns
     -------
       defaultdict : class
-      
+
     Example
     -------
       ```
@@ -2271,7 +2332,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def deque():
+  def deque(self):
     """
     provides access to deque class
     """
@@ -2280,18 +2341,18 @@ class CustomPluginTemplate:
   def dict_to_str(self, dct):
     """
     Transforms a dict into a pre-formatted strig without json package
-    
+
     Parameters
     ----------
     dct : dict
       The given dict that will be string formatted.
-    
+
     Returns
     -------
     str
       the nicely formatted.
-      
-      
+
+
     Example:
     -------
       ```
@@ -2301,9 +2362,22 @@ class CustomPluginTemplate:
         },
         'b' : 'abc'
       }
-      
+
       str_nice_dict = self.dict_to_str(dct=dct)
       ```
+    """
+    raise NotImplementedError
+
+  def diskapi_copy_file(self, src_path, dst_path):
+    """
+    Copy a file from src to dst if safe.
+    Parameters
+    ----------
+    src_path - string, path to the source file
+    dst_path - string, path to the destination file
+
+    Returns
+    -------
     """
     raise NotImplementedError
 
@@ -2331,7 +2405,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     dir_path - string, path to the directory to be deleted
-    
+
     Returns
     -------
     """
@@ -2343,7 +2417,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     file_path - string, path to the file to be deleted
-    
+
     Returns
     -------
     """
@@ -2364,6 +2438,21 @@ class CustomPluginTemplate:
   def diskapi_load_dataframe_from_output(self, filename, decompress, timestamps):
     """
     Shortcut to _diskapi_load_dataframe.
+    """
+    raise NotImplementedError
+
+  def diskapi_load_image(self, filename, folder, subdir):
+    """
+    Method for loading an image from local cache.
+    Parameters
+    ----------
+    filename - string, the name of the file
+    folder - string, the folder in local cache
+    subdir - string, the subfolder in local cache
+
+    Returns
+    -------
+    np.ndarray, the loaded image
     """
     raise NotImplementedError
 
@@ -2403,19 +2492,22 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
-  def diskapi_save_dataframe_to_data(self, df, filename, ignore_index, compress, mode, header, also_markdown, verbose, as_parquet):
+  def diskapi_save_dataframe_to_data(self, df, filename, ignore_index, compress, mode, header, also_markdown, verbose,
+                                     as_parquet):
     """
     Shortcut to _diskapi_save_dataframe.
     """
     raise NotImplementedError
 
-  def diskapi_save_dataframe_to_models(self, df, filename, ignore_index, compress, mode, header, also_markdown, verbose, as_parquet):
+  def diskapi_save_dataframe_to_models(self, df, filename, ignore_index, compress, mode, header, also_markdown, verbose,
+                                       as_parquet):
     """
     Shortcut to _diskapi_save_dataframe.
     """
     raise NotImplementedError
 
-  def diskapi_save_dataframe_to_output(self, df, filename, ignore_index, compress, mode, header, also_markdown, verbose, as_parquet):
+  def diskapi_save_dataframe_to_output(self, df, filename, ignore_index, compress, mode, header, also_markdown, verbose,
+                                       as_parquet):
     """
     Shortcut to _diskapi_save_dataframe.
     """
@@ -2430,7 +2522,7 @@ class CustomPluginTemplate:
     filename - string, the name of the file
     subdir - string, the subfolder in local cache
     extension - string, the extension of the file
-    
+
     Returns
     -------
     bool, True if the file was saved successfully, False otherwise
@@ -2446,7 +2538,7 @@ class CustomPluginTemplate:
     filename - string, the name of the file
     subdir - string, the subfolder in local cache
     extension - string, the extension of the file
-    
+
     Returns
     -------
     bool, True if the image was saved successfully, False otherwise
@@ -2496,7 +2588,7 @@ class CustomPluginTemplate:
     ----------
     zip_path - string, path to .zip file
     dir_path - string, path to directory into which to unzip the input .zip file
-    
+
     Returns
     -------
     string, the path to the unzipped directory
@@ -2509,21 +2601,22 @@ class CustomPluginTemplate:
     -----------
     handler: _, mandatory
       the handler returned by `diskapi_create_video_file`
-    
+
     frame: np.ndarray, mandatory
       the frame to be written in the video file.
       Must have the the same H,W specified in `diskapi_create_video_file`
     """
     raise NotImplementedError
 
-  def diskapi_zip_dir(self, dir_path, zip_path):
+  def diskapi_zip_dir(self, dir_path, zip_path, include_dir):
     """
     Zip the contents of an entire folder (with that folder included).
     Parameters
     ----------
     dir_path - string, path of directory to zip
     zip_path - string, path of the output zip file. If None, zip_path will be dir_path + ".zip"
-    
+    include_dir - bool, whether to include the directory itself in the zip file
+
     Returns
     -------
     string, the path to the zipped directory
@@ -2531,37 +2624,37 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def docker_branch():
+  def docker_branch(self):
     raise NotImplementedError
 
   def download(self, url, fn, target, kwargs):
     """
     Dowload wrapper that will download a given file from a url to `_local_cache/_output.
-    
-    
+
+
     TODO: fix to use specific endpoints configs not only from base file_system_manager
-    
+
     Parameters
     ----------
     url : str
       the url where to find the file.
-    
+
     fn : str
       local file name to be saved in `target` folder.
-    
+
     **kwargs : dict
       params for special upload procedures such as minio.
-    
-    
+
+
     Returns
     -------
     res : str
       path of the downloaded file, None if not found.
-    
-    
+
+
     Example
     -------
-    
+
       ```
       res = plugin.download('http://drive.google.com/file-url', 'test.bin')
       if res is not None:
@@ -2571,7 +2664,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def ds_consts():
+  def ds_consts(self):
     """
     Alias for DatasetBuilder class from E2 constants
     Provides access to constants used in DatasetBuilderMixin
@@ -2583,47 +2676,78 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def e2_addr():
+  def e2_addr(self):
     raise NotImplementedError
 
   @property
-  def e2_id():
+  def e2_id(self):
     raise NotImplementedError
 
   @property
-  def ee_addr():
+  def ee_addr(self):
     raise NotImplementedError
 
   @property
-  def ee_id():
+  def ee_id(self):
     raise NotImplementedError
 
   @property
-  def ee_ver():
+  def ee_ver(self):
     raise NotImplementedError
 
   @property
-  def eeid():
+  def eeid(self):
     raise NotImplementedError
 
   def end_timer(self, tmr_id, skip_first_timing, kwargs):
     raise NotImplementedError
 
-  def exec_code(self, str_b64code, debug, result_vars, self_var, modify):
+  def exec_code(self, str_b64code, debug, result_vars, self_var, modify, return_printed, timeout):
     raise NotImplementedError
 
   @property
-  def exec_timestamp():
+  def exec_timestamp(self):
     raise NotImplementedError
 
   def execute(self):
     """
     The main execution of a plugin instance.
     This public method should NOT be overwritten under any circumstance
-    
+
     Returns
     -------
     None.
+    """
+    raise NotImplementedError
+
+  def execute_code(self, code, local_vars, output_queue, print_queue):
+    raise NotImplementedError
+
+  def execute_code_with_timeout(self, code, timeout, local_vars):
+    raise NotImplementedError
+
+  def execute_remote_code(self, code, debug, timeout):
+    """
+    Execute code received remotely.
+    Parameters
+    ----------
+    code : str
+        the code to be executed
+    debug : bool, optional
+        if True, the code will be executed in debug mode. The default is False.
+    timeout : int, optional
+        the timeout for the code execution. The default is 10.
+    Returns
+    -------
+    dict: the result of the code execution
+    If the code execution was successful, the result will contain the following keys:
+    - result: the result of the code execution
+    - errors: the errors that occurred during the execution
+    - warnings: the warnings that occurred during the execution
+    - prints: the printed messages during the execution
+    - timestamp: the timestamp of the execution
+    If the code execution failed, the result will contain the following key:
+    - error: the error message
     """
     raise NotImplementedError
 
@@ -2635,7 +2759,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     inferences - list of inferences
-    
+
     Returns
     -------
     res - list of filtered inferences
@@ -2650,7 +2774,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     inferences - list of inferences
-    
+
     Returns
     -------
     res - list of filtered inferences indexes
@@ -2658,22 +2782,22 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def first_process_time():
+  def first_process_time(self):
     raise NotImplementedError
 
   @property
-  def float_cache():
+  def float_cache(self):
     """
     Can be used as a statefull store of the instance - eg `plugin.float_cache[key]` will return 0
-    if that key has never been initialized    
-    
-    
+    if that key has never been initialized
+
+
     Returns
     -------
     dict of floats
       Returns a default dict for float values initialized with zeros.
-    
-    
+
+
     Example
     -------
       ```
@@ -2688,15 +2812,15 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def geometry_methods():
+  def geometry_methods(self):
     """
     Proxy for geometry_methods from decentra_vision.geometry_methods
-        
+
     """
     raise NotImplementedError
 
   @property
-  def get_additional_keys():
+  def get_additional_keys(self):
     raise NotImplementedError
 
   def get_alerter(self, alerter):
@@ -2708,17 +2832,17 @@ class CustomPluginTemplate:
   def get_alive_time(self, as_str):
     """
     Returns plugin alive time
-    
+
     Parameters
     ----------
     as_str : bool, optional
       return as string. The default is False.
-    
+
     Returns
     -------
     result : float or str
-    
-    
+
+
     Example
     -------
       ```
@@ -2728,7 +2852,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_background_period_save():
+  def get_background_period_save(self):
     raise NotImplementedError
 
   def get_base64code(self):
@@ -2755,7 +2879,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_dataset_builder_params():
+  def get_dataset_builder_params(self):
     raise NotImplementedError
 
   def get_dataset_name(self):
@@ -2773,12 +2897,12 @@ class CustomPluginTemplate:
   def get_exception(self):
     """
     Returns last exception fullstack
-    
+
     Returns
     -------
     string
       The full multi-line stack.
-    
+
     Example:
       ```
       ```
@@ -2786,23 +2910,55 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_expand_value():
+  def get_expand_value(self):
+    raise NotImplementedError
+
+  def get_function_source_code(self, func):
+    """
+    Get the source code of a function and remove the indentation.
+
+    Parameters
+    ----------
+    func : Callable
+        The function.
+
+    Returns
+    -------
+    str
+        The source code of the function.
+    """
     raise NotImplementedError
 
   @property
-  def get_generic_path():
+  def get_generic_path(self):
+    raise NotImplementedError
+
+  def get_gpu_info(self, device_id):
+    """
+    Returns the GPU information
+
+    Parameters
+    ----------
+    device_id : int, optional
+      The device id. The default is 0.
+
+    Returns
+    -------
+    dict
+      The dictionary containing the GPU information
+    """
     raise NotImplementedError
 
   @property
-  def get_image_crop():
+  def get_image_crop(self):
     raise NotImplementedError
 
   @property
-  def get_image_save():
+  def get_image_save(self):
     raise NotImplementedError
 
   @property
-  def get_inference_mapping():
+  def get_inference_mapping(self):
     raise NotImplementedError
 
   def get_inference_track_tlbr(self, inference):
@@ -2813,7 +2969,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     inference - dict, inference dictionary
-    
+
     Returns
     -------
     res - list, list of 4 ints representing the TLBR that will be used for tracking
@@ -2830,14 +2986,14 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_label_file_template():
+  def get_label_file_template(self):
     raise NotImplementedError
 
   def get_label_template_lines(self):
     raise NotImplementedError
 
   @property
-  def get_label_template_type():
+  def get_label_template_type(self):
     raise NotImplementedError
 
   def get_last_payload_data(self):
@@ -2858,7 +3014,7 @@ class CustomPluginTemplate:
     - if this is None both zone1_point and zone2_point will be auto-generated
     start_point - list or None, list of 2 int/floats describing the starting point of the current object
     - if this is None, we will consider the first appearance of the current object as the start
-    
+
     Returns
     -------
       None if the object stayed in one zone
@@ -2877,13 +3033,13 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_mandatory_keys():
+  def get_mandatory_keys(self):
     raise NotImplementedError
 
   def get_models_file(self, fn):
     """
     Retruns path to models file
-    
+
     :param fn: string - file name
     """
     raise NotImplementedError
@@ -2896,10 +3052,11 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
-  def get_movement_relative_to_line(self, object_id, object_type, line, zone1_point, zone2_point, threshold, start_point):
+  def get_movement_relative_to_line(self, object_id, object_type, line, zone1_point, zone2_point, threshold,
+                                    start_point):
     """
     Returns the point direction movement relative to a line (if no points are given, they are automatically generation).
-    
+
     If the object moved from point A to point B (relative to a line) it returns a tuple with the order (PointA, PointB),
       otherwise it returns the tuple reversed (PointB, PointA)
     """
@@ -2924,7 +3081,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_object_max_saves():
+  def get_object_max_saves(self):
     raise NotImplementedError
 
   def get_output_folder(self):
@@ -2938,7 +3095,7 @@ class CustomPluginTemplate:
   def get_payload_after_exec(self):
     """
     Gets the payload and resets the internal _payload protected variable
-    
+
     Returns
     -------
     payload : GenericPayload
@@ -2947,7 +3104,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_plugin_default_dataset_builder_params():
+  def get_plugin_default_dataset_builder_params(self):
     """
     Method that will be used for the plugins where the dataset builder mixin will be enabled by default
     in order to facilitate the configuration of this mixin without ignoring the default ds builder params
@@ -2984,17 +3141,17 @@ class CustomPluginTemplate:
   def get_serving_processes(self):
     """
     Returns a list of used AI Engines within the current plugin instance based on given configuration
-    
+
     Parameters
     ----------
     None.
-    
+
     Returns
     -------
     result : list
       The list.
-    
-    
+
+
     Example
     -------
       ```
@@ -3007,7 +3164,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_stats_update_period():
+  def get_stats_update_period(self):
     raise NotImplementedError
 
   def get_stream_id(self):
@@ -3019,7 +3176,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     target
-    
+
     Returns
     -------
     """
@@ -3028,7 +3185,7 @@ class CustomPluginTemplate:
   def get_temperature_sensors(self, as_dict):
     """
     Returns the temperature of the machine if available
-    
+
     Returns
     -------
     dict
@@ -3042,7 +3199,20 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_total_max_saves():
+  def get_total_max_saves(self):
+    raise NotImplementedError
+
+  def get_tracking_type(self, inf):
+    """
+    Public method for accessing the tracking type of inference
+    Parameters
+    ----------
+    inf - dict, inference dictionary
+
+    Returns
+    -------
+    res - str, tracking type of the inference
+    """
     raise NotImplementedError
 
   def get_upstream_config(self):
@@ -3051,31 +3221,32 @@ class CustomPluginTemplate:
   def get_warnings(self):
     raise NotImplementedError
 
-  def get_witness_image(self, img, prepare_witness_kwargs, pre_process_witness_kwargs, draw_witness_image_kwargs, post_process_witness_kwargs):
+  def get_witness_image(self, img, prepare_witness_kwargs, pre_process_witness_kwargs, draw_witness_image_kwargs,
+                        post_process_witness_kwargs):
     """
     This is the wrapper function that should be called from any plug-in.
     It contains the channel reversing and the cv2 required numpy magic and it
     will call the `_draw_witness_image` plug-in specific method
-    
+
     definition of: _draw_witness_image(img_witness, **kwargs)
-    
+
     Parameters
     ----------
     img: np.ndarray
       The starting image. Can be None
-    
+
     prepare_witness_kwargs : dict
       anything we need in _witness_prepare (passed as **prepare_witness_kwargs)
-    
+
     pre_process_witness_kwargs : dict
       anything we need in _witness_pre_process (passed as **pre_process_witness_kwargs)
-    
+
     draw_witness_image_kwargs : dict
       anything we need in _draw_witness_image (passed as **draw_witness_image_kwargs)
-    
+
     post_process_witness_kwargs : dict
       anything we need in _witness_post_process (passed as **post_process_witness_kwargs)
-    
+
     Returns
     -------
     img_witness : ndarray
@@ -3106,18 +3277,85 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def get_zip_period():
+  def get_zip_period(self):
+    raise NotImplementedError
+
+  def git_clone(self, repo_url, repo_dir, target, user, token, pull_if_exists):
+    """
+    Clones a git repository or pulls if the repository already exists.
+
+    Parameters
+    ----------
+    repo_url : str
+      The git repository URL
+
+    token : str, optional
+      The token to be used for authentication. The default is None.
+
+    user: str, optional
+      The username to be used for authentication. The default is None.
+
+    token : str, optional
+      The token to be used for authentication. The default is None.
+
+    pull_if_exists : bool, optional
+      If True, the repository will be pulled if it already exists. The default is True.
+
+
+    Returns
+    -------
+    str
+      The local folder where the repository was cloned.
+    """
+    raise NotImplementedError
+
+  def git_get_last_commit_hash(self, repo_url, user, token):
+    """
+    Retrieves the latest commit hash from the remote git repository.
+
+    Parameters
+    ----------
+    repo_url : str
+      The git repository URL
+
+    user : str, optional
+      The username to be used for authentication. The default is None.
+
+    token : str, optional
+      The token to be used for authentication. The default is None.
+
+    Returns
+    -------
+    str
+      The latest commit hash from the remote repository.
+    """
+    raise NotImplementedError
+
+  def git_get_local_commit_hash(self, repo_dir):
+    """
+    Retrieves the latest commit hash from the local git repository.
+
+    Parameters
+    ----------
+    repo_dir : str
+      The local directory where the repository is cloned.
+
+    Returns
+    -------
+    str
+      The latest commit hash from the local repository.
+    """
     raise NotImplementedError
 
   @property
-  def global_shmem():
+  def global_shmem(self):
     raise NotImplementedError
 
   @property
-  def gmt():
+  def gmt(self):
     """
     Proxy for geometry_methods from decentra_vision.geometry_methods
-        
+
     """
     raise NotImplementedError
 
@@ -3127,18 +3365,40 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
+  def image_entropy(self, image):
+    """
+    Computes the entropy of an image.
+
+    Parameters
+    ----------
+    image : cv2 image | PIL image | np.ndarray
+        the input image.
+
+    Returns
+    -------
+    entropy: float
+        the entropy of the image
+    """
+    raise NotImplementedError
+
   def img_to_base64(self, img):
     """
     Transforms a numpy image into a base64 encoded image
-    
+
     Parameters
     ----------
     img : np.ndarray
         the input image
-    
+
     Returns
     -------
     str: base64 encoded image
+    """
+    raise NotImplementedError
+
+  def indent_strings(self, strings, indent):
+    """
+    Indents a string or a list of strings by a given number of spaces.
     """
     raise NotImplementedError
 
@@ -3146,56 +3406,56 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def initiator_addr():
+  def initiator_addr(self):
     raise NotImplementedError
 
   @property
-  def initiator_id():
+  def initiator_id(self):
     raise NotImplementedError
 
   @property
-  def input_queue_size():
+  def input_queue_size(self):
     """
     Returns the size of the input queue that is consumed iterativelly
     """
     raise NotImplementedError
 
   @property
-  def inputs():
+  def inputs(self):
     raise NotImplementedError
 
   @property
-  def inspect():
+  def inspect(self):
     """
     Provides access to `inspect` package
-    
+
     Returns
     -------
-    `inspect` package      
+    `inspect` package
     """
     raise NotImplementedError
 
   @property
-  def instance_hash():
+  def instance_hash(self):
     raise NotImplementedError
 
   @property
-  def instance_relative_path():
+  def instance_relative_path(self):
     raise NotImplementedError
 
   @property
-  def int_cache():
+  def int_cache(self):
     """
     can be used as a statefull store of the instance - eg `plugin.int_cache[key]` will return 0
-    if that key has never been initialized    
-    
-    
+    if that key has never been initialized
+
+
     Returns
     -------
     dict of ints
       Returns a default dict for int values initialized with zeros.
-    
-    
+
+
     Example
     -------
       ```
@@ -3216,7 +3476,7 @@ class CustomPluginTemplate:
     interval : list - list of 2 strings representing the start and end of the interval in format HH:MM
     weekday : int or None - the weekday index starting from 0
     timezone : str or None - the timezone to convert to
-    
+
     Returns
     -------
     res - list of 1 or 2 tuples representing the weekday, start and end of the interval in local time.
@@ -3224,23 +3484,23 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def is_data_limited_and_has_frame():
+  def is_data_limited_and_has_frame(self):
     raise NotImplementedError
 
   @property
-  def is_debug_mode():
+  def is_debug_mode(self):
     raise NotImplementedError
 
   @property
-  def is_demo_mode():
+  def is_demo_mode(self):
     raise NotImplementedError
 
   @property
-  def is_last_data():
+  def is_last_data(self):
     raise NotImplementedError
 
   @property
-  def is_limited_data_finished():
+  def is_limited_data_finished(self):
     raise NotImplementedError
 
   def is_path_safe(self, path):
@@ -3249,7 +3509,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     path - string, path to be checked
-    
+
     Returns
     -------
     bool, True if the path is safe, False otherwise
@@ -3257,23 +3517,28 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def is_plugin_stopped():
+  def is_plugin_stopped(self):
     raise NotImplementedError
 
   @property
-  def is_plugin_temporary_stopped():
+  def is_plugin_temporary_stopped(self):
     raise NotImplementedError
 
   @property
-  def is_process_postponed():
+  def is_process_postponed(self):
     raise NotImplementedError
 
   @property
-  def is_queue_overflown():
+  def is_queue_overflown(self):
     raise NotImplementedError
 
   @property
-  def is_supervisor_node():
+  def is_supervisor_node(self):
+    """
+    Returns `True` if the plugin is running on the supervisor node and `False` otherwise.
+    Warning: This property is not safe/trusted while the plugin is initializing due to the
+    fact that the supervisor node may not be set yet within the NET_MON plugin.
+    """
     raise NotImplementedError
 
   def is_valid_datapoint(self, data):
@@ -3284,7 +3549,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     data
-    
+
     Returns
     -------
     True if valid, False otherwise
@@ -3292,24 +3557,24 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def iteration():
+  def iteration(self):
     raise NotImplementedError
 
   @property
-  def json():
+  def json(self):
     """
     Provides access to `json` package
-    
+
     Returns
     -------
-    `json` package      
+    `json` package
     """
     raise NotImplementedError
 
   def json_dumps(self, dct, replace_nan, kwargs):
     """
     Alias for `safe_json_dumps` for backward compatibility
-        
+
     """
     raise NotImplementedError
 
@@ -3320,74 +3585,74 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def last_payload_time():
+  def last_payload_time(self):
     raise NotImplementedError
 
   @property
-  def last_payload_time_str():
+  def last_payload_time_str(self):
     raise NotImplementedError
 
   @property
-  def last_process_time():
+  def last_process_time(self):
     raise NotImplementedError
 
   @property
-  def limited_data_counter():
+  def limited_data_counter(self):
     raise NotImplementedError
 
   @property
-  def limited_data_crt_time():
+  def limited_data_crt_time(self):
     raise NotImplementedError
 
   @property
-  def limited_data_duration():
+  def limited_data_duration(self):
     raise NotImplementedError
 
   @property
-  def limited_data_finished_flag():
+  def limited_data_finished_flag(self):
     raise NotImplementedError
 
   @property
-  def limited_data_fps():
+  def limited_data_fps(self):
     raise NotImplementedError
 
   @property
-  def limited_data_frame_count():
+  def limited_data_frame_count(self):
     raise NotImplementedError
 
   @property
-  def limited_data_frame_current():
+  def limited_data_frame_current(self):
     raise NotImplementedError
 
   @property
-  def limited_data_process_fps():
+  def limited_data_process_fps(self):
     raise NotImplementedError
 
   @property
-  def limited_data_progress():
+  def limited_data_progress(self):
     raise NotImplementedError
 
   @property
-  def limited_data_remaining_time():
+  def limited_data_remaining_time(self):
     raise NotImplementedError
 
   @property
-  def limited_data_seconds_elapsed():
+  def limited_data_seconds_elapsed(self):
     raise NotImplementedError
 
   @property
-  def limited_data_total_counter():
+  def limited_data_total_counter(self):
     raise NotImplementedError
 
   def load_config_file(self, fn):
     """
     Loads a json/yaml config file and returns the config dictionary
-    
+
     Parameters
     ----------
     fn : str
       The filename of the config file
-    
+
     Returns
     -------
     dict
@@ -3396,18 +3661,18 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def local_data_cache():
+  def local_data_cache(self):
     """
     Can be used as a statefull store of the instance - eg `plugin.state[key]` will return `None`
-    if that key has never been initialized    
-    
-    
+    if that key has never been initialized
+
+
     Returns
     -------
     dict
       a default dict.
-    
-    
+
+
     Example
     -------
       ```
@@ -3422,7 +3687,7 @@ class CustomPluginTemplate:
   def lock_resource(self, str_res):
     """
     Locks a resource given a string. Alias to `self.log.lock_resource`
-    
+
     Parameters
     ----------
     str_res : str
@@ -3431,14 +3696,48 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def loop_paused():
+  def loop_paused(self):
     raise NotImplementedError
 
   @property
-  def loop_timings():
+  def loop_timings(self):
     raise NotImplementedError
 
   def mainthread_wait_for_plugin(self):
+    raise NotImplementedError
+
+  def managed_lock_resource(self, str_res, condition):
+    """
+    Managed lock resource. Will lock and unlock resource automatically.
+    To be used in a with statement.
+    The condition parameter allows users to disable the lock if desired.
+
+    Parameters
+    ----------
+    str_res : str
+      The resource to lock.
+    condition : bool, optional
+      If False the lock will not be acquired. The default is True.
+
+    Returns
+    -------
+    LockResource
+      The lock resource object.
+
+    Example
+    -------
+    ```
+    with self.managed_lock_resource('my_resource'):
+      # do something
+    ```
+
+    ```
+    # will control if the following operation is locked or not based on this flag
+    locking = False
+    with self.managed_lock_resource('my_resource', condition=locking):
+      # do something
+    ```
+    """
     raise NotImplementedError
 
   def maybe_archive_upload_last_files(self):
@@ -3452,29 +3751,29 @@ class CustomPluginTemplate:
   def maybe_download(self, url, fn, target, kwargs):
     """
     Enables http/htps/minio download capabilities.
-    
-    
+
+
     Parameters
     ----------
     url : str or list
       The URI or URIs to be used for downloads
-      
+
     fn: str of list
       The filename or filenames to be locally used
-      
+
     target: str
       Can be `output`, `models` or `data`. Default is `output`
-    
+
     kwargs: dict
       if url starts with 'minio:' the function will retrieve minio conn
              params from **kwargs and use minio_download (if needed or forced)
-    
+
     Returns
     -------
       files, messages : list, list
         all the local files and result messages from download process
-      
-      
+
+
     Example
     -------
     """
@@ -3499,21 +3798,24 @@ class CustomPluginTemplate:
     """
     This method is called by the plugin manager when the instance config has changed.
     IMPORTANT: it runs on the same thread as the BusinessManager so it should not block!
-    
+
     For the particular case when only INSTANCE_COMMAND is modified then the plugin should not reset its state
     """
     raise NotImplementedError
 
-  @property
-  def modified_by_addr():
+  def method_to_base64(self, func, verbose):
     raise NotImplementedError
 
   @property
-  def modified_by_id():
+  def modified_by_addr(self):
     raise NotImplementedError
 
   @property
-  def n_plugin_exceptions():
+  def modified_by_id(self):
+    raise NotImplementedError
+
+  @property
+  def n_plugin_exceptions(self):
     raise NotImplementedError
 
   def need_refresh(self):
@@ -3522,14 +3824,14 @@ class CustomPluginTemplate:
   def needs_update(self, dct_newdict, except_keys):
     """
     Check if we need to perform a config update: if a new dict is different from current config_data
-    
+
     Parameters
     ----------
     dct_newdict : dict
         The new dict to be checked
     except_keys : list
         list of keys to be excluded from check
-    
+
     Returns
     -------
     bool, list
@@ -3538,41 +3840,41 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def net_mon():
+  def net_mon(self):
     raise NotImplementedError
 
   @property
-  def netmon():
+  def netmon(self):
     raise NotImplementedError
 
   @property
-  def network_monitor():
+  def network_monitor(self):
     raise NotImplementedError
 
   @property
-  def node_addr():
+  def node_addr(self):
     raise NotImplementedError
 
   @property
-  def node_id():
+  def node_id(self):
     raise NotImplementedError
 
   def normalize_text(self, text):
     """
     Uses unidecode to normalize text. Requires unidecode package
-    
+
     Parameters
     ----------
     text : str
       the proposed text with diacritics and so on.
-    
+
     Returns
     -------
     text : str
       decoded text if unidecode was avail
-    
-    
-    
+
+
+
     Example
     -------
       ```
@@ -3585,23 +3887,23 @@ class CustomPluginTemplate:
   def now_in_schedule(self, schedule, weekdays):
     """
     Check if the current time is in a active schedule given the schedule data
-    
-    
+
+
     Parameters
     ----------
     schedule : dict or list
       the schedule.
-            
+
     weekdays : TYPE, optional
       list of weekdays. The default is None.
-    
-    
+
+
     Returns
     -------
     bool
       Returns true if time in schedule.
-      
-    
+
+
     Example
     -------
       ```
@@ -3618,22 +3920,22 @@ class CustomPluginTemplate:
     ----------
     nice_print
     short
-    
+
     Returns
     -------
     """
     raise NotImplementedError
 
   @property
-  def np():
+  def np(self):
     """
     Provides access to numerical processing library
-    
-    
+
+
     Returns
     -------
     np : Numpy package
-      
+
     Example:
       ```
       np_zeros = self.np.zeros(shape=(10,10))
@@ -3642,18 +3944,18 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def obj_cache():
+  def obj_cache(self):
     """
     Can be used as a statefull store of the instance - eg `plugin.obj_cache[key]` will return `None`
-    if that key has never been initialized    
-    
-    
+    if that key has never been initialized
+
+
     Returns
     -------
     dict
       a default dict for objects.
-    
-    
+
+
     Example
     -------
       ```
@@ -3661,14 +3963,14 @@ class CustomPluginTemplate:
       if obj is None:
         obj = ClassObj1()
         self.obj_cache['Obj1'] = obj
-      ```      
+      ```
     """
     raise NotImplementedError
 
   def on_close(self):
     """
     Called at shutdown time in the plugin thread.
-    
+
     Returns
     -------
     None.
@@ -3678,12 +3980,12 @@ class CustomPluginTemplate:
   def on_command(self, data, kwargs):
     """
     Called when the instance receives new INSTANCE_COMMAND
-    
+
     Parameters
     ----------
     data : any
       object, string, etc.
-    
+
     Returns
     -------
     None.
@@ -3693,7 +3995,7 @@ class CustomPluginTemplate:
   def on_init(self):
     """
     Called at init time in the plugin thread.
-    
+
     Returns
     -------
     None.
@@ -3701,13 +4003,13 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def os_environ():
+  def os_environ(self):
     """
     Returns a copy of the current environment variables based on `os.environ`.
-    Important: Changing a value in the returned dictionary does NOT change 
+    Important: Changing a value in the returned dictionary does NOT change
                the value of the actual environment variable.
-    
-    
+
+
     Returns
     -------
     _type_
@@ -3716,16 +4018,16 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def os_path():
+  def os_path(self):
     """
     Proxy for `os.path` package
-    
-    
+
+
     Returns
     -------
       package
-      
-      
+
+
     Example
     -------
       ```
@@ -3736,7 +4038,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def outside_working_hours():
+  def outside_working_hours(self):
     raise NotImplementedError
 
   def parse_generic_path(self, data):
@@ -3745,22 +4047,22 @@ class CustomPluginTemplate:
     Parameters
     ----------
     data - dictionary of data from both model serving and payload
-    
+
     Returns
     -------
     """
     raise NotImplementedError
 
   @property
-  def partial():
+  def partial(self):
     """
     Provides access to `functools.partial` method
-    
+
     Returns
     -------
       method
-    
-    
+
+
     Example
     -------
       ```
@@ -3785,21 +4087,21 @@ class CustomPluginTemplate:
     """
     This method allows the addition of data directly in the next outgoing payload
     from the current biz plugin instance
-    
+
     Parameters
     ----------
     key : str
       the name of the key
     val : any
       A value that will be json-ified.
-    
+
     Returns
     -------
     None.
-    
-    
+
+
     Example:
-    -------      
+    -------
       ```
       bool_is_alert = ...
       plugin.payload_set_value("is_special_alert", bool_is_alert)
@@ -3808,19 +4110,19 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def pd():
+  def pd(self):
     """
     Provides access to pandas library
-    
+
     Returns
     -------
       package
-      
-      
+
+
     Example
     -------
       ```
-      df = self.pd.DataFrame({'a' : [1,2,3], 'b':[0,0,1]})      
+      df = self.pd.DataFrame({'a' : [1,2,3], 'b':[0,0,1]})
       ```
     """
     raise NotImplementedError
@@ -3847,8 +4149,8 @@ class CustomPluginTemplate:
     """
     Generates a `default_image` that will be embedded in the plugin response containing
     a time-series plot
-    
-    
+
+
     Parameters
     ----------
     vals : list[float]
@@ -3857,13 +4159,13 @@ class CustomPluginTemplate:
       prediction data. The default is None.
     title : str, optional
       a title for our plot. The default is ''.
-    
+
     Returns
     -------
     msg : str
       a error or success `'Plot ok'` message.
-    
-    
+
+
     Example
     -------
       ```
@@ -3877,43 +4179,43 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def plugin_id():
+  def plugin_id(self):
     """
     Returns the instance id of the current plugin.
     WARNING: This should be overwridden in the plugin class to return the correct id.
-    
+
     Returns
     -------
     str
       the instance id.
-      
+
     Example
     -------
-      ```      
+      ```
       instance_id = self.instance_id
-      ```    
+      ```
     """
     raise NotImplementedError
 
   def plugin_loop(self):
     """
     This is BusinessPlugin main execution loop (plugin loop)
-    
+
       - plugin.outside_working_hours and plugin.is_process_postponed need to be handled also
       - main thread execution actually is wrapped in the "execute"
-      
+
       stop precedence:
       PROCESS_DELAY > FORCE_PAUSE > WORKING_HOURS
-      
+
     """
     raise NotImplementedError
 
   @property
-  def plugin_output_path():
+  def plugin_output_path(self):
     raise NotImplementedError
 
   @property
-  def plugins_shmem():
+  def plugins_shmem(self):
     raise NotImplementedError
 
   def poseapi_extract_coords_and_scores(self, tlbr, kpt_with_conf, to_flip, inverse_keypoint_coords):
@@ -3928,7 +4230,7 @@ class CustomPluginTemplate:
     inverse_keypoint_coords : bool,
       if True the first value of the coordinates will be scaled by the width and the second by the height
       if False the first value of the coordinates will be scaled by the height and the second by the width
-    
+
     Returns
     -------
     keypoint_coords : np.ndarray (N, 2) coordinates of the keypoints
@@ -3960,7 +4262,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     tuple : color of the keypoint
@@ -3973,7 +4275,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     tuple : color of the keypoint
@@ -4010,7 +4312,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is an arm keypoint
@@ -4023,7 +4325,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is an extremity keypoint
@@ -4036,7 +4338,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is a face keypoint
@@ -4049,7 +4351,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is an insertion keypoint
@@ -4062,7 +4364,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is left sided
@@ -4075,7 +4377,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is a leg keypoint
@@ -4088,7 +4390,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is a lower body keypoint
@@ -4101,7 +4403,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is right sided
@@ -4114,7 +4416,7 @@ class CustomPluginTemplate:
     Parameters
     ----------
     idx : int, index of the keypoint
-    
+
     Returns
     -------
     bool : whether the keypoint is an upper body keypoint
@@ -4151,7 +4453,7 @@ class CustomPluginTemplate:
   def process(self):
     """
     The main code of the plugin (loop iteration code). Called at each iteration of the plugin loop.
-    
+
     Returns
     -------
     Payload.
@@ -4162,15 +4464,15 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def pyplot():
+  def pyplot(self):
     """
     Returns the matplotlib.pyplot package
-    
+
     Returns
     -------
     plt : package
       the matplotlib.pyplot package.
-      
+
     Example
     -------
       ```
@@ -4183,17 +4485,17 @@ class CustomPluginTemplate:
   def pyplot_to_np(self, plt):
     """
     Converts a pyplot image to numpy array
-    
+
     Parameters
     ----------
     plt : pyplot
       the pyplot image.
-    
+
     Returns
     -------
     np.ndarray
       the numpy array image.
-      
+
     Example
     -------
       ```
@@ -4220,10 +4522,10 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def re():
+  def re(self):
     """
     Provides access to `re` package
-    
+
     Returns
     -------
     `re` package
@@ -4231,17 +4533,17 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def ready_cfg_handlers():
+  def ready_cfg_handlers(self):
     raise NotImplementedError
 
   @property
-  def requests():
+  def requests(self):
     """
     Provides access to `requests` package
-    
+
     Returns
     -------
-    `requests` package      
+    `requests` package
     """
     raise NotImplementedError
 
@@ -4270,21 +4572,21 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def runs_in_docker():
+  def runs_in_docker(self):
     raise NotImplementedError
 
   def safe_json_dumps(self, dct, replace_nan, kwargs):
     """
     Safe json dumps that can handle numpy arrays and so on
-    
+
     Parameters
     ----------
     dct : dict
         The dict to be dumped
-        
+
     replace_nan : bool, optional
         Replaces nan values with None. The default is False.
-    
+
     Returns
     -------
     str
@@ -4295,12 +4597,12 @@ class CustomPluginTemplate:
   def sanitize_name(self, name):
     """
     Returns a sanitized name that can be used as a variable name
-    
+
     Parameters
     ----------
     name : str
         the proposed name
-    
+
     Returns
     -------
     str
@@ -4312,12 +4614,12 @@ class CustomPluginTemplate:
     """
     Method that allows saving the local config in local cache in order to update a
     specific set of given keys that might have been modified during runtime
-    
+
     Parameters
     ----------
     keys : list
       List of keys to be saved.
-    
+
     Returns
     -------
     None.
@@ -4325,7 +4627,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def save_path():
+  def save_path(self):
     raise NotImplementedError
 
   def search_id(self, id, alerter):
@@ -4334,13 +4636,13 @@ class CustomPluginTemplate:
   def set_default_image(self, img):
     """
     Sets given image as witness for current payload
-    
+
     Parameters
     ----------
     img : np.ndarray
       the RGB image.
-    
-    
+
+
     Example
     -------
       ```
@@ -4359,18 +4661,18 @@ class CustomPluginTemplate:
   def set_text_witness(self, text):
     """
     Creates a simple empty witness with given centered text.
-    
+
     Parameters
     ----------
     text : str
-      The text that will be in the output. If the text is bigger than the screen 
+      The text that will be in the output. If the text is bigger than the screen
       it will be displayed on multiple lines
-    
+
     Returns
     -------
     None.
-    
-    
+
+
     Example
     -------
       ```
@@ -4382,13 +4684,13 @@ class CustomPluginTemplate:
   def set_witness_image(self, img):
     """
     Sets given image as witness for current payload
-    
+
     Parameters
     ----------
     img : np.ndarray
       the RGB image.
-    
-    
+
+
     Example
     -------
       ```
@@ -4402,11 +4704,11 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def shapely_geometry():
+  def shapely_geometry(self):
     """
     Provides access to geometry library from shapely package
-    
-    
+
+
     Returns
     -------
     geometry : TYPE
@@ -4414,16 +4716,30 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
+  def shorten_str(self, s, max_len):
+    """
+    Shortens a string to a given max length.
+    Parameters
+    ----------
+    s : str | list | dict
+    max_len : int, optional
+
+    Returns
+    -------
+    str | list | dict : the shortened string
+    """
+    raise NotImplementedError
+
   def should_progress(self, progress, step):
     """
     Helper function for progress intervals from 5 to 5%. Returns true if param progress hits the value
     else false. Once a `True` is returned it will never again be returned
-    
+
     Parameters
     ----------
     progress : float
       percentage 0-100.
-    
+
     Returns
     -------
     result : bool
@@ -4441,15 +4757,15 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def sns():
+  def sns(self):
     """
     Provides access to the seaborn library
-    
+
     Returns
     -------
     sns : package
       the Seaborn package.
-    
+
     Example
     -------
       ```
@@ -4463,7 +4779,7 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def start_time():
+  def start_time(self):
     raise NotImplementedError
 
   def start_timer(self, tmr_id):
@@ -4473,12 +4789,12 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def state():
+  def state(self):
     """
     Alias for `plugin.local_data_cache`
     can be used as a statefull store of the instance - eg `plugin.state[key]` will return `None`
-    if that key has never been initialized     
-    
+    if that key has never been initialized
+
     Returns
     -------
     dict
@@ -4486,10 +4802,31 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
+  def state_machine_api_callback_always_false(self):
+    raise NotImplementedError
+
+  def state_machine_api_callback_always_true(self):
+    raise NotImplementedError
+
+  def state_machine_api_callback_do_nothing(self):
+    raise NotImplementedError
+
+  def state_machine_api_destroy(self, name):
+    raise NotImplementedError
+
+  def state_machine_api_get_current_state(self, name):
+    raise NotImplementedError
+
+  def state_machine_api_init(self, name, state_machine_transitions, initial_state, on_successful_step_callback):
+    raise NotImplementedError
+
+  def state_machine_api_step(self, name):
+    raise NotImplementedError
+
   def step(self):
     """
     The main code of the plugin (loop iteration code). Called at each iteration of the plugin loop.
-    
+
     Returns
     -------
     None.
@@ -4503,18 +4840,18 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def str_cache():
+  def str_cache(self):
     """
     Can be used as a statefull store of the instance - eg `plugin.str_cache[key]` will return empty string
-    if that key has never been initialized    
-    
-    
+    if that key has never been initialized
+
+
     Returns
     -------
     defaultdict
       a defaultdict with empty strings.
-    
-    
+
+
     Example
     -------
      ```
@@ -4525,22 +4862,7 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
-  def str_to_base64(self, txt, compress):
-    """
-    Transforms a string into a base64 encoded string
-    
-    Parameters
-    ----------
-    txt : str
-        the input string
-        
-    compress : bool, optional
-        if True, the string will be compressed before encoding. The default is False.
-    
-    Returns
-    -------
-    str: base64 encoded string
-    """
+  def str_to_base64(self, str, verbose, compress):
     raise NotImplementedError
 
   def str_to_datetime(self, str_time, weekday):
@@ -4550,7 +4872,7 @@ class CustomPluginTemplate:
     ----------
     str_time : str - time in format HH:MM
     weekday : int or None - the weekday index starting from 0
-    
+
     Returns
     -------
     datetime object with the time set to the provided one
@@ -4558,41 +4880,59 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def str_unique_identification():
+  def str_unique_identification(self):
+    raise NotImplementedError
+
+  def string_to_base64(self, txt, compress):
+    """
+    Transforms a string into a base64 encoded string
+
+    Parameters
+    ----------
+    txt : str
+        the input string
+
+    compress : bool, optional
+        if True, the string will be compressed before encoding. The default is False.
+
+    Returns
+    -------
+    str: base64 encoded string
+    """
     raise NotImplementedError
 
   @property
-  def system_version():
+  def system_version(self):
     raise NotImplementedError
 
   @property
-  def system_versions():
+  def system_versions(self):
     raise NotImplementedError
 
   @property
-  def testing_scorer_config():
+  def testing_scorer_config(self):
     raise NotImplementedError
 
   @property
-  def testing_tester_config():
+  def testing_tester_config(self):
     raise NotImplementedError
 
   @property
-  def testing_tester_name():
+  def testing_tester_name(self):
     raise NotImplementedError
 
   @property
-  def testing_tester_y_true_src():
+  def testing_tester_y_true_src(self):
     raise NotImplementedError
 
   @property
-  def testing_upload_result():
+  def testing_upload_result(self):
     raise NotImplementedError
 
   def threadapi_base64_code_map(self, base64_code, lst_data, n_threads):
     """
     Run a custom code method in parallel using ThreadPoolExecutor.map
-    
+
     Parameters
     ----------
     base64_code : str
@@ -4602,7 +4942,7 @@ class CustomPluginTemplate:
     n_threads : int, optional
         The number of threads to use, by default 1
         If this number is higher than 1/4 of available CPUs, it will be set to 1/4 of available CPUs
-    
+
     Returns
     -------
     list
@@ -4613,7 +4953,7 @@ class CustomPluginTemplate:
   def threadapi_map(self, func, lst_data, n_threads):
     """
     Run a function in parallel using ThreadPoolExecutor.map
-    
+
     Parameters
     ----------
     func : callable
@@ -4623,7 +4963,7 @@ class CustomPluginTemplate:
     n_threads : int, optional
         The number of threads to use, by default 1
         If this number is higher than 1/4 of available CPUs, it will be set to 1/4 of available CPUs
-    
+
     Returns
     -------
     list
@@ -4634,7 +4974,7 @@ class CustomPluginTemplate:
   def threadapi_run(self, func, n_threads):
     """
     Run a function in parallel using threads
-    
+
     Parameters
     ----------
     func : callable
@@ -4643,7 +4983,7 @@ class CustomPluginTemplate:
     n_threads : int
         The number of threads to use, by default 1
         If this number is higher than 1/4 of available CPUs, it will be set to 1/4 of available CPUs
-    
+
     Returns
     -------
     list
@@ -4654,29 +4994,29 @@ class CustomPluginTemplate:
   def time(self):
     """
     Returns current timestamp
-    
+
     Returns
     -------
     time : timestamp (float)
       current timestamp.
-      
-      
+
+
     Example
     -------
       ```
       t1 = self.time()
       ... # do some stuff
       elapsed = self.time() - t1
-      ```    
+      ```
     """
     raise NotImplementedError
 
   @property
-  def time_alive():
+  def time_alive(self):
     raise NotImplementedError
 
   @property
-  def time_from_last_process():
+  def time_from_last_process(self):
     raise NotImplementedError
 
   def time_in_interval_hours(self, ts, start, end):
@@ -4687,7 +5027,7 @@ class CustomPluginTemplate:
     ts: datetime timestamp
     start = 'hh:mm'
     end = 'hh:mm'
-    
+
     Returns
     -------
     """
@@ -4696,26 +5036,26 @@ class CustomPluginTemplate:
   def time_in_schedule(self, ts, schedule, weekdays):
     """
     Check if a given timestamp `ts` is in a active schedule given the schedule data
-    
-    
+
+
     Parameters
     ----------
     ts : float
       the given timestamp.
-      
+
     schedule : dict or list
       the schedule.
-            
+
     weekdays : TYPE, optional
       list of weekdays. The default is None.
-    
-    
+
+
     Returns
     -------
     bool
       Returns true if time in schedule.
-      
-    
+
+
     Example
     -------
       ```
@@ -4728,21 +5068,21 @@ class CustomPluginTemplate:
   def time_to_str(self, ts, fmt):
     """
     Alias for `timestamp_to_str`
-    
-    
+
+
     Parameters
     ----------
     ts : float, optional
       The given time. The default is None.
     fmt : str, optional
       The time format. The default is '%Y-%m-%d %H:%M:%S'.
-    
+
     Returns
     -------
     str
       the string formatted time.
-      
-      
+
+
     Example
     -------
       ```
@@ -4755,13 +5095,14 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def time_with_no_data():
+  def time_with_no_data(self):
     raise NotImplementedError
 
   def timebins_append(self, value, key):
     raise NotImplementedError
 
-  def timebins_create_bin(self, key, weekday_names, report_default_empty_value, per_day_of_week_timeslot, warmup_anomaly_models):
+  def timebins_create_bin(self, key, weekday_names, report_default_empty_value, per_day_of_week_timeslot,
+                          warmup_anomaly_models):
     raise NotImplementedError
 
   def timebins_get_bin(self, key):
@@ -4791,19 +5132,19 @@ class CustomPluginTemplate:
   def timedelta(self, kwargs):
     """
     Alias of `datetime.timedelta`
-    
-    
+
+
     Parameters
     ----------
-    **kwargs : 
+    **kwargs :
       can contain days, seconds, microseconds, milliseconds, minutes, hours, weeks.
-    
-    
+
+
     Returns
     -------
     timedelta object
-    
-    
+
+
     Example
     -------
       ```
@@ -4818,25 +5159,25 @@ class CustomPluginTemplate:
   def timestamp_to_str(self, ts, fmt):
     """
     Returns the string representation of current time or of a given timestamp
-    
-    
+
+
     Parameters
     ----------
     ts : float, optional
-      timestamp. The default is None and will generate string for current timestamp. 
+      timestamp. The default is None and will generate string for current timestamp.
     fmt : str, optional
       format. The default is '%Y-%m-%d %H:%M:%S'.
-    
-    
+
+
     Returns
     -------
     str
       the timestamp in string format.
-      
-    
+
+
     Example
     -------
-        
+
       ```
       t1 = self.time()
       ...
@@ -4847,13 +5188,31 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def total_payload_count():
+  def timezone(self):
+    """
+    Proxy for the `datetime.timezone`
+
+    Returns
+    -------
+      timezone : timezone object
+
+
+    Example
+    -------
+      ```
+      utc = self.timezone.utc
+      ```
+    """
+    raise NotImplementedError
+
+  @property
+  def total_payload_count(self):
     raise NotImplementedError
 
   def trace_info(self):
     """
     Returns a multi-line string with the last exception stacktrace (if any)
-    
+
     Returns
     -------
     str.
@@ -4867,7 +5226,7 @@ class CustomPluginTemplate:
     ----------
     object_id - int
     object_type - str
-    
+
     Returns
     -------
     res - list, list of points that signify the provided object's centroid on each appearance.
@@ -4883,7 +5242,7 @@ class CustomPluginTemplate:
     object_id - int
     object_type - str
     class_name - str or list
-    
+
     Returns
     -------
     res - int, how many times the object was a certain class.
@@ -4900,7 +5259,7 @@ class CustomPluginTemplate:
     object_id - int
     object_type - str
     class_name - str or list
-    
+
     Returns
     -------
     res - float, ratio of class appearances.
@@ -4914,7 +5273,7 @@ class CustomPluginTemplate:
     ----------
     object_id - int
     object_type - str
-    
+
     Returns
     -------
     res - list, list of intervals that the specified object was in the target zone.
@@ -4928,7 +5287,7 @@ class CustomPluginTemplate:
     ----------
     object_id - int
     object_type - str
-    
+
     Returns
     -------
     res - int, total number of seconds spent in the target zone
@@ -4942,7 +5301,7 @@ class CustomPluginTemplate:
     ----------
     object_id - int
     object_type - str
-    
+
     Returns
     -------
     res - list, last seen rectangle of the specified object in format [top, left, bottom, right]
@@ -4963,10 +5322,25 @@ class CustomPluginTemplate:
     method - str, method used for computing the distance
     - if 'l1' this will return the 'l1' distance
     - if 'l2' this will return the 'l2' distance
-    
+
     Returns
     -------
     res - int or float, max distance the specified object was from its original position
+    """
+    raise NotImplementedError
+
+  def trackapi_most_seen_type(self, object_id, object_type):
+    """
+    Public method for accessing the most seen type of specified object.
+    If meta-types are not used than this will just provide the object's type.
+    Parameters
+    ----------
+    object_id - int
+    object_type - str
+
+    Returns
+    -------
+    res - str, most seen type of the specified object
     """
     raise NotImplementedError
 
@@ -4979,7 +5353,7 @@ class CustomPluginTemplate:
     object_id - int
     object_type - str
     class_name - str or list
-    
+
     Returns
     -------
     res - int, how many times the object was not a certain class.
@@ -4993,7 +5367,7 @@ class CustomPluginTemplate:
     ----------
     object_id - int
     object_type - str
-    
+
     Returns
     -------
     res - list, centroid of the current object on its first appearance.
@@ -5008,7 +5382,7 @@ class CustomPluginTemplate:
     ----------
     object_id - int
     object_type - str
-    
+
     Returns
     -------
     res - dict, dictionary providing the number of times the current object appeared as a certain class.
@@ -5023,7 +5397,7 @@ class CustomPluginTemplate:
     ----------
     object_id - int
     object_type - str
-    
+
     Returns
     -------
     res - deque, list of the type that the current object was at each appearance
@@ -5031,13 +5405,13 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def unique_identification():
+  def unique_identification(self):
     raise NotImplementedError
 
   def unlock_resource(self, str_res):
     """
     Unlocks a resource given a string. Alias to `self.log.unlock_resource`
-    
+
     Parameters
     ----------
     str_res : str
@@ -5072,61 +5446,65 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def upstream_inputs_deque():
+  def upstream_inputs_deque(self):
     raise NotImplementedError
 
   @property
-  def urlparse():
+  def urlparse(self):
     """
     Provides access to `urlparse` method from `urllib.parse` package
-    
+
     Returns
     -------
-    `urlparse` method      
+    `urlparse` method
     """
     raise NotImplementedError
 
   @property
-  def urlunparse():
+  def urlunparse(self):
     """
     Provides access to `urlunparse` method from `urllib.parse` package
-    
+
     Returns
     -------
-    `urlunparse` method      
+    `urlunparse` method
     """
     raise NotImplementedError
 
   @property
-  def utils():
+  def use_local_comms_only(self):
+    raise NotImplementedError
+
+  @property
+  def utils(self):
     """
-    Provides access to methods from core.bussiness.utils.py
+    Provides access to methods from naeural_core.bussiness.utils.py
     """
     raise NotImplementedError
 
   def uuid(self, size):
     """
     Returns a unique id.
-    
-    
+
+
     Parameters
     ----------
     size : int, optional
       the number of chars in the uid. The default is 13.
-    
+
     Returns
     -------
     str
       the uid.
-      
-    
+
+
     Example
     -------
-    
+
       ```
         str_uid = self.uuid()
         result = {'generated' : str_uid}
-      ```      
+      ```
     """
     raise NotImplementedError
 
@@ -5154,33 +5532,33 @@ class CustomPluginTemplate:
   def vision_plot_detections(self):
     """
     Plots detection on default output image if any
-    
-    
+
+
     Returns
     -------
     None.
-    
-    
+
+
     Example
     -------
       ```
       img = self.dataapi_image()
-      if img is not None: # no need to try and plot if there is not image        
+      if img is not None: # no need to try and plot if there is not image
         self.vision_plot_detections()
       ```
     """
     raise NotImplementedError
 
   @property
-  def was_last_data():
+  def was_last_data(self):
     raise NotImplementedError
 
   @property
-  def working_hours():
+  def working_hours(self):
     raise NotImplementedError
 
   @property
-  def working_hours_is_new_shift():
+  def working_hours_is_new_shift(self):
     raise NotImplementedError
 
   def working_hours_to_local(self, working_hours_schedule, timezone):
@@ -5190,7 +5568,7 @@ class CustomPluginTemplate:
     ----------
     working_hours_schedule : list or dict - the working hours schedule
     timezone : str or None - the timezone to convert to
-    
+
     Returns
     -------
     res_working_hours - list or dict with the working hours (and weekdays if necessary) converted to local time
@@ -5198,10 +5576,10 @@ class CustomPluginTemplate:
     raise NotImplementedError
 
   @property
-  def yaml():
+  def yaml(self):
     """
     Provides access to `yaml` package
-    
+
     Returns
     -------
     `yaml` package      
