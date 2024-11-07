@@ -1,4 +1,4 @@
-# PyE2 SDK
+# naeural_client SDK
 
 This is the Python SDK package that allows interactions, development and deployment of jobs in Naeural network. The SDK enables low-code development and deployment of end-to-end AI (and not only) cooperative application pipelines within the Naeural Execution Engine processing nodes ecosystem. For further information please see [Naeural AI OS - Decentralized ubiquitous computing MLOps execution engine](https://arxiv.org/pdf/2306.08708).
 
@@ -9,7 +9,7 @@ This packet depends on the following packets: `pika`, `paho-mqtt`, `numpy`, `pyo
 ## Installation
 
 ```shell
-python -m pip install PyE2
+python -m pip install naeural_client
 ```
 
 ## Documentation
@@ -22,7 +22,7 @@ Code examples are located in the `tutorials` folder in the project's repository.
 ## Quick start guides
 
 Here you will find a selection of guides and documentation snippets to get
-you started with the `PyE2` SDK. These are only the most important aspects,
+you started with the `naeural_client` SDK. These are only the most important aspects,
 selected from the documentation and from the code examples. For more
 in-depth information, please consult the examples from the repository
 and the documentation.
@@ -139,7 +139,7 @@ These changes are the only ones a developer has to do to deploy his own custom c
 For this, we will create a new method, `remote_brute_force_prime_number_generator`, which will use the exposed edge node API methods.
 
 ```python
-from PyE2 import CustomPluginTemplate
+from naeural_client import CustomPluginTemplate
 
 # through the `plugin` object we get access to the edge node API
 # the CustomPluginTemplate class acts as a documentation for all the available methods and attributes
@@ -175,7 +175,7 @@ Now lets connect to the network and see what nodes are online.
 We will use the `on_heartbeat` callback to print the nodes.
 
 ```python
-from PyE2 import Session
+from naeural_client import Session
 from time import sleep
 
 def on_heartbeat(session: Session, node: str, heartbeat: dict):
@@ -223,7 +223,7 @@ Our selected node will periodically output partial results with the prime number
 Thus, we need to implement a callback method that will handle this.
 
 ```python
-from PyE2 import Pipeline
+from naeural_client import Pipeline
 
 # a flag used to close the session when the task is finished
 finished = False
@@ -246,7 +246,7 @@ def locally_process_partial_results(pipeline: Pipeline, full_payload):
 Now we are ready to deploy our job to the network.
 
 ```python
-from PyE2 import DistributedCustomCodePresets as Presets
+from naeural_client import DistributedCustomCodePresets as Presets
 
 _, _ = session.create_chain_dist_custom_job(
     # this is the main node, our entrypoint
@@ -314,11 +314,11 @@ For any inquiries related to the funding and its impact on this project, please 
 # Citation
 
 ```bibtex
-@misc{PyE2,
+@misc{naeural_client,
   author = {Stefan Saraev, Andrei Damian},
-  title = {PyE2: Python SDK for Naeural Edge Protocol},
+  title = {naeural_client: Python SDK for Naeural Edge Protocol},
   year = {2024},
-  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/PyE2}},
+  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/naeural_client}},
 }
 ```
 

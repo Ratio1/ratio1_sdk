@@ -1,4 +1,4 @@
-from PyE2 import Payload, Pipeline, Session
+from naeural_client import Payload, Pipeline, Session
 
 
 val = 0

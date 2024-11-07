@@ -1,11 +1,11 @@
 """
-This is a simple example of how to use the PyE2 SDK.
+This is a simple example of how to use the naeural_client SDK.
 
 In this example, we connect to the network, listen for heartbeats from 
   Naeural edge nodes and print the CPU of each node.
 """
 
-from PyE2 import Session
+from naeural_client import Session
 
 
 def on_heartbeat(session: Session, node_addr: str, heartbeat: dict):

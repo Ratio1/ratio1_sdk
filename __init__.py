@@ -1,11 +1,11 @@
-from .PyE2 import Payload, Pipeline, Session, Instance, CustomPluginTemplate
-from .PyE2 import base as pye2_base
-from .PyE2 import bc as pye2_bc
-from .PyE2 import comm as pye2_comm
-from .PyE2 import const as pye2_const
-from .PyE2 import io_formatter as pye2_io_formatter
-from .PyE2 import utils as pye2_utils
-from .PyE2 import load_dotenv
-from .PyE2 import __version__
-from .PyE2 import BaseDecentrAIObject, _PluginsManagerMixin, Logger
-from .PyE2 import BaseCodeChecker
+from .naeural_client import Payload, Pipeline, Session, Instance, CustomPluginTemplate
+from .naeural_client import base as naeural_client_base
+from .naeural_client import bc as naeural_client_bc
+from .naeural_client import comm as naeural_client_comm
+from .naeural_client import const as naeural_client_const
+from .naeural_client import io_formatter as naeural_client_io_formatter
+from .naeural_client import utils as naeural_client_utils
+from .naeural_client import load_dotenv
+from .naeural_client import __version__
+from .naeural_client import BaseDecentrAIObject, _PluginsManagerMixin, Logger
+from .naeural_client import BaseCodeChecker

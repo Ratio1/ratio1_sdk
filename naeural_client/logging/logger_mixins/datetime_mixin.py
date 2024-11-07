@@ -5,10 +5,10 @@ from ...const import WEEKDAYS_SHORT
 
 class _DateTimeMixin(object):
   """
-  Mixin for date and time functionalities that are attached to `pye2.Logger`.
+  Mixin for date and time functionalities that are attached to `naeural_client.Logger`.
 
   This mixin cannot be instantiated because it is built just to provide some additional
-  functionalities for `pye2.Logger`
+  functionalities for `naeural_client.Logger`
 
   In this mixin we can use any attribute/method of the Logger.
   """
@@ -282,7 +282,7 @@ class _DateTimeMixin(object):
 
 
 if __name__ == '__main__':
-  from PyE2 import Logger
+  from naeural_client import Logger
   log = Logger(
     'gigi',
     base_folder='.',

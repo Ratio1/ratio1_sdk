@@ -1,4 +1,4 @@
-from PyE2.base.responses import Response
+from naeural_client.base.responses import Response
 # from .responses import Response
 from time import time, sleep
 

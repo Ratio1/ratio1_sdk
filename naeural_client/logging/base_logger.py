@@ -181,7 +181,7 @@ class BaseLogger(object):
       lib_ver = __VER__
     ver = "v{}".format(lib_ver) if lib_ver != "" else ""
     self.verbose_log(
-      "PyE2 [{} {}] initialized on machine [{}][{}].".format(
+      "SDK [{} {}] initialized on machine [{}][{}].".format(
         self.__lib__, ver, self.MACHINE_NAME, self.get_processor_platform(),
       ),
       color='green'

@@ -1,6 +1,6 @@
 from time import sleep, time
 
-from PyE2 import Payload, Pipeline, Session, load_dotenv
+from naeural_client import Payload, Pipeline, Session, load_dotenv
 
 boxes = {}
 

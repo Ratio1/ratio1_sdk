@@ -1,4 +1,4 @@
-from PyE2 import Session
+from naeural_client import Session
 
 
 def on_hb(session: Session, node_addr: str, data: dict):

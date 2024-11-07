@@ -1,5 +1,5 @@
-from PyE2 import Session, CustomPluginTemplate, Pipeline
-from PyE2 import DistributedCustomCodePresets as Presets
+from naeural_client import Session, CustomPluginTemplate, Pipeline
+from naeural_client import DistributedCustomCodePresets as Presets
 
 
 def local_brute_force_prime_number_generator():

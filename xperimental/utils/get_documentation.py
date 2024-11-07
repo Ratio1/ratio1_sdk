@@ -2,10 +2,10 @@ import ast
 import inspect
 import os
 
-from PyE2 import BaseDecentrAIObject, _PluginsManagerMixin
+from naeural_client import BaseDecentrAIObject, _PluginsManagerMixin
 
-from core.core_logging.full_logger import Logger, SBLogger
-from core.main.entrypoint import main
+from naeural_core.core_logging.full_logger import Logger, SBLogger
+from naeural_core.main.entrypoint import main
 
 
 class Utils(BaseDecentrAIObject, _PluginsManagerMixin):

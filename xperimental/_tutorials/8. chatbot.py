@@ -1,5 +1,5 @@
 from time import sleep
-from PyE2 import Session
+from naeural_client import Session
 
 
 class LLMChat():

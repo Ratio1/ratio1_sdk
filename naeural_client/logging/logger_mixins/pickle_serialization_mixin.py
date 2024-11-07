@@ -4,10 +4,10 @@ import pickle
 
 class _PickleSerializationMixin(object):
   """
-  Mixin for pickle serialization functionalities that are attached to `pye2.Logger`.
+  Mixin for pickle serialization functionalities that are attached to `naeural_client.Logger`.
 
   This mixin cannot be instantiated because it is built just to provide some additional
-  functionalities for `pye2.Logger`
+  functionalities for `naeural_client.Logger`
 
   In this mixin we can use any attribute/method of the Logger.
   """

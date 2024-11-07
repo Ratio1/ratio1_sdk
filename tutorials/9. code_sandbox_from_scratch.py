@@ -1,5 +1,5 @@
-from PyE2 import CustomPluginTemplate, Session
-from PyE2.default.instance import CustomWebApp01
+from naeural_client import CustomPluginTemplate, Session
+from naeural_client.default.instance import CustomWebApp01
 
 # this tutorial can be run only on the local edge node
 # because it uses ngrok to expose the fastapi server

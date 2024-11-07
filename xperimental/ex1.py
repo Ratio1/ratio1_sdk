@@ -1,4 +1,4 @@
-from PyE2 import Payload, Session, Pipeline, Instance
+from naeural_client import Payload, Session, Pipeline, Instance
 
 
 def instance_on_data(pipeline: Pipeline, data: Payload):

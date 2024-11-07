@@ -1,5 +1,5 @@
 """
-This is a simple example of how to use the PyE2 SDK.
+This is a simple example of how to use the naeural_client SDK.
 
 In this example, we connect to the network, choose a node and
     deploy a plugin with custom code that will run in real time.
@@ -10,7 +10,7 @@ For this example, we will count the number of persons that appear in the frames
 
 from time import sleep
 
-from PyE2 import CustomPluginTemplate, Instance, Payload, Pipeline, Session
+from naeural_client import CustomPluginTemplate, Instance, Payload, Pipeline, Session
 
 
 def real_time_code(plugin: CustomPluginTemplate):
