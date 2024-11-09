@@ -3,6 +3,7 @@
   "dockerFile" : "Dockerfile",
   // "image": "aidamian/image:tag",
 
+  
   "runArgs": [
     //"--gpus=all",
     "--hostname",
