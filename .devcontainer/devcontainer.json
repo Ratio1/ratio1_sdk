@@ -1,0 +1,21 @@
+{
+  "name" : "Naeural SDK Development Container",
+  "dockerFile" : "Dockerfile",
+  // "image": "aidamian/image:tag",
+
+  "runArgs": [
+    //"--gpus=all",
+    "--hostname",
+    "sdk_dev"    
+  ],
+
+
+  "customizations": {
+    "vscode" : {
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter"
+      ]
+    }
+  }
+}
