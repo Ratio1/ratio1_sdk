@@ -310,7 +310,7 @@ class Instance():
     def __register_transaction_for_instance_command(self, session_id: str = None, timeout: float = 0) -> list[Transaction]:
       """
       Register a new transaction for the instance command.
-      This method is called before sending an instance command to the Naeural edge node.
+      This method is called before sending an instance command to the Naeural Edge Protocol edge node.
 
       Parameters
       ----------
@@ -441,7 +441,7 @@ class Instance():
     def send_instance_command(self, command, payload=None, command_params=None, wait_confirmation=True, session_id=None, timeout=10):
       """
       Send a command to the instance.
-      This command can block until the command is confirmed by the Naeural edge node.
+      This command can block until the command is confirmed by the Naeural Edge Protocol edge node.
 
       Example:
       --------

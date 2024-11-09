@@ -9,4 +9,4 @@ Secondary:
 
 - session method to get list of all online nodes from supervisor
 
-- change DecentrAIObject to NaeuralObject
+- change DecentrAIObject to Naeural Edge ProtocolObject

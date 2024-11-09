@@ -1,5 +1,5 @@
 {
-  "name" : "Naeural SDK Development Container",
+  "name" : "Naeural Edge Protocol SDK Development Container",
   "dockerFile" : "Dockerfile",
   // "image": "aidamian/image:tag",
 

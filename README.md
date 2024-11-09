@@ -1,6 +1,6 @@
 # naeural_client SDK
 
-This is the Python SDK package that allows interactions, development and deployment of jobs in Naeural network. The SDK enables low-code development and deployment of end-to-end AI (and not only) cooperative application pipelines within the Naeural Execution Engine processing nodes ecosystem. For further information please see [Naeural AI OS - Decentralized ubiquitous computing MLOps execution engine](https://arxiv.org/pdf/2306.08708).
+This is the Python SDK package that allows interactions, development and deployment of jobs in Naeural Edge Protocol network. The SDK enables low-code development and deployment of end-to-end AI (and not only) cooperative application pipelines within the Naeural Edge Protocol Execution Engine processing nodes ecosystem. For further information please see [Naeural Edge Protocol AI OS - Decentralized ubiquitous computing MLOps execution engine](https://arxiv.org/pdf/2306.08708).
 
 ## Dependencies
 
@@ -316,9 +316,9 @@ For any inquiries related to the funding and its impact on this project, please 
 ```bibtex
 @misc{naeural_client,
   author = {Stefan Saraev, Andrei Damian},
-  title = {naeural_client: Python SDK for Naeural Edge Protocol},
+  title = {naeural_client: Python SDK for Naeural Edge Protocol Edge Protocol},
   year = {2024},
-  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/naeural_client}},
+  howpublished = {\url{https://github.com/Naeural Edge ProtocolEdgeProtocol/naeural_client}},
 }
 ```
 
@@ -327,7 +327,7 @@ For any inquiries related to the funding and its impact on this project, please 
   author       = {Damian, Bleotiu, Saraev, Constantinescu},
   title        = {SOLIS – Sistem Omogen multi-Locație cu funcționalități Inteligente și Sustenabile”
 SMIS 143488},
-  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/}},
+  howpublished = {\url{https://github.com/Naeural Edge ProtocolEdgeProtocol/}},
   note         = {This project includes open-source components developed with support from the Romanian Competitiveness Operational Programme under grants SMIS 143488. The content is solely the responsibility of the authors and does not necessarily reflect the views of the funding agencies.},
   year         = {2021-2022}
 }
@@ -337,7 +337,7 @@ SMIS 143488},
 @misc{project_funding_acknowledgment2,
   author       = {Damian, Bleotiu, Saraev, Constantinescu, Milik, Lupaescu},
   title        = {ReDeN – Rețea Descentralizată Neurală SMIS 156084},
-  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/}},
+  howpublished = {\url{https://github.com/Naeural Edge ProtocolEdgeProtocol/}},
   note         = {This project includes open-source components developed with support from the Romanian Competitiveness Operational Programme under grants SMIS 143488. The content is solely the responsibility of the authors and does not necessarily reflect the views of the funding agencies.},
   year         = {2023-2024}
 }

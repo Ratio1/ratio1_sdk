@@ -32,7 +32,7 @@ class BaseDecentrAIObject(object):
       if not create_logger:
         raise ValueError("Logger object is invalid: {}".format(log))
       else:
-        log = Logger(DEBUG=DEBUG, base_folder='.', app_folder='_local_cache')
+        log = Logger("DEF", DEBUG=DEBUG, base_folder='.', app_folder='_local_cache')
     # endif
 
     self.log = log

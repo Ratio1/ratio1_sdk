@@ -54,7 +54,7 @@ class Pipeline(BaseCodeChecker):
         In the future, the documentation for the Logger base class will be available and developers will be able to use
         custom-made Loggers. 
     node_addr : str
-        Address of the Naeural edge node that will handle this pipeline.  
+        Address of the Naeural Edge Protocol edge node that will handle this pipeline.  
     name : str
         The name of this pipeline.
     data_source : str
@@ -91,7 +91,7 @@ class Pipeline(BaseCodeChecker):
     plugins = config.pop('PLUGINS', plugins)
 
     if is_attached:
-      assert existing_config is not None, "When attaching to a pipeline, the existing configuration should be found in the heartbeat of the Naeural edge node."
+      assert existing_config is not None, "When attaching to a pipeline, the existing configuration should be found in the heartbeat of the Naeural Edge Protocol edge node."
       assert config == {}, "Cannot provide a configuration when attaching to a pipeline."
       assert len(kwargs) == 0, "Cannot provide a configuration when attaching to a pipeline."
       self.config = {k.upper(): v for k, v in existing_config.items()}
@@ -201,7 +201,7 @@ class Pipeline(BaseCodeChecker):
     def __register_transactions_for_update(self, session_id: str = None, timeout: float = 0) -> list[Transaction]:
       """
       Register transactions for updating the pipeline and instances configuration. 
-      This method is called before sending an update pipeline configuration command to the Naeural edge node.
+      This method is called before sending an update pipeline configuration command to the Naeural Edge Protocol edge node.
 
       Parameters
       ----------
@@ -261,7 +261,7 @@ class Pipeline(BaseCodeChecker):
     def __register_transactions_for_delete(self, session_id: str = None, timeout: float = 0) -> list[Transaction]:
       """
       Register transactions for deleting the pipeline. 
-      This method is called before sending a delete pipeline command to the Naeural edge node.
+      This method is called before sending a delete pipeline command to the Naeural Edge Protocol edge node.
 
       Parameters
       ----------
@@ -294,7 +294,7 @@ class Pipeline(BaseCodeChecker):
     def __register_transaction_for_pipeline_command(self, session_id: str = None, timeout: float = 0) -> list[Transaction]:
       """
       Register a transaction for a pipeline command. 
-      This method is called before sending a pipeline command to the Naeural edge node.
+      This method is called before sending a pipeline command to the Naeural Edge Protocol edge node.
 
       Parameters
       ----------
@@ -366,7 +366,7 @@ class Pipeline(BaseCodeChecker):
 
     def __send_update_config_to_box(self, session_id=None):
       """
-      Send an update pipeline configuration command to the Naeural edge node.
+      Send an update pipeline configuration command to the Naeural Edge Protocol edge node.
       """
       self.session._send_command_update_pipeline_config(
           worker=self.node_addr,
@@ -668,7 +668,7 @@ class Pipeline(BaseCodeChecker):
   if True:
     def _on_data(self, signature, instance_id, data):
       """
-      Handle the data received from the Naeural edge node. This method is called by the Session object when a message is received from the Naeural edge node.
+      Handle the data received from the Naeural Edge Protocol edge node. This method is called by the Session object when a message is received from the Naeural Edge Protocol edge node.
       This method will call all the `on_data` callbacks of the pipeline and the instance that received the message.
 
       Parameters
@@ -690,7 +690,7 @@ class Pipeline(BaseCodeChecker):
 
     def _on_notification(self, signature, instance_id, data):
       """
-      Handle the notification received from the Naeural edge node. This method is called by the Session object when a notification is received from the Naeural edge node.
+      Handle the notification received from the Naeural Edge Protocol edge node. This method is called by the Session object when a notification is received from the Naeural Edge Protocol edge node.
 
       Parameters
       ----------
@@ -893,7 +893,7 @@ class Pipeline(BaseCodeChecker):
           The name of the instance. There can be multiple instances of the same plugin, mostly with different parameters
       custom_code : Callable[[CustomPluginTemplate], Any], optional
           A string containing the entire code, a path to a file containing the code as a string or a function with the code.
-          This code will be executed remotely on an Naeural edge node. Defaults to None.
+          This code will be executed remotely on an Naeural Edge Protocol edge node. Defaults to None.
       config : dict, optional
           parameters used to customize the functionality. One can change the AI engine used for object detection, 
           or finetune alerter parameters to better fit a camera located in a low light environment.
@@ -989,8 +989,8 @@ class Pipeline(BaseCodeChecker):
 
     def deploy(self, with_confirmation=True, wait_confirmation=True, timeout=10, verbose=False):
       """
-      This method is used to deploy the pipeline on the Naeural edge node. 
-      Here we collect all the proposed configurations and send them to the Naeural edge node.
+      This method is used to deploy the pipeline on the Naeural Edge Protocol edge node. 
+      Here we collect all the proposed configurations and send them to the Naeural Edge Protocol edge node.
       All proposed configs become staged configs.
       After all responses, apply the staged configs to finish the transaction. 
       """
@@ -1050,7 +1050,7 @@ class Pipeline(BaseCodeChecker):
       ----------
       custom_code : Callable[[CustomPluginTemplate], Any], optional
           A string containing the entire code, a path to a file containing the code as a string or a function with the code.
-          This code will be executed remotely on an Naeural edge node. Defaults to None.
+          This code will be executed remotely on an Naeural Edge Protocol edge node. Defaults to None.
       config : dict, optional
           parameters used to customize the functionality, by default {}
 
@@ -1281,8 +1281,8 @@ class Pipeline(BaseCodeChecker):
 
     def send_pipeline_command(self, command, payload=None, command_params=None, wait_confirmation=True, timeout=10) -> list[Transaction]:
       """
-      Send a pipeline command to the Naeural edge node.
-      This command can block until the command is confirmed by the Naeural edge node.
+      Send a pipeline command to the Naeural Edge Protocol edge node.
+      This command can block until the command is confirmed by the Naeural Edge Protocol edge node.
 
       Example:
       --------

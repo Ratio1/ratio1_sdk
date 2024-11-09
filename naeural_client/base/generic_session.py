@@ -23,7 +23,7 @@ from .transaction import Transaction
 
 class GenericSession(BaseDecentrAIObject):
   """
-  A Session is a connection to a communication server which provides the channel to interact with nodes from the Naeural network.
+  A Session is a connection to a communication server which provides the channel to interact with nodes from the Naeural Edge Protocol network.
   A Session manages `Pipelines` and handles all messages received from the communication server.
   The Session handles all callbacks that are user-defined and passed as arguments in the API calls.
   """
@@ -74,7 +74,7 @@ class GenericSession(BaseDecentrAIObject):
                root_topic="naeural",
                **kwargs) -> None:
     """
-    A Session is a connection to a communication server which provides the channel to interact with nodes from the Naeural network.
+    A Session is a connection to a communication server which provides the channel to interact with nodes from the Naeural Edge Protocol network.
     A Session manages `Pipelines` and handles all messages received from the communication server.
     The Session handles all callbacks that are user-defined and passed as arguments in the API calls.
 
@@ -91,8 +91,8 @@ class GenericSession(BaseDecentrAIObject):
     secured: bool, optional
         True if connection is secured, by default None
     name : str, optional
-        The name of this connection, used to identify owned pipelines on a specific Naeural edge node.
-        The name will be used as `INITIATOR_ID` and `SESSION_ID` when communicating with Naeural edge nodes, by default 'pySDK'
+        The name of this connection, used to identify owned pipelines on a specific Naeural Edge Protocol edge node.
+        The name will be used as `INITIATOR_ID` and `SESSION_ID` when communicating with Naeural Edge Protocol edge nodes, by default 'pySDK'
     config : dict, optional
         Configures the names of the channels this session will connect to.
         If using a Mqtt server, these channels are in fact topics.
@@ -102,7 +102,7 @@ class GenericSession(BaseDecentrAIObject):
         If set, process the messages that come only from the nodes from this list.
         Defaults to None
     show_commands : bool
-        If True, will print the commands that are being sent to the Naeural edge nodes.
+        If True, will print the commands that are being sent to the Naeural Edge Protocol edge nodes.
         Defaults to False
     log : Logger, optional
         A logger object which implements basic logging functionality and some other utils stuff. Can be ignored for now.
@@ -335,7 +335,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       node_addr : str
-          The address of the Naeural edge node that sent the message.
+          The address of the Naeural Edge Protocol edge node that sent the message.
 
       Returns
       -------
@@ -351,7 +351,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       node_addr : str
-          The address of the Naeural edge node that sent the message.
+          The address of the Naeural Edge Protocol edge node that sent the message.
       """
       self._dct_node_last_seen_time[node_addr] = tm()
       self._dct_node_addr_name[node_addr] = node_id
@@ -364,7 +364,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       node_addr : str
-          The address of the Naeural edge node that sent the message.
+          The address of the Naeural Edge Protocol edge node that sent the message.
       dict_msg : dict
           The message received from the communication server.
       """
@@ -383,7 +383,7 @@ class GenericSession(BaseDecentrAIObject):
       dict_msg : dict
           The message received from the communication server
       msg_node_addr : str
-          The address of the Naeural edge node that sent the message.
+          The address of the Naeural Edge Protocol edge node that sent the message.
       msg_pipeline : str
           The name of the pipeline that sent the message.
       msg_signature : str
@@ -449,7 +449,7 @@ class GenericSession(BaseDecentrAIObject):
       dict_msg : dict
           The message received from the communication server
       msg_node_addr : str
-          The address of the Naeural edge node that sent the message.
+          The address of the Naeural Edge Protocol edge node that sent the message.
       msg_pipeline : str
           The name of the pipeline that sent the message.
       msg_signature : str
@@ -509,7 +509,7 @@ class GenericSession(BaseDecentrAIObject):
       dict_msg : dict
           The message received from the communication server
       msg_node_addr : str
-          The address of the Naeural edge node that sent the message.
+          The address of the Naeural Edge Protocol edge node that sent the message.
       msg_pipeline : str
           The name of the pipeline that sent the message.
       msg_signature : str
@@ -538,7 +538,14 @@ class GenericSession(BaseDecentrAIObject):
       for transaction in open_transactions_copy:
         transaction.handle_payload(dict_msg)
       if self.custom_on_payload is not None:
-        self.custom_on_payload(self, msg_node_addr, msg_pipeline, msg_signature, msg_instance, Payload(msg_data))
+        self.custom_on_payload(
+          self,  # session
+          msg_node_addr,    # node_addr
+          msg_pipeline,     # pipeline
+          msg_signature,    # plugin signature
+          msg_instance,     # plugin instance name
+          Payload(msg_data) # the actual payload
+        )
 
       return
 
@@ -662,7 +669,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       to : str
-          The name of the Naeural edge node that will receive the payload.
+          The name of the Naeural Edge Protocol edge node that will receive the payload.
       payload : dict
           The payload to send.
       """
@@ -808,13 +815,14 @@ class GenericSession(BaseDecentrAIObject):
         os.getenv(ENVIRONMENT.AIXP_USER),
         os.getenv(ENVIRONMENT.EE_USERNAME),
         os.getenv(ENVIRONMENT.EE_USER),
+        os.getenv(ENVIRONMENT.EE_MQTT_USER),
         self._config.get(comm_ct.USER),
       ]
 
       user = next((x for x in possible_user_values if x is not None), None)
 
       if user is None:
-        env_error = "Error: No user specified for Naeural network connection. Please make sure you have the correct credentials in the environment variables within the .env file or provide them as params in code (not recommended due to potential security issue)."
+        env_error = "Error: No user specified for Naeural Edge Protocol network connection. Please make sure you have the correct credentials in the environment variables within the .env file or provide them as params in code (not recommended due to potential security issue)."
         raise ValueError(env_error)
       if self._config.get(comm_ct.USER, None) is None:
         self._config[comm_ct.USER] = user
@@ -827,13 +835,14 @@ class GenericSession(BaseDecentrAIObject):
         os.getenv(ENVIRONMENT.EE_PASSWORD),
         os.getenv(ENVIRONMENT.EE_PASS),
         os.getenv(ENVIRONMENT.EE_PWD),
+        os.getenv(ENVIRONMENT.EE_MQTT),
         self._config.get(comm_ct.PASS),
       ]
 
       pwd = next((x for x in possible_password_values if x is not None), None)
 
       if pwd is None:
-        raise ValueError("Error: No password specified for Naeural network connection")
+        raise ValueError("Error: No password specified for Naeural Edge Protocol network connection")
       if self._config.get(comm_ct.PASS, None) is None:
         self._config[comm_ct.PASS] = pwd
 
@@ -843,6 +852,7 @@ class GenericSession(BaseDecentrAIObject):
         os.getenv(ENVIRONMENT.AIXP_HOST),
         os.getenv(ENVIRONMENT.EE_HOSTNAME),
         os.getenv(ENVIRONMENT.EE_HOST),
+        os.getenv(ENVIRONMENT.EE_MQTT_HOST),
         self._config.get(comm_ct.HOST),
         "r9092118.ala.eu-central-1.emqxsl.com",
       ]
@@ -850,7 +860,7 @@ class GenericSession(BaseDecentrAIObject):
       host = next((x for x in possible_host_values if x is not None), None)
 
       if host is None:
-        raise ValueError("Error: No host specified for Naeural network connection")
+        raise ValueError("Error: No host specified for Naeural Edge Protocol network connection")
       if self._config.get(comm_ct.HOST, None) is None:
         self._config[comm_ct.HOST] = host
 
@@ -858,6 +868,7 @@ class GenericSession(BaseDecentrAIObject):
         port,
         os.getenv(ENVIRONMENT.AIXP_PORT),
         os.getenv(ENVIRONMENT.EE_PORT),
+        os.getenv(ENVIRONMENT.EE_MQTT_PORT),
         self._config.get(comm_ct.PORT),
         8883,
       ]
@@ -865,7 +876,7 @@ class GenericSession(BaseDecentrAIObject):
       port = next((x for x in possible_port_values if x is not None), None)
 
       if port is None:
-        raise ValueError("Error: No port specified for Naeural network connection")
+        raise ValueError("Error: No port specified for Naeural Edge Protocol network connection")
       if self._config.get(comm_ct.PORT, None) is None:
         self._config[comm_ct.PORT] = int(port)
 
@@ -920,7 +931,7 @@ class GenericSession(BaseDecentrAIObject):
       command : str
           The command to send.
       worker : str
-          The name of the Naeural edge node that will receive the command.
+          The name of the Naeural Edge Protocol edge node that will receive the command.
       payload : dict
           The payload to send.
       show_command : bool, optional
@@ -1134,7 +1145,7 @@ class GenericSession(BaseDecentrAIObject):
                         max_wait_time=0,
                         **kwargs) -> Pipeline:
       """
-      Create a new pipeline on a node. A pipeline is the equivalent of the "config file" used by the Naeural edge node team internally.
+      Create a new pipeline on a node. A pipeline is the equivalent of the "config file" used by the Naeural Edge Protocol edge node team internally.
 
       A `Pipeline` is a an object that encapsulates a one-to-many, data acquisition to data processing, flow of data.
 
@@ -1150,14 +1161,14 @@ class GenericSession(BaseDecentrAIObject):
 
         `Plugin` == `Signature`
 
-      This call can busy-wait for a number of seconds to listen to heartbeats, in order to check if an Naeural edge node is online or not.
+      This call can busy-wait for a number of seconds to listen to heartbeats, in order to check if an Naeural Edge Protocol edge node is online or not.
       If the node does not appear online, a warning will be displayed at the stdout, telling the user that the message that handles the
       creation of the pipeline will be sent, but it is not guaranteed that the specific node will receive it.
 
       Parameters
       ----------
       node : str
-          Address or Name of the Naeural edge node that will handle this pipeline.
+          Address or Name of the Naeural Edge Protocol edge node that will handle this pipeline.
       name : str
           Name of the pipeline. This is good to be kept unique, as it allows multiple parties to overwrite each others configurations.
       data_source : str, optional
@@ -1233,36 +1244,36 @@ class GenericSession(BaseDecentrAIObject):
 
     def get_active_nodes(self):
       """
-      Get the list of all Naeural edge nodes that sent a message since this session was created, and that are considered online
+      Get the list of all Naeural Edge Protocol edge nodes that sent a message since this session was created, and that are considered online
 
       Returns
       -------
       list
-          List of names of all the Naeural edge nodes that are considered online
+          List of names of all the Naeural Edge Protocol edge nodes that are considered online
 
       """
       return [k for k, v in self._dct_node_last_seen_time.items() if tm() - v < self.online_timeout]
 
     def get_allowed_nodes(self):
       """
-      Get the list of all active Naeural edge nodes to whom this session can send messages
+      Get the list of all active Naeural Edge Protocol edge nodes to whom this session can send messages
 
       Returns
       -------
       list[str]
-          List of names of all the active Naeural edge nodes to whom this session can send messages
+          List of names of all the active Naeural Edge Protocol edge nodes to whom this session can send messages
       """
       active_nodes = self.get_active_nodes()
       return [node for node in self._dct_can_send_to_node if self._dct_can_send_to_node[node] and node in active_nodes]
 
     def get_active_pipelines(self, node):
       """
-      Get a dictionary with all the pipelines that are active on this Naeural edge node
+      Get a dictionary with all the pipelines that are active on this Naeural Edge Protocol edge node
 
       Parameters
       ----------
       node : str
-          Address or Name of the Naeural edge node
+          Address or Name of the Naeural Edge Protocol edge node
 
       Returns
       -------
@@ -1302,7 +1313,7 @@ class GenericSession(BaseDecentrAIObject):
                            on_notification=None,
                            max_wait_time=0) -> Pipeline:
       """
-      Create a Pipeline object and attach to an existing pipeline on an Naeural edge node.
+      Create a Pipeline object and attach to an existing pipeline on an Naeural Edge Protocol edge node.
       Useful when one wants to treat an existing pipeline as one of his own,
       or when one wants to attach callbacks to various events (on_data, on_notification).
 
@@ -1320,7 +1331,7 @@ class GenericSession(BaseDecentrAIObject):
 
         `Plugin` == `Signature`
 
-      This call can busy-wait for a number of seconds to listen to heartbeats, in order to check if an Naeural edge node is online or not.
+      This call can busy-wait for a number of seconds to listen to heartbeats, in order to check if an Naeural Edge Protocol edge node is online or not.
       If the node does not appear online, a warning will be displayed at the stdout, telling the user that the message that handles the
       creation of the pipeline will be sent, but it is not guaranteed that the specific node will receive it.
 
@@ -1328,7 +1339,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       node : str
-          Address or Name of the Naeural edge node that handles this pipeline.
+          Address or Name of the Naeural Edge Protocol edge node that handles this pipeline.
       name : str
           Name of the existing pipeline.
       on_data : Callable[[Pipeline, str, str, dict], None], optional
@@ -1393,12 +1404,12 @@ class GenericSession(BaseDecentrAIObject):
                                      max_wait_time=0,
                                      **kwargs) -> Pipeline:
       """
-      Create a new pipeline on a node, or attach to an existing pipeline on an Naeural edge node.
+      Create a new pipeline on a node, or attach to an existing pipeline on an Naeural Edge Protocol edge node.
 
       Parameters
       ----------
       node : str
-          Address or Name of the Naeural edge node that will handle this pipeline.
+          Address or Name of the Naeural Edge Protocol edge node that will handle this pipeline.
       name : str
           Name of the pipeline. This is good to be kept unique, as it allows multiple parties to overwrite each others configurations.
       data_source : str
@@ -1552,7 +1563,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       node : str
-          The address or name of the Naeural edge node.
+          The address or name of the Naeural Edge Protocol edge node.
       timeout : int, optional
           The timeout, by default 15
 
@@ -1586,7 +1597,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       node : str
-          The address or name of the Naeural edge node.
+          The address or name of the Naeural Edge Protocol edge node.
 
       Returns
       -------

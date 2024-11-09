@@ -8,7 +8,7 @@ import numpy as np
 class Payload(UserDict):
   """
   This class enriches the default python dict, providing
-  helpful methods to process the payloads received from Naeural edge nodes.
+  helpful methods to process the payloads received from Naeural Edge Protocol edge nodes.
   """
 
   def get_images_as_np(self, key='IMG') -> list:
@@ -64,3 +64,16 @@ class Payload(UserDict):
     except ModuleNotFoundError:
       raise "This functionality requires the PIL library. To use this feature, please install it using 'pip install pillow'"
     return image
+
+
+if __name__ == "__main__":
+  import json
+  payload = Payload()
+  payload.data = {
+    "IMG": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABKklEQVR42mNkAAwOyKg",
+    "TEST" : "TEST"
+  }
+  
+  print(type(payload), payload)
+  print(type(payload.data), payload.data)
+  print(json.dumps(payload.data, indent=2))
