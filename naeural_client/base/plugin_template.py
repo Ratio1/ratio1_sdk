@@ -1,3 +1,34 @@
+"""
+CustomPluginTemplate
+====================
+
+The `CustomPluginTemplate` class provides an interface to the on-edge `BasePluginExecutor`, facilitating the creation of custom plugins within the Neural Edge Protocol framework system. 
+It exposes all methods and properties defined on the target edge nodes, allowing developers to access any functionality needed for their custom plugins. 
+This interface supports code completion and documentation features, enhancing the development experience.
+
+Note that code using this class will be executed in a dedicated thread on the edge node during the plugin execution cycle.
+
+**Example Usage:**
+
+```python
+def some_custom_code(plugin: CustomPluginTemplate):
+    plugin.P("Hello World")  # Log a message on the edge node
+    obj = plugin.obj_cache.get('MyDict')
+    if obj is None:
+        obj = {
+            'counter': 0,
+            'some_data': 'some_value'
+        }
+        plugin.obj_cache['MyDict'] = obj
+
+    obj['counter'] += 1
+    plugin.P(f"Counter: {obj['counter']}")  # Log the counter value
+    # Finally, send a payload from the edge node to the client
+    return obj
+```
+"""
+
+
 class CustomPluginTemplate:
   @property
   def BytesIO(self):

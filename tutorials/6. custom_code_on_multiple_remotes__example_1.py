@@ -95,6 +95,10 @@ if __name__ == "__main__":
     deploy=True
   )
 
+
+  # Observation:
+  #   next code is not mandatory - it is used to keep the session open and cleanup the resources
+  #   in production, you would not need this code as the script can close after the pipeline will be sent
   # process incoming messages until the finish condition is met
   s.run(wait=lambda: len(final_result) == 0, close_pipelines=True, close_session=True)
 

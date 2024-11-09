@@ -94,4 +94,11 @@ if __name__ == "__main__":
 
   pipeline.deploy()
 
-  session.run(wait=60, close_pipelines=True)
+
+  # Observation:
+  #   next code is not mandatory - it is used to keep the session open and cleanup the resources
+  #   in production, you would not need this code as the script can close after the pipeline will be sent
+  session.run(
+    wait=60, # wait for the user to stop the execution or a given time
+    close_pipelines=True # when the user stops the execution, the remote edge-node pipelines will be closed
+  )

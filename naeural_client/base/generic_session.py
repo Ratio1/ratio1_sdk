@@ -1640,7 +1640,9 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name,
-      signature,
+      signature="CUSTOM_CODE_FASTAPI_01",
+      endpoints=None,
+      use_ngrok=True,
       **kwargs
     ):
 
@@ -1652,8 +1654,16 @@ class GenericSession(BaseDecentrAIObject):
       instance = pipeline.create_plugin_instance(
         signature=signature,
         instance_id=self.log.get_unique_id(),
+        use_ngrok=use_ngrok,
         **kwargs
       )
+      
+      if endpoints is not None:
+        for endpoint in endpoints:
+          assert isinstance(endpoint, dict), "Each endpoint must be a dictionary defining the endpoint configuration."
+          instance.add_new_endpoint(**endpoint)
+        # end for
+      # end if we have endpoints defined in the call
 
       return pipeline, instance
 

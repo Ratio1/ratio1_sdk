@@ -22,6 +22,21 @@ def get_addr(plugin: CustomPluginTemplate):
 
 
 def predict(plugin: CustomPluginTemplate, series: list[int], steps: int) -> list:
+  """
+  This function is used to predict the next `steps` values of the time series `series`.
+
+  Parameters
+  ----------
+  series : list[int]
+      A list of integers representing the time series.
+  steps : int
+      The number of steps to predict.
+
+  Returns
+  -------
+  list
+      A list of integers representing the predicted values.
+  """
   result = plugin.basic_ts_fit_predict(series, steps)
   result = list(map(int, result))
   return result
@@ -36,32 +51,61 @@ if __name__ == "__main__":
   instance: CustomWebApp01
   pipeline, instance = session.create_web_app(
     node=node,
-    name="naeural_predict_app",
-    signature=CustomWebApp01,
-
+    name="naeural_predict_app",    
     ngrok_edge_label="INSERT_YOUR_NGROK_EDGE_LABEL_HERE",
-    use_ngrok=True,
+    endpoints=[
+      {
+        # we omit the "endpoint_type" key, because the default value is "default" ie the "function" type
+        "function": hello_world,
+        "method": "get",
+      },
+      {
+        "function": get_uuid,
+        "method": "get",
+      },
+      {
+        "function": get_addr,
+        "method": "get",
+      },
+      {
+        "function": predict,
+        "method": "post",
+      },
+      {
+        "endpoint_type": "html",
+        "html_path": "tutorials/8. custom_code_fastapi_assets/index.html",
+        "web_app_file_name": "index.html",
+        "endpoint_route": "/",
+      }
+    ]
   )
 
-  # GET request on <domain>/hello_world?name=naeural_developer
-  instance.add_new_endpoint(hello_world)
+  # we could have added the endpoints one by one
+  # # GET request on <domain>/hello_world?name=naeural_developer
+  # instance.add_new_endpoint(hello_world)
 
-  # GET request on <domain>/get_uuid
-  instance.add_new_endpoint(get_uuid, method="get")
+  # # GET request on <domain>/get_uuid
+  # instance.add_new_endpoint(get_uuid, method="get")
 
-  # GET request on <domain>/get_addr
-  instance.add_new_endpoint(get_addr, method="get")
+  # # GET request on <domain>/get_addr
+  # instance.add_new_endpoint(get_addr, method="get")
 
-  # POST request on <domain>/forecasting (with body as json with 2 keys: series and steps)
-  instance.add_new_endpoint(predict, method="post")
+  # # POST request on <domain>/forecasting (with body as json with 2 keys: series and steps)
+  # instance.add_new_endpoint(predict, method="post")
 
-  # add an html file to the web app, accessible at <domain>/
-  instance.add_new_html_endpoint(
-    html_path="tutorials/8. custom_code_fastapi_assets/index.html",
-    web_app_file_name="index.html",
-    endpoint_route="/",
-  )
+  # # add an html file to the web app, accessible at <domain>/
+  # instance.add_new_html_endpoint(
+  #   html_path="tutorials/8. custom_code_fastapi_assets/index.html",
+  #   web_app_file_name="index.html",
+  #   endpoint_route="/",
+  # )
 
   pipeline.deploy()
 
-  session.run(close_pipelines=True)
+  # Observation:
+  #   next code is not mandatory - it is used to keep the session open and cleanup the resources
+  #   in production, you would not need this code as the script can close after the pipeline will be sent
+  session.run(
+    wait=True, # wait for the user to stop the execution
+    close_pipelines=True # when the user stops the execution, the remote edge-node pipelines will be closed
+  )

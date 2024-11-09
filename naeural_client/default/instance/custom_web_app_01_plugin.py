@@ -20,7 +20,54 @@ class CustomWebApp01(Instance):
 
     return name, args, base64_code
 
-  def add_new_endpoint(self, function, method="get"):
+
+  def get_proposed_assets(self):
+    from copy import deepcopy
+    proposed_config = self._get_proposed_config_dictionary(full=True)
+    if "ASSETS" in proposed_config:
+      return deepcopy(proposed_config["ASSETS"])
+    return deepcopy(self.config.get("ASSETS", {}))
+  
+
+  def get_proposed_jinja_args(self):
+    from copy import deepcopy
+    proposed_config = self._get_proposed_config_dictionary(full=True)
+    if "JINJA_ARGS" in proposed_config:
+      return deepcopy(proposed_config["JINJA_ARGS"])
+    return deepcopy(self.config.get("JINJA_ARGS", {}))
+
+
+  def add_new_endpoint(self, endpoint_type="default", **kwargs):
+    """
+    Add a new endpoint to a existing web app instance.
+
+    Parameters
+    ----------
+    endpoint_type : str, optional
+        The type of the endpoint. Can be "default", "file" or "html". The default is "default".
+
+    Raises
+    ------
+    ValueError
+        If the endpoint_type is invalid.
+    """
+    self.P("Attempting to add a new `{}` endpoint: {}".format(endpoint_type, kwargs))
+    if endpoint_type == "default":
+      self.add_new_function_endpoint(**kwargs)
+    elif endpoint_type == "file":
+      self.add_new_file_endpoint(**kwargs)
+    elif endpoint_type == "html":
+      self.add_new_html_endpoint(**kwargs)
+    else:
+      raise ValueError("Invalid endpoint type.")
+    return
+
+
+  def add_new_file_endpoint(self, str_code, file_name, endpoint_name):
+    raise NotImplementedError("This method is not implemented yet.")
+  
+  
+  def add_new_function_endpoint(self, function, method="get"):
     name, args, base64_code = self.get_endpoint_fields(function)
     dct_endpoint = {
       "NAME": name
@@ -40,23 +87,8 @@ class CustomWebApp01(Instance):
     dct_endpoint["ARGS"] = args
 
     self.update_instance_config(config={"ENDPOINTS": proposed_endpoints})
+    return  
 
-  def get_proposed_assets(self):
-    from copy import deepcopy
-    proposed_config = self._get_proposed_config_dictionary(full=True)
-    if "ASSETS" in proposed_config:
-      return deepcopy(proposed_config["ASSETS"])
-    return deepcopy(self.config.get("ASSETS", {}))
-
-  def get_proposed_jinja_args(self):
-    from copy import deepcopy
-    proposed_config = self._get_proposed_config_dictionary(full=True)
-    if "JINJA_ARGS" in proposed_config:
-      return deepcopy(proposed_config["JINJA_ARGS"])
-    return deepcopy(self.config.get("JINJA_ARGS", {}))
-
-  def add_new_file_endpoint(self, str_code, file_name, endpoint_name):
-    raise NotImplementedError("This method is not implemented yet.")
 
   def add_new_html_endpoint(self, html_path, web_app_file_name, endpoint_route):
     str_code = None
@@ -116,3 +148,4 @@ class CustomWebApp01(Instance):
     dict_name_route_method["route"] = endpoint_route
 
     self.update_instance_config(config={"ASSETS": proposed_assets, "JINJA_ARGS": proposed_jinja_args})
+    return

@@ -9,7 +9,10 @@ import ctypes
 import threading
 import queue
 
-from .checker import ASTChecker, CheckerConstants
+try:
+  from .checker import ASTChecker, CheckerConstants
+except:
+  from naeural_client.code_cheker.checker import ASTChecker, CheckerConstants
 
 __VER__ = '0.6.1'
 
@@ -496,7 +499,7 @@ class BaseCodeChecker:
 
   def get_function_source_code(self, func):
     """
-    Get the source code of a function and remove the indentation.
+    Get the source code of a function including the docstring and remove the indentation.
 
     Parameters
     ----------
@@ -518,3 +521,27 @@ class BaseCodeChecker:
     plain_code = '\n'.join([line.rstrip()[indent:] for line in plain_code])
 
     return plain_code
+
+
+if __name__ == '__main__':
+  
+  def some_function(x):
+    """
+    A simple function that adds 1 to the input.
+
+    Parameters
+    ----------
+    x : _type_
+        _description_
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+    return x + 1
+  
+  checker = BaseCodeChecker()
+  source_code = checker.get_function_source_code(some_function)
+  print("some_function:\n" + source_code)
+  
