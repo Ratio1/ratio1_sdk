@@ -1,8 +1,10 @@
 """
 This is a simple example of how to use the naeural_client SDK.
 
-In this example, we connect to the network, listen for heartbeats from 
-  Naeural Edge Protocol edge nodes and print the CPU of each node.
+In this example:
+  - we connect to the network
+  - listen for heartbeats from Naeural Edge Protocol edge nodes and print the CPU of each node.
+  - listen for payloads from Naeural Edge Protocol edge nodes and print the data of each payload.
 """
 import json
 
@@ -13,6 +15,10 @@ class MessageHandler:
   def __init__(self, signature_filter: str = None):
     """
     This class is used to handle the messages received from the edge nodes.
+    
+    In this class we are defining two callback methods:
+      - on_heartbeat: this method is called when a heartbeat is received from an edge node.
+      - on_data: this method is called when a payload is received from an edge node.
     """
     self.signature_filter = signature_filter.upper() if isinstance(signature_filter, str) else None
     self.last_data = None # some variable to store the last data received for debugging purposes
@@ -39,7 +45,7 @@ class MessageHandler:
     heartbeat : dict
         The heartbeat received from the edge node.        
     """
-    session.P("{} ({}) has a {}".format(
+    session.P("{} ({}) has {}".format(
       heartbeat['EE_ID'], 
       self.shorten_address(node_addr), 
       heartbeat["CPU"])
@@ -83,14 +89,14 @@ class MessageHandler:
     
     if self.signature_filter is not None and plugin_signature.upper() != self.signature_filter:
       # we are not interested in this data but we still want to log it
-      message = "Received data from <{}::{}::{}::{}>".format(
+      message = "Recv from <{}::{}::{}::{}>".format(
         addr, pipeline_name, plugin_signature, plugin_instance
       )
       color = 'dark'
     else:
       # we are interested in this data
-      message = "Received target data from <{}::{}::{}::{}>\n".format(
-        node_addr, pipeline_name, plugin_signature, plugin_instance
+      message = "Recv data from <{}::{}::{}::{}>\n".format(
+        addr, pipeline_name, plugin_signature, plugin_instance
       )
       # the actual data is stored in the data.data attribute of the Payload UserDict object
       # now we just copy some data as a naive example

@@ -180,11 +180,12 @@ class BaseLogger(object):
     if lib_ver == "":
       lib_ver = __VER__
     ver = "v{}".format(lib_ver) if lib_ver != "" else ""
-    self.verbose_log(
-      "SDK [{} {}] initialized on machine [{}][{}].".format(
-        self.__lib__, ver, self.MACHINE_NAME, self.get_processor_platform(),
+    self.P(
+      "NSDK {} initialized on [{}][{}].".format(
+        ver, self.MACHINE_NAME, self.get_processor_platform(),
       ),
-      color='green'
+      color='green',
+      boxed=True,
     )
     self.verbose_log("  Timezone: {}.".format(self.timezone),color='green')
 

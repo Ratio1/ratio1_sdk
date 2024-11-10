@@ -1,5 +1,5 @@
 from naeural_client import CustomPluginTemplate, Session
-from naeural_client.default.instance import CustomWebApp01
+from naeural_client import PLUGIN_TYPES
 
 # this tutorial can be run only on the local edge node
 # because it uses ngrok to expose the fastapi server
@@ -22,11 +22,11 @@ if __name__ == "__main__":
   node = "0xai_At8N0Qgz78sBLgPtMgifmCabJGkgEzgkEP-1laDggXVM"
   session.wait_for_node(node)
 
-  instance: CustomWebApp01
+  instance: PLUGIN_TYPES.CUSTOM_WEB_APP_01
   pipeline, instance = session.create_web_app(
     node=node,
     name="naeural_code_sandbox_copycat_app",
-    signature=CustomWebApp01,
+    signature=PLUGIN_TYPES.CUSTOM_WEB_APP_01, # not mandatory as it is the default value
 
     ngrok_edge_label="edghts_2jSQ4nm5TuzGgHh8I0wlfDz3Vr0",  # https://naeural-001.ngrok.app
     use_ngrok=True,

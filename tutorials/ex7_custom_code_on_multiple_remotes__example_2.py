@@ -150,7 +150,6 @@ if __name__ == "__main__":
   p = s.create_or_attach_to_pipeline(
     node=node,
     name="run_distributed",
-    data_source="Void"
   )
 
   p.create_chain_dist_custom_plugin_instance(

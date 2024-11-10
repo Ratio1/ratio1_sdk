@@ -1396,7 +1396,7 @@ class GenericSession(BaseDecentrAIObject):
     def create_or_attach_to_pipeline(self, *,
                                      node,
                                      name,
-                                     data_source,
+                                     data_source="Void",
                                      config={},
                                      plugins=[],
                                      on_data=None,
@@ -1410,15 +1410,21 @@ class GenericSession(BaseDecentrAIObject):
       ----------
       node : str
           Address or Name of the Naeural Edge Protocol edge node that will handle this pipeline.
+          
       name : str
           Name of the pipeline. This is good to be kept unique, as it allows multiple parties to overwrite each others configurations.
+          
       data_source : str
           This is the name of the DCT plugin, which resembles the desired functionality of the acquisition.
+          Defaults to "Void" - no actual data acquisition.
+          
       config : dict, optional
           This is the dictionary that contains the configuration of the acquisition source, by default {}
+          
       plugins : list
           List of dictionaries which contain the configurations of each plugin instance that is desired to run on the box. 
           Defaults to []. Should be left [], and instances should be created with the api.
+          
       on_data : Callable[[Pipeline, str, str, dict], None], optional
           Callback that handles messages received from any plugin instance. 
           As arguments, it has a reference to this Pipeline object, the signature and the instance of the plugin
@@ -1426,15 +1432,18 @@ class GenericSession(BaseDecentrAIObject):
           This callback acts as a default payload processor and will be called even if for a given instance
           the user has defined a specific callback.
           Defaults to None.
+          
       on_notification : Callable[[Pipeline, dict], None], optional
           Callback that handles notifications received from any plugin instance. 
           As arguments, it has a reference to this Pipeline object, along with the payload itself. 
           This callback acts as a default payload processor and will be called even if for a given instance
           the user has defined a specific callback.
           Defaults to None.
+          
       max_wait_time : int, optional
           The maximum time to busy-wait, allowing the Session object to listen to node heartbeats
           and to check if the desired node is online in the network, by default 0.
+          
       **kwargs :
           The user can provide the configuration of the acquisition source directly as kwargs.
 
