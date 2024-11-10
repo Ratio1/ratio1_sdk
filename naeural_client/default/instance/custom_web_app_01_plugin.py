@@ -1,8 +1,8 @@
 from ...base import Instance, Pipeline
-
+from ...const import PLUGIN_SIGNATURES
 
 class CustomWebApp01(Instance):
-  signature = "CUSTOM_CODE_FASTAPI_01"
+  signature = PLUGIN_SIGNATURES.CUSTOM_WEB_APP_01
 
   def get_proposed_endpoints(self):
     from copy import deepcopy

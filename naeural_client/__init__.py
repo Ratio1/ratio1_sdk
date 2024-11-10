@@ -11,3 +11,5 @@ from .base_decentra_object import BaseDecentrAIObject
 from .plugins_manager_mixin import _PluginsManagerMixin
 from .logging import Logger
 from .code_cheker import BaseCodeChecker
+from .const import PLUGIN_SIGNATURES
+from .default.instance import PLUGIN_TYPES

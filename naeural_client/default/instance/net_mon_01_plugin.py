@@ -1,8 +1,8 @@
 from ...base import Instance
-
+from ...const import PLUGIN_SIGNATURES
 
 class NetMon01(Instance):
-  signature = "NET_MON_01"
+  signature = PLUGIN_SIGNATURES.NET_MON_01
 
   def get_node_history(self, node_id=None, node_addr=None, time_window_hours=1, steps=20):
     """

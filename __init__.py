@@ -9,3 +9,6 @@ from .naeural_client import load_dotenv
 from .naeural_client import __version__
 from .naeural_client import BaseDecentrAIObject, _PluginsManagerMixin, Logger
 from .naeural_client import BaseCodeChecker
+from .naeural_client import PLUGIN_SIGNATURES
+from .naeural_client import PLUGIN_TYPES
+

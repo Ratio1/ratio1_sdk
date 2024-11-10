@@ -1,0 +1,11 @@
+class PLUGIN_SIGNATURES:
+  """
+  This class is used to store the plugin signatures for the different plugins.
+  It is complementary to the PLUGIN_TYPES class.
+  """
+  NET_MON_01 = 'NET_MON_01'
+  VIEW_SCENE_01 = 'VIEW_SCENE_01'
+  CUSTOM_WEB_APP_01 = 'CUSTOM_CODE_FASTAPI_01'
+  CHAIN_DIST_CUSTOM_JOB_01 = 'PROCESS_REAL_TIME_COLLECTED_DATA_CUSTOM_EXEC_CHAIN_DIST'
+  BASIC_TELEGRAM_BOT_01 = 'BASIC_TELEGRAM_BOT_01'  
+  # INSERT_NEW_PLUGIN_HERE

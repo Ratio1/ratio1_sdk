@@ -1,8 +1,8 @@
 from ...base import Instance
-
+from ...const import PLUGIN_SIGNATURES
 
 class ViewScene01(Instance):
-  signature = "VIEW_SCENE_01"
+  signature = PLUGIN_SIGNATURES.VIEW_SCENE_01
 
   def get_last_witness(self, response_params_key="COMMAND_PARAMS"):
     """

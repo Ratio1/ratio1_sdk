@@ -1,5 +1,4 @@
-from naeural_client import CustomPluginTemplate, Session
-from naeural_client import PLUGIN_TYPES
+from naeural_client import CustomPluginTemplate, Session, PLUGIN_TYPES
 
 # this tutorial can be run only on the local edge node
 # because it uses ngrok to expose the fastapi server

@@ -9,7 +9,7 @@ from time import time as tm
 
 from ..base_decentra_object import BaseDecentrAIObject
 from ..bc import DefaultBlockEngine
-from ..const import COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE
+from ..const import COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, PLUGIN_SIGNATURES
 from ..const import comms as comm_ct
 from ..io_formatter import IOFormatterWrapper
 from ..logging import Logger
@@ -1660,15 +1660,39 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name,
-      signature="CUSTOM_CODE_FASTAPI_01",
+      signature=PLUGIN_SIGNATURES.CUSTOM_WEB_APP_01,
       endpoints=None,
       use_ngrok=True,
       **kwargs
     ):
+      """
+      Create a new web app on a node.
+      
+      Parameters
+      ----------
+      
+      node : str
+          Address or Name of the Naeural Edge Protocol edge node that will handle this web app.
+          
+      name : str
+          Name of the web app.
+          
+      signature : str, optional
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEB_APP_01.
+          
+      endpoints : list[dict], optional
+          A list of dictionaries defining the endpoint configuration. Defaults to None.
+          
+      use_ngrok : bool, optional
+          If True, will use ngrok to expose the web app. Defaults to True.
+          
+      
+      """
 
       pipeline: Pipeline = self.create_pipeline(
         node=node,
         name=name,
+        # default TYPE is "Void"
       )
 
       instance = pipeline.create_plugin_instance(
@@ -1686,6 +1710,43 @@ class GenericSession(BaseDecentrAIObject):
       # end if we have endpoints defined in the call
 
       return pipeline, instance
+    
+
+    def create_telegram_simple_bot(
+      self,
+      *,
+      node,
+      name,
+      signature=PLUGIN_SIGNATURES.CUSTOM_WEB_APP_01,
+      message_handler=None,
+      telegram_bot_token=None,
+      telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
+      **kwargs
+    ):
+      
+      if telegram_bot_token is None:
+        telegram_bot_token = os.getenv(telegram_bot_token_env_key)
+        if telegram_bot_token is None:
+          message = f"Warning! No Telegram bot token provided as via env {ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY} or explicitly as `telegram_bot_token` param."
+          raise ValueError(message)
+      
+      b64code = self._get_base64_code(message_handler)
+
+      pipeline: Pipeline = self.create_pipeline(
+        node=node,
+        name=name,
+        # default TYPE is "Void"
+      )
+
+      instance = pipeline.create_plugin_instance(
+        signature=signature,
+        instance_id=self.log.get_unique_id(),
+        telegram_bot_token=telegram_bot_token,
+        message_handler=b64code,
+        **kwargs
+      )      
+      return pipeline, instance
+    
 
     def broadcast_instance_command_and_wait_for_response_payload(
       self,

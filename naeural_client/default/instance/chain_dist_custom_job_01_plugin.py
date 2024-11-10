@@ -1,8 +1,9 @@
 from ...base import Instance
+from ...const import PLUGIN_SIGNATURES
 
 
 class ChainDistCustomJob01(Instance):
-  signature = "PROCESS_REAL_TIME_COLLECTED_DATA_CUSTOM_EXEC_CHAIN_DIST"
+  signature = PLUGIN_SIGNATURES.CHAIN_DIST_CUSTOM_JOB_01
 
   def add_custom_code_callbacks(
       self,
