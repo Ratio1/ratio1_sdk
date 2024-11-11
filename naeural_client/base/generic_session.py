@@ -1717,10 +1717,12 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name,
-      signature=PLUGIN_SIGNATURES.CUSTOM_WEB_APP_01,
+      signature=PLUGIN_SIGNATURES.BASIC_TELEGRAM_BOT_01,
       message_handler=None,
       telegram_bot_token=None,
       telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
+      telegram_bot_name=None,
+      telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,
       **kwargs
     ):
       
@@ -1730,6 +1732,12 @@ class GenericSession(BaseDecentrAIObject):
         telegram_bot_token = os.getenv(telegram_bot_token_env_key)
         if telegram_bot_token is None:
           message = f"Warning! No Telegram bot token provided as via env {ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY} or explicitly as `telegram_bot_token` param."
+          raise ValueError(message)
+        
+      if telegram_bot_name is None:
+        telegram_bot_name = os.getenv(telegram_bot_name_env_key)
+        if telegram_bot_name is None:
+          message = f"Warning! No Telegram bot name provided as via env {ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY} or explicitly as `telegram_bot_name` param."
           raise ValueError(message)
       
 
@@ -1741,12 +1749,15 @@ class GenericSession(BaseDecentrAIObject):
       
       func_name, func_args, func_base64_code = pipeline._get_method_data(message_handler)
       if len(func_args) != 2:
-        raise ValueError("The message handler function must have exactly 2 arguments: `instance` and `data`.")
+        raise ValueError("The message handler function must have exactly 3 arguments: `plugin`, `message` and `user`.")
       
+      obfuscated_token = telegram_bot_token[:4] + "*" * (len(telegram_bot_token) - 4)      
+      self.P(f"Creating telegram bot {telegram_bot_name} with token {obfuscated_token}...", color='b')      
       instance = pipeline.create_plugin_instance(
         signature=signature,
         instance_id=self.log.get_unique_id(),
         telegram_bot_token=telegram_bot_token,
+        telegram_bot_name=telegram_bot_name,
         message_handler=func_base64_code,
         message_handler_args=func_args, # mandatory message and user
         message_handler_name=func_name, # not mandatory

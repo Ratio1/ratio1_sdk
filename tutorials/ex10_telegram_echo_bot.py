@@ -1,13 +1,11 @@
 import os
+import time
 
 from naeural_client import Session, CustomPluginTemplate, PLUGIN_TYPES
 
-
 def reply(plugin: CustomPluginTemplate, message: str, user: str):
   """
-  This function is used to reply to a message.
-  
-  The given parameters are mandatory
+  This function is used to reply to a message. The given parameters are mandatory
   """
   # for each user message we increase a counter
   plugin.int_cache[user] += 1 # int_cache is a default dict that allows persistence in the plugin
@@ -18,12 +16,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
 if __name__ == "__main__":
   # TELEGRAM_BOT_TOKEN_ENV_KEY = "TELEGRAM_BOT_TOKEN"  # this is the default - we can specify a env key here
-  MY_NODE = None # we can specify a node here, if we want to connect to a specific
+  my_node = os.getenv("TARGET_NODE") # we can specify a node here, if we want to connect to a specific
     
   session = Session() # assume .env is available and will be used for the connection and tokens
+  time.sleep(10) # wait 10 sec to collect network status
   
-  if MY_NODE:
-    node = MY_NODE
+  if my_node:
+    node = my_node
+    session.P(f"Using the specified node: {node}", color='b')
   else:
     session.wait_for_any_node() # we wait for any node to present itself as active
     node = session.get_active_nodes()[0] # we get the first active node
@@ -31,13 +31,13 @@ if __name__ == "__main__":
       
   # now we create a telegram bot pipeline & plugin instance
   # we can chose to use the token directly or use the environment key
-  # instance: PLUGIN_TYPES.BASIC_TELEGRAM_BOT_01
+  # instance: PLUGIN_TYPES.BASIC_TELEGRAM_BOT_01  
   pipeline, _ = session.create_telegram_simple_bot(
     node=node,
     name="telegram_bot_echo",
     # telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),  # we use the token directly
     # telegram_bot_token_env_key=TELEGRAM_BOT_TOKEN_ENV_KEY, # not mandatory - we can use the default
-    reply_function=reply,
+    message_handler=reply,
   )
   
   pipeline.deploy() # we deploy the pipeline
@@ -46,7 +46,7 @@ if __name__ == "__main__":
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources
   #   in production, you would not need this code as the script can close after the pipeline will be sent  
   session.run(
-    wait=60,  # we run the session for 60 seconds
+    wait=120,  # we run the session for 60 seconds
     close_pipelines=True,  # we close the pipelines after the session
     close_session=True,  # we close the session after the session
   )

@@ -550,8 +550,14 @@ class BaseCodeChecker:
 
     name = method.__name__
     args = list(map(str, inspect.signature(method).parameters.values()))
-    if args[0] in ['self', 'cls', 'plugin']:
+    ## 
+    first_arg = args[0]
+    first_arg = first_arg.split(':')[0]
+    first_arg = first_arg.split('=')[0]
+    first_arg = first_arg.strip()
+    if first_arg in ['self', 'cls', 'plugin']:
       args = args[1:]
+    ##      
     source = self.get_function_source_code(method)
     base64_code = self.code_to_base64(source)
 
@@ -560,7 +566,7 @@ class BaseCodeChecker:
 
 if __name__ == '__main__':
   
-  def some_function(plugin, x):
+  def some_function(plugin : int, x):
     """
     A simple function that adds 1 to the input.
 
