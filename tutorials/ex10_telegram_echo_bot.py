@@ -13,6 +13,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   result = f"The answer to your {plugin.int_cache[user]} question is in the question itself: {message}"
   return result
 
+
 if __name__ == "__main__":
   TELEGRAM_BOT_TOKEN_ENV_KEY = "TELEGRAM_BOT_TOKEN"
   MY_NODE = None # we can specify a node here, if we want to connect to a specific
@@ -28,8 +29,8 @@ if __name__ == "__main__":
       
   # now we create a telegram bot pipeline & plugin instance
   # we can chose to use the token directly or use the environment key
-  instance: PLUGIN_TYPES.BASIC_TELEGRAM_BOT_01
-  pipeline, instance = session.create_telegram_simple_bot(
+  # instance: PLUGIN_TYPES.BASIC_TELEGRAM_BOT_01
+  pipeline, _ = session.create_telegram_simple_bot(
     node=node,
     name="telegram_bot_echo",
     telegram_bot_token_env_key=TELEGRAM_BOT_TOKEN_ENV_KEY,
