@@ -6,6 +6,8 @@ from naeural_client import Session, CustomPluginTemplate, PLUGIN_TYPES
 def reply(plugin: CustomPluginTemplate, message: str, user: str):
   """
   This function is used to reply to a message.
+  
+  The given parameters are mandatory
   """
   # for each user message we increase a counter
   plugin.int_cache[user] += 1 # int_cache is a default dict that allows persistence in the plugin
@@ -15,7 +17,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
 
 if __name__ == "__main__":
-  TELEGRAM_BOT_TOKEN_ENV_KEY = "TELEGRAM_BOT_TOKEN"
+  # TELEGRAM_BOT_TOKEN_ENV_KEY = "TELEGRAM_BOT_TOKEN"  # this is the default - we can specify a env key here
   MY_NODE = None # we can specify a node here, if we want to connect to a specific
     
   session = Session() # assume .env is available and will be used for the connection and tokens
@@ -33,7 +35,8 @@ if __name__ == "__main__":
   pipeline, _ = session.create_telegram_simple_bot(
     node=node,
     name="telegram_bot_echo",
-    telegram_bot_token_env_key=TELEGRAM_BOT_TOKEN_ENV_KEY,
+    # telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),  # we use the token directly
+    # telegram_bot_token_env_key=TELEGRAM_BOT_TOKEN_ENV_KEY, # not mandatory - we can use the default
     reply_function=reply,
   )
   

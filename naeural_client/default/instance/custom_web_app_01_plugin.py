@@ -12,13 +12,10 @@ class CustomWebApp01(Instance):
     return deepcopy(self.config.get("ENDPOINTS", []))
 
   def get_endpoint_fields(self, method: callable):
-    import inspect
-
-    name = method.__name__
-    args = list(map(str, inspect.signature(method).parameters.values()))[1:]
-    base64_code = self.pipeline._get_base64_code(method)
-
-    return name, args, base64_code
+    """
+    A aliast for get_method_data: it returns the name, args and base64 code of a method.
+    """  
+    return self._get_method_data(method)
 
 
   def get_proposed_assets(self):

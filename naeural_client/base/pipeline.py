@@ -664,6 +664,7 @@ class Pipeline(BaseCodeChecker):
 
       return self.code_to_base64(plain_code, verbose=False)
 
+    
   # Message handling
   if True:
     def _on_data(self, signature, instance_id, data):
@@ -1497,3 +1498,5 @@ class Pipeline(BaseCodeChecker):
       Return the node id of the pipeline.
       """
       return self.session.get_node_name(self.node_addr)
+
+

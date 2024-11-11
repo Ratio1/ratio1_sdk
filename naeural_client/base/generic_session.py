@@ -1724,25 +1724,32 @@ class GenericSession(BaseDecentrAIObject):
       **kwargs
     ):
       
+      assert callable(message_handler), "The `message_handler` method parameter must be provided."
+      
       if telegram_bot_token is None:
         telegram_bot_token = os.getenv(telegram_bot_token_env_key)
         if telegram_bot_token is None:
           message = f"Warning! No Telegram bot token provided as via env {ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY} or explicitly as `telegram_bot_token` param."
           raise ValueError(message)
       
-      b64code = self._get_base64_code(message_handler)
 
       pipeline: Pipeline = self.create_pipeline(
         node=node,
         name=name,
         # default TYPE is "Void"
       )
-
+      
+      func_name, func_args, func_base64_code = pipeline._get_method_data(message_handler)
+      if len(func_args) != 2:
+        raise ValueError("The message handler function must have exactly 2 arguments: `instance` and `data`.")
+      
       instance = pipeline.create_plugin_instance(
         signature=signature,
         instance_id=self.log.get_unique_id(),
         telegram_bot_token=telegram_bot_token,
-        message_handler=b64code,
+        message_handler=func_base64_code,
+        message_handler_args=func_args, # mandatory message and user
+        message_handler_name=func_name, # not mandatory
         **kwargs
       )      
       return pipeline, instance
@@ -1852,3 +1859,10 @@ class GenericSession(BaseDecentrAIObject):
       # end for detach
 
       return lst_result_payload
+
+    def get_client_address(self):
+      return self.bc_engine.address
+    
+    @property
+    def client_address(self):
+      return self.get_client_address()

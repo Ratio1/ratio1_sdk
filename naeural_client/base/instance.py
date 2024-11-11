@@ -202,6 +202,7 @@ class Instance():
 
       return f"<Instance: {node_addr}/{pipeline_name}/{signature}/{instance_id}>"
 
+
     def _is_tainted(self):
       """
       Check if the instance has a proposed configuration.
@@ -212,6 +213,7 @@ class Instance():
           True if the instance has a proposed configuration, False otherwise
       """
       return self.proposed_config is not None
+
 
     def _get_config_dictionary(self):
       """
@@ -228,6 +230,7 @@ class Instance():
       }
 
       return config_dict
+
 
     def _get_proposed_config_dictionary(self, full=False):
       """
@@ -249,6 +252,7 @@ class Instance():
 
       return proposed_config_dict
 
+
     def _apply_staged_config(self, verbose=False):
       """
       Apply the staged configuration to the instance.
@@ -264,6 +268,7 @@ class Instance():
       self.__staged_config = None
       return
 
+
     def _discard_staged_config(self, fail_reason: str):
       """
       Discard the staged configuration for the instance.
@@ -273,6 +278,7 @@ class Instance():
 
       self.__staged_config = None
       return
+
 
     def _stage_proposed_config(self):
       """
@@ -291,6 +297,7 @@ class Instance():
       self.__was_last_operation_successful = None
       return
 
+
     def _handle_instance_command_success(self):
       """
       Handle the success of the instance command.
@@ -299,6 +306,7 @@ class Instance():
       self.__was_last_operation_successful = True
       return
 
+
     def _handle_instance_command_failure(self, fail_reason: str):
       """
       Handle the failure of the instance command.
@@ -306,6 +314,7 @@ class Instance():
       self.P(f'Instance command failed for instance <{self.instance_id}>. Reason: {fail_reason}', color="r")
       self.__was_last_operation_successful = False
       return
+
 
     def __register_transaction_for_instance_command(self, session_id: str = None, timeout: float = 0) -> list[Transaction]:
       """
@@ -340,6 +349,7 @@ class Instance():
 
       return transactions
 
+
     def _get_instance_update_required_responses(self):
       """
       Get the responses required to update the instance.
@@ -356,6 +366,7 @@ class Instance():
 
       return responses
 
+
     def _get_instance_remove_required_responses(self):
       """
       Get the responses required to delete the instance.
@@ -371,6 +382,23 @@ class Instance():
 
       return responses
 
+    def _get_method_data(self, method: callable):
+      """
+      Get the full signature and definition of a method.
+      
+      Parameters
+      ----------
+      
+      method : callable
+          The method to get the signature and definition for.
+          
+      Returns
+      -------
+      tuple
+          A tuple containing the name, arguments and base64 code of the method.
+      """
+      return self.pipeline._get_method_data(method)
+    
   # API
   if True:
     @property
@@ -399,9 +427,11 @@ class Instance():
       """
       return self.__was_last_operation_successful
 
+
     def _sync_configuration_with_remote(self, config):
       self.config = {**self.config, **config}
       return
+
 
     def update_instance_config(self, config={}, **kwargs):
       """
@@ -437,6 +467,7 @@ class Instance():
         self.proposed_config = None
 
       return
+
 
     def send_instance_command(self, command, payload=None, command_params=None, wait_confirmation=True, session_id=None, timeout=10):
       """
@@ -495,6 +526,7 @@ class Instance():
         return transactions
       return
 
+
     def close(self):
       """
       Close the instance.
@@ -502,19 +534,23 @@ class Instance():
       self.pipeline.remove_plugin_instance(self)
       return
 
+
     def stop(self):
       """
       Close the instance. Alias for `close`.
       """
       self.close()
 
+
     def P(self, *args, **kwargs):
       self.log.P(*args, **kwargs)
       return
 
+
     def D(self, *args, **kwargs):
       self.log.D(*args, **kwargs)
       return
+
 
     def temporary_attach(self, on_data=None, on_notification=None):
       """
@@ -542,6 +578,7 @@ class Instance():
 
       return attachment
 
+
     def temporary_detach(self, attachment):
       """
       Detach a temporary callback from the instance.
@@ -555,6 +592,7 @@ class Instance():
       self._remove_temporary_on_notification_callback(attachment)
       return
 
+   
     def convert_to_specialized_class(self, specialized_class):
       """
       Convert the object to a specialized class.
@@ -563,6 +601,7 @@ class Instance():
       """
       self.__class__ = specialized_class
       return self
+
 
     def send_instance_command_and_wait_for_response_payload(self, command, payload=None, command_params=None, timeout_command=10, timeout_response_payload=3, response_params_key="COMMAND_PARAMS"):
       """

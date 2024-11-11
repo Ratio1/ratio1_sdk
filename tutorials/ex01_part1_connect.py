@@ -3,6 +3,18 @@ This is a simple example of how to use the naeural_client SDK.
 
 In this example, we connect to the network, listen for heartbeats from 
   Naeural Edge Protocol edge nodes and print the CPU of each node.
+  
+  
+  
+New connection algorithm:
+
+1. The client connects to the network.
+2. The client waits for the first 2 supervisors payload with network map. 
+3. The client reads `partner_peers` - all nodes that recognize the client as allowed - based on supervisor(s) network map.
+4. The client sends a pipeline status to all `partner_peers`.
+5. The client then knows the `partner_peers` and can send messages to them.
+IMPORTANT: Session will WAIT until network map is clarified.
+
 """
 import json
 
@@ -50,6 +62,7 @@ if __name__ == '__main__':
       on_heartbeat=filterer.on_heartbeat,
   )
 
+  session.P("Client address is: {}".format(session.get_client_address()), color='g')
 
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources

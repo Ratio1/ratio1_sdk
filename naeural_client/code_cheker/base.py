@@ -428,7 +428,15 @@ class BaseCodeChecker:
 
     return res
 
-  def _get_method_from_custom_code(self, str_b64code, debug=False, result_vars=RESULT_VARS, self_var=None, modify=True, method_arguments=[]):
+  def _get_method_from_custom_code(
+    self, 
+    str_b64code, 
+    debug=False, 
+    result_vars=RESULT_VARS, 
+    self_var=None, 
+    modify=True, 
+    method_arguments=[]
+    ):
     exec_code__result_vars = result_vars
     exec_code__debug = debug
     exec_code__self_var = self_var
@@ -470,8 +478,9 @@ class BaseCodeChecker:
         exec_code__errors = ["Cannot encapsulate code in method. No return statement found."]
         return exec_code__result_var, exec_code__errors, exec_code__warnings
       # endif can encapsulate code in method
-
-      exec(exec_code__code)
+      if exec_code__debug:
+        self.__msg("DEBUG EXEC: Encapsulated code: \n{}".format(exec_code__code))
+      exec(exec_code__code) # now we execute the method definition code not the actual method
       if exec_code__debug:
         self.__msg("DEBUG EXEC: locals(): \n{}".format(locals()))
       for _var in exec_code__result_vars:
@@ -521,11 +530,37 @@ class BaseCodeChecker:
     plain_code = '\n'.join([line.rstrip()[indent:] for line in plain_code])
 
     return plain_code
+  
+  def _get_method_data(self, method: callable):
+    """
+    Get the full signature and definition of a method.
+    
+    Parameters
+    ----------
+    
+    method : callable
+        The method to get the signature and definition for.
+        
+    Returns
+    -------
+    tuple
+        A tuple containing the name, arguments and base64 code of the method.
+    """
+    import inspect
+
+    name = method.__name__
+    args = list(map(str, inspect.signature(method).parameters.values()))
+    if args[0] in ['self', 'cls', 'plugin']:
+      args = args[1:]
+    source = self.get_function_source_code(method)
+    base64_code = self.code_to_base64(source)
+
+    return name, args, base64_code  
 
 
 if __name__ == '__main__':
   
-  def some_function(x):
+  def some_function(plugin, x):
     """
     A simple function that adds 1 to the input.
 
@@ -539,9 +574,44 @@ if __name__ == '__main__':
     _type_
         _description_
     """
+    print(f"Called by: {plugin}")
     return x + 1
   
+  
+  class SomeClass:
+    def __init__(self, eng : BaseCodeChecker, str_b64code, func_args):
+      self.eng : BaseCodeChecker = eng
+      self._func, _, _ = eng._get_method_from_custom_code(
+        str_b64code=str_b64code,
+        self_var='plugin',
+        method_arguments=["plugin"] + func_args,
+        debug=False
+      )  
+      return
+    
+    
+    def my_func(self, a):
+      res = self._func(x=a, plugin=self)
+      return res
+      
+
   checker = BaseCodeChecker()
   source_code = checker.get_function_source_code(some_function)
   print("some_function:\n" + source_code)
+  
+  name, args, b64code = checker._get_method_data(some_function)
+  print(f"Method name: {name}")
+  print(f"Method args: {args}")
+  print(f"Method code: {b64code}")
+  
+  target = SomeClass(checker, str_b64code=b64code, func_args=args)
+  
+  print(some_function(x=9.1, plugin=None))
+  print(target.my_func(9.1))
+  
+  
+  
+  
+  
+  
   
