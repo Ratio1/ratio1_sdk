@@ -1717,7 +1717,7 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name,
-      signature=PLUGIN_SIGNATURES.BASIC_TELEGRAM_BOT_01,
+      signature=PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01,
       message_handler=None,
       telegram_bot_token=None,
       telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
@@ -1725,7 +1725,41 @@ class GenericSession(BaseDecentrAIObject):
       telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,
       **kwargs
     ):
+      """
+      Create a new basic Telegram bot on a node.
       
+      Parameters
+      ----------
+      
+      node : str
+          Address or Name of the Naeural Edge Protocol edge node that will handle this Telegram bot.
+          
+      name : str
+          Name of the Telegram bot. 
+          
+      signature : str, optional 
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01.
+          
+      message_handler : callable, optional  
+          The message handler function that will be called when a message is received. Defaults to None.
+          
+      telegram_bot_token : str, optional  
+          The Telegram bot token. Defaults to None.
+          
+      telegram_bot_token_env_key : str, optional
+          The environment variable key that holds the Telegram bot token. Defaults to ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY.
+          
+      telegram_bot_name : str, optional
+          The Telegram bot name. Defaults to None.
+          
+      telegram_bot_name_env_key : str, optional 
+          The environment variable key that holds the Telegram bot name. Defaults to ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY.
+          
+      Returns
+      -------
+      tuple 
+          `Pipeline` and a `Instance` objects tuple.
+      """
       assert callable(message_handler), "The `message_handler` method parameter must be provided."
       
       if telegram_bot_token is None:
@@ -1764,6 +1798,115 @@ class GenericSession(BaseDecentrAIObject):
         **kwargs
       )      
       return pipeline, instance
+    
+    
+    def create_telegram_conversational_bot(
+      self,
+      *,
+      node,
+      name,
+      signature=PLUGIN_SIGNATURES.TELEGRAM_CONVERSATIONAL_BOT_01,
+      telegram_bot_token=None,
+      telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
+      telegram_bot_name=None,
+      telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,
+      
+      system_prompt=None,
+      agent_type="API",
+      api_token_env_key=ENVIRONMENT.TELEGRAM_API_AGENT_TOKEN_ENV_KEY,
+      api_token=None,
+      rag_source_url=None,
+      **kwargs
+    ):
+      
+      """
+      Create a new conversational Telegram bot on a node.
+      
+      Parameters
+      ----------
+      
+      node : str
+          Address or Name of the Naeural Edge Protocol edge node that will handle this Telegram bot.
+          
+      name : str
+          Name of the Telegram bot. 
+          
+      signature : str, optional 
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01.
+          
+      telegram_bot_token : str, optional  
+          The Telegram bot token. Defaults to None.
+          
+      telegram_bot_token_env_key : str, optional
+          The environment variable key that holds the Telegram bot token. Defaults to ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY.
+          
+      telegram_bot_name : str, optional
+          The Telegram bot name. Defaults to None.
+          
+      telegram_bot_name_env_key : str, optional 
+          The environment variable key that holds the Telegram bot name. Defaults to ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY.
+          
+      system_prompt : str, optional
+          The system prompt. Defaults to None.
+          
+      agent_type : str, optional
+          The agent type. Defaults to "API".
+          
+      api_token_env_key : str, optional
+          The environment variable key that holds the API token. Defaults to ENVIRONMENT.TELEGRAM_API_AGENT_TOKEN_ENV_KEY.
+          
+      api_token : str, optional 
+          The API token. Defaults to None.
+          
+      rag_source_url : str, optional
+          The RAG database source URL upon which the bot will be able to generate responses. Defaults to None.
+          
+      Returns
+      -------
+      tuple 
+          `Pipeline` and a `Instance` objects tuple.
+      """      
+      if agent_type == "API":
+        if api_token is None:
+          api_token = os.getenv(api_token_env_key)
+          if api_token is None:
+            message = f"Warning! No API token provided as via env {ENVIRONMENT.TELEGRAM_API_AGENT_TOKEN_ENV_KEY} or explicitly as `api_token` param."
+            raise ValueError(message)
+      
+      if telegram_bot_token is None:
+        telegram_bot_token = os.getenv(telegram_bot_token_env_key)
+        if telegram_bot_token is None:
+          message = f"Warning! No Telegram bot token provided as via env {ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY} or explicitly as `telegram_bot_token` param."
+          raise ValueError(message)
+        
+      if telegram_bot_name is None:
+        telegram_bot_name = os.getenv(telegram_bot_name_env_key)
+        if telegram_bot_name is None:
+          message = f"Warning! No Telegram bot name provided as via env {ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY} or explicitly as `telegram_bot_name` param."
+          raise ValueError(message)
+      
+
+      pipeline: Pipeline = self.create_pipeline(
+        node=node,
+        name=name,
+        # default TYPE is "Void"
+      )
+      
+      
+      obfuscated_token = telegram_bot_token[:4] + "*" * (len(telegram_bot_token) - 4)      
+      self.P(f"Creating telegram bot {telegram_bot_name} with token {obfuscated_token}...", color='b')      
+      instance = pipeline.create_plugin_instance(
+        signature=signature,
+        instance_id=self.log.get_unique_id(),
+        telegram_bot_token=telegram_bot_token,
+        telegram_bot_name=telegram_bot_name,
+        system_prompt=system_prompt,
+        agent_type=agent_type,
+        api_token=api_token,
+        rag_source_url=rag_source_url,
+        **kwargs
+      )      
+      return pipeline, instance    
     
 
     def broadcast_instance_command_and_wait_for_response_payload(

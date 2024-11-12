@@ -1,35 +1,39 @@
 import os
+import time
 
-from naeural_client import Session, CustomPluginTemplate, PLUGIN_TYPES
+from naeural_client import Session, CustomPluginTemplate
 
 if __name__ == "__main__":
-  # TELEGRAM_BOT_TOKEN_ENV_KEY = "TELEGRAM_BOT_TOKEN" # we can specify the token here
-  MY_NODE = None # we can specify a node here, if we want to connect to a specific
+  my_node = os.getenv("TARGET_NODE") # we specify a node here
+  
+  if my_node is None:
+    print("Please specify the node to connect to.")
+    exit(1)
   
   SYSTEM_PROMPT = """
   Hi! I am a simple echo bot. I will repeat everything you say to me.
   """
     
   session = Session() # assume .env is available and will be used for the connection and tokens
+  session.wait_for_node(my_node) # wait for the node to be active
 
-  if MY_NODE:
-    node = MY_NODE
-  else:
-    session.wait_for_any_node() # we wait for any node to present itself as active
-    node = session.get_active_nodes()[0] # we get the first active node
-  
-      
+       
   # now we create a telegram bot pipeline & plugin instance
   # we can chose to use the token directly or use the environment key
-  # instance: PLUGIN_TYPES.BASIC_TELEGRAM_BOT_01
   pipeline, _ = session.create_telegram_conversational_bot(
-    node=node,
-    name="telegram_bot_echo",
-    # telegram_bot_token_env_key=TELEGRAM_BOT_TOKEN_ENV_KEY, # this is not mandatory
+    node=my_node,
+    name="telegram_chatbot",
+
+    # telegram_bot_token=None,    # not mantatory - can be used to specify the token directly
+    # telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY, # not mandatory - we can use the default
+    # telegram_bot_name=None,     # not mandatory - can be used to specify the bot name directly
+    # telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY, # not mandatory - we can use the default
+    
     system_prompt=SYSTEM_PROMPT, # simple bot based on system prompt only
-    # rag_source=rag_db_url,    # advanced 
-    # bot_type="API" # "API", "HOSTED"
-    # api_token_env_key="BOT_API_TOKEN", # if bot_type is "API" - this is a default
+    agent_type="API", # "API", "HOSTED"
+    # api_token_env_key=ENVIRONMENT.TELEGRAM_API_AGENT_TOKEN_ENV_KEY, # not mandatory - we can use the default
+    # api_token=None, # not mandatory - can be used to specify the token directly
+    rag_source_url=None, # no rag source for this example
   )
   
   pipeline.deploy() # we deploy the pipeline

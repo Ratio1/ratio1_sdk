@@ -19,21 +19,14 @@ if __name__ == "__main__":
   my_node = os.getenv("TARGET_NODE") # we can specify a node here, if we want to connect to a specific
     
   session = Session() # assume .env is available and will be used for the connection and tokens
-  time.sleep(10) # wait 10 sec to collect network status
-  
-  if my_node:
-    node = my_node
-    session.P(f"Using the specified node: {node}", color='b')
-  else:
-    session.wait_for_any_node() # we wait for any node to present itself as active
-    node = session.get_active_nodes()[0] # we get the first active node
-  
+  session.wait_for_node(my_node) # wait for the node to be active
+    
       
   # now we create a telegram bot pipeline & plugin instance
   # we can chose to use the token directly or use the environment key
-  # instance: PLUGIN_TYPES.BASIC_TELEGRAM_BOT_01  
+  # instance: PLUGIN_TYPES.TELEGRAM_BASIC_BOT_01  
   pipeline, _ = session.create_telegram_simple_bot(
-    node=node,
+    node=my_node,
     name="telegram_bot_echo",
     # telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),  # we use the token directly
     # telegram_bot_token_env_key=TELEGRAM_BOT_TOKEN_ENV_KEY, # not mandatory - we can use the default
