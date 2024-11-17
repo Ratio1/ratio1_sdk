@@ -1,6 +1,11 @@
 EE_ID = 'EE_ID'
 SB_ID = 'SB_ID'  # change to SB_ID = EE_ID post mod from sb to ee
 
+BLOCKCHAIN_CONFIG = {
+    "PEM_FILE": "_pk_sdk.pem",
+    "PASSWORD": None,
+    "PEM_LOCATION": "data"
+}
 
 class DCT_TYPES:
   VOID_PIPELINE = 'Void'

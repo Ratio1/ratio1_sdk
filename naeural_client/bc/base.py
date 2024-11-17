@@ -39,6 +39,7 @@ class BCct:
   DEFAULT_INFO = '0xai handshake data'
   
   
+  
 class _DotDict(dict):
   __getattr__ = dict.__getitem__
   __setattr__ = dict.__setitem__
@@ -269,7 +270,7 @@ class BaseBlockEngine:
   _lock: Lock = Lock()
   __instances = {}
   
-  def __new__(cls, name, config, log, ensure_ascii_payloads=False, verbosity=1):
+  def __new__(cls, name, log, config, ensure_ascii_payloads=False, verbosity=1):
     with cls._lock:
       if name not in cls.__instances:
         instance = super(BaseBlockEngine, cls).__new__(cls)
