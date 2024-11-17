@@ -9,7 +9,7 @@ from time import time as tm
 
 from ..base_decentra_object import BaseDecentrAIObject
 from ..bc import DefaultBlockEngine
-from ..const import COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, PLUGIN_SIGNATURES
+from ..const import COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, PLUGIN_SIGNATURES, BLOCKCHAIN_CONFIG
 from ..const import comms as comm_ct
 from ..io_formatter import IOFormatterWrapper
 from ..logging import Logger
@@ -44,11 +44,6 @@ class GenericSession(BaseDecentrAIObject):
       "CERT_PATH": None,
   }
 
-  BLOCKCHAIN_CONFIG = {
-      "PEM_FILE": "_pk_sdk.pem",
-      "PASSWORD": None,
-      "PEM_LOCATION": "data"
-  }
 
   def __init__(self, *,
                host=None,
