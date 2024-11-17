@@ -301,10 +301,10 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     """
     if compressed:
       to_encrypt_data = zlib.compress(plaintext.encode())
-      compressed_flag = (1).to_bytes(1)
+      compressed_flag = (1).to_bytes(1, byteorder='big')
     else:
       to_encrypt_data = plaintext.encode()
-      compressed_flag = (0).to_bytes(1)
+      compressed_flag = (0).to_bytes(1, byteorder='big')
       
     receiver_pk = self._address_to_pk(receiver_address)
     shared_key = self.__derive_shared_key(receiver_pk, info=info, debug=debug)
