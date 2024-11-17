@@ -271,8 +271,8 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     self, 
     plaintext: str, 
     receiver_address: str, 
-    compressed: bool = False,
-    embed_compressed: bool = False,
+    compressed: bool = True,
+    embed_compressed: bool = True,
     info: str = BCct.DEFAULT_INFO, 
     debug: bool = False
   ):
@@ -289,7 +289,10 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
         The plaintext to encrypt.
         
     compressed : bool, optional
-        Whether to compress the plaintext before encryption. The default is False.
+        Whether to compress the plaintext before encryption. The default is True.
+        
+    embed_compressed : bool, optional
+        Whether to embed the compressed flag in the encrypted data. The default is True.
 
     Returns
     -------
@@ -319,13 +322,18 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     self, 
     encrypted_data_b64 : str, 
     sender_address : str, 
-    decompress: bool = False,
-    embed_compressed: bool = False,
+    decompress: bool = False, # decompress is only used if embed_compressed is False
+    embed_compressed: bool = True,
     info: str = BCct.DEFAULT_INFO, 
     debug: bool = False
   ):
     """
     Decrypts base64 encoded encrypted data using the receiver's private key.
+    
+    The structure of the encrypted data is:
+    - 12 bytes nonce
+    - 1 byte compressed flag 
+    - 13:... The ciphertext
 
     Parameters
     ----------        
@@ -334,6 +342,13 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
         
     sender_address : str
         The sender's address.
+        
+    decompress : bool, optional
+        Whether to decompress the plaintext after decryption. The default is False as the decompression flag is embedded in the encrypted data.
+        
+    embed_compressed : bool, optional
+        Whether the compressed flag is embedded in the encrypted data. The default is True.
+        
         
     Returns
     -------
