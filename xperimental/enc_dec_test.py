@@ -44,9 +44,9 @@ if __name__ == '__main__' :
   l.P("Non compressed test", color='g')  
   str_data = json.dumps(data)
   l.P(f"Data size: {len(str_data)}")  
-  encdata = eng1.encrypt(plaintext=str_data, receiver_address=eng2.address)
+  encdata = eng1.encrypt(plaintext=str_data, receiver_address=eng2.address, compressed=False, embed_compressed=False)
   l.P(f"Encrypted data (size: {len(encdata)}): {encdata}")  
-  decdata = eng2.decrypt(encrypted_data_b64=encdata, sender_address=eng1.address)
+  decdata = eng2.decrypt(encrypted_data_b64=encdata, sender_address=eng1.address, decompress=False, embed_compressed=False) 
   l.P(f"Decrypted data:\n {json.dumps(json.loads(decdata), indent=2)}")
   
   l.P("Compressed test", color='g')  
@@ -64,3 +64,11 @@ if __name__ == '__main__' :
   l.P(f"Encrypted data (size: {len(encdata)}): {encdata}")  
   decdata = eng2.decrypt(encrypted_data_b64=encdata, sender_address=eng1.address, embed_compressed=True) # decompress does not matter
   l.P(f"Decrypted data:\n {json.dumps(json.loads(decdata), indent=2)}")    
+  
+  l.P("Default test", color='g')  
+  str_data = json.dumps(data)
+  l.P(f"Data size: {len(str_data)}")  
+  encdata = eng1.encrypt(plaintext=str_data, receiver_address=eng2.address)
+  l.P(f"Encrypted data (size: {len(encdata)}): {encdata}")  
+  decdata = eng2.decrypt(encrypted_data_b64=encdata, sender_address=eng1.address)
+  l.P(f"Decrypted data:\n {json.dumps(json.loads(decdata), indent=2)}")      
