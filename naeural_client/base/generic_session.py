@@ -17,8 +17,11 @@ from ..utils import load_dotenv
 from .payload import Payload
 from .pipeline import Pipeline
 from .transaction import Transaction
+from ..utils.config import load_user_defined_config
 
 # TODO: add support for remaining commands from EE
+
+DEBUG_MQTT_SERVER = "r9092118.ala.eu-central-1.emqxsl.com"
 
 
 class GenericSession(BaseDecentrAIObject):
@@ -780,15 +783,19 @@ class GenericSession(BaseDecentrAIObject):
       host : str
           The hostname of the server.
           Can be retrieved from the environment variables AIXP_HOSTNAME, AIXP_HOST
+          
       port : int
           The port.
           Can be retrieved from the environment variable AIXP_PORT
+          
       user : str
           The user name.
           Can be retrieved from the environment variables AIXP_USERNAME, AIXP_USER
+          
       pwd : str
           The password.
           Can be retrieved from the environment variables AIXP_PASSWORD, AIXP_PASS, AIXP_PWD
+          
       dotenv_path : str, optional
           Path to the .env file, by default None. If None, the path will be searched in the current working directory and in the directories of the files from the call stack.
 
@@ -798,11 +805,13 @@ class GenericSession(BaseDecentrAIObject):
           Missing credentials
       """
 
-      # this method will search for the credentials in the environment variables
-      # the path to env file, if not specified, will be search in the following order:
-      #  1. current working directory
-      #  2-N. directories of the files from the call stack
-      load_dotenv(dotenv_path=dotenv_path, verbose=False)
+      # if the ~/.naeural/config file exists, load the credentials from there else try to load them from .env
+      if not load_user_defined_config():        
+        # this method will search for the credentials in the environment variables
+        # the path to env file, if not specified, will be search in the following order:
+        #  1. current working directory
+        #  2-N. directories of the files from the call stack
+        load_dotenv(dotenv_path=dotenv_path, verbose=False)
 
       possible_user_values = [
         user,
@@ -849,7 +858,7 @@ class GenericSession(BaseDecentrAIObject):
         os.getenv(ENVIRONMENT.EE_HOST),
         os.getenv(ENVIRONMENT.EE_MQTT_HOST),
         self._config.get(comm_ct.HOST),
-        "r9092118.ala.eu-central-1.emqxsl.com",
+        DEBUG_MQTT_SERVER,
       ]
 
       host = next((x for x in possible_host_values if x is not None), None)

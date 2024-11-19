@@ -12,6 +12,8 @@ from copy import deepcopy
 
 from cryptography.hazmat.primitives import serialization
 
+from ..utils.config import get_user_folder
+
 
 class BCct:
   SIGN      = 'EE_SIGN'
@@ -21,6 +23,7 @@ class BCct:
   ADDR_PREFIX_OLD = "aixp_"
   ADDR_PREFIX   = "0xai_"
   
+  K_USER_CONFIG_PEM_FILE = 'NAEURAL_PEM_FILE'
   K_PEM_FILE = 'PEM_FILE'
   K_PASSWORD = 'PASSWORD'
   K_PEM_LOCATION = 'PEM_LOCATION'
@@ -270,7 +273,7 @@ class BaseBlockEngine:
   _lock: Lock = Lock()
   __instances = {}
   
-  def __new__(cls, name, log, config, ensure_ascii_payloads=False, verbosity=1):
+  def __new__(cls, name, log, config, ensure_ascii_payloads=False, verbosity=1, user_config=False):
     with cls._lock:
       if name not in cls.__instances:
         instance = super(BaseBlockEngine, cls).__new__(cls)
@@ -278,6 +281,7 @@ class BaseBlockEngine:
           name=name, log=log, config=config, 
           ensure_ascii_payloads=ensure_ascii_payloads,
           verbosity=verbosity,
+          user_config=user_config,
         )
         cls.__instances[name] = instance
       else:
@@ -291,6 +295,7 @@ class BaseBlockEngine:
       log=None, 
       ensure_ascii_payloads=False,
       verbosity=1,
+      user_config=False,
     ):
 
     self.__name = name
@@ -304,11 +309,15 @@ class BaseBlockEngine:
     self.__config = config
     self.__ensure_ascii_payloads = ensure_ascii_payloads
     
-    pem_name = config.get(BCct.K_PEM_FILE, '_pk.pem')
-    pem_folder = config.get(BCct.K_PEM_LOCATION, 'data')
-    pem_fn = os.path.join(log.get_target_folder(pem_folder), pem_name)
+    if user_config:
+      user_folder = get_user_folder()
+      pem_fn = str(user_folder / '_naeural.pem')
+    else:
+      pem_name = config.get(BCct.K_PEM_FILE, '_pk.pem')
+      pem_folder = config.get(BCct.K_PEM_LOCATION, 'data')
+      pem_fn = os.path.join(log.get_target_folder(pem_folder), pem_name)
+    #endif pem is defined in ~/.naeural/config
     self.__pem_file = pem_fn
-    
     self._init()
     return
   
