@@ -192,6 +192,11 @@ class GenericSession(BaseDecentrAIObject):
 
     self._connect()
 
+    self.P("Created {} comms session '{}' from <{}> SDKv{}.".format(
+      "decrypted" if not self.encrypt_comms else "encrypted", 
+      self.name, self.bc_engine.address, self.log.version
+    ))
+    
     if not self.encrypt_comms:
       self.P(
         "Warning: Emitted messages will not be encrypted.\n"

@@ -380,5 +380,9 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       
       result = plaintext.decode()
     except Exception as exc:
+      if debug:
+        self.P("Error decrypting from <{}> (compressed_flag `{}`): {}".format(
+          sender_address, compressed_flag, exc), color='r'
+        )
       result = None
     return result
