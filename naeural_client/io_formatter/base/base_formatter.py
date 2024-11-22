@@ -70,7 +70,8 @@ class BaseFormatter(object):
       output = self._decode_output(encoded_output)
     except Exception as e:
       output = {}
-      msg = "ERROR! Could not decode {}\n{}".format(encoded_output, e)
+      encoded_output_for_print = {k: v for k, v in encoded_output.items() if k != PAYLOAD_DATA.EE_ENCRYPTED_DATA}
+      msg = "ERROR! Could not decode {}\n{}".format(encoded_output_for_print, e)
       self.P(msg)
       self.P(traceback.format_exc(), color='r')
     # end try-except
