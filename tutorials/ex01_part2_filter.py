@@ -98,7 +98,7 @@ class MessageHandler:
       message = "Recv data from <{}::{}::{}::{}>\n".format(
         addr, pipeline_name, plugin_signature, plugin_instance
       )
-      # the actual data is stored in the data.data attribute of the Payload UserDict object
+      # the actual data is stored in the data.data attribute of the Payload UserDic+-t object
       # now we just copy some data as a naive example
       self.last_data = {
         k:v for k,v in data.data.items() 

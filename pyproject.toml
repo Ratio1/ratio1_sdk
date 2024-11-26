@@ -26,10 +26,7 @@ dependencies = [
   "cryptography>=39.0.0",
   "python-dateutil",
   "pyaml",
-  "eth-hash[pycryptodome]",
-  "eth-keys",
-  "eth-abi",
-  "eth-utils"
+  "web3"
 ]
 
 [project.urls]

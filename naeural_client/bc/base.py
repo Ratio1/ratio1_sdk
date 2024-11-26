@@ -364,7 +364,10 @@ class BaseBlockEngine:
       )
     self.__public_key = self._get_pk(private_key=self.__private_key)    
     self.__address = self._pk_to_address(self.__public_key)
+    ### Ethereum
     self.__eth_address = self._get_eth_address()
+    self.__eth_account = self._get_eth_account()
+    ### end Ethereum
     self.P("Address: {} / ETH: {}".format(self.address, self.eth_address), boxed=True, verbosity=1)
     self.P("Allowed list of senders: {}".format(self.allowed_list), verbosity=1)
     return
@@ -745,6 +748,19 @@ class BaseBlockEngine:
 
     """
     raise NotImplementedError()
+  
+  
+  def _get_eth_acccount(self):
+    """
+    Returns the Ethereum account for the current sk
+
+    Returns
+    -------
+    eth_account : str
+      the Ethereum account.
+
+    """
+    raise NotImplementedError()
     
       
   
@@ -1073,7 +1089,15 @@ class BaseBlockEngine:
     """
     raise NotImplementedError()
   
+  
+  ### Ethereum
+  
   @property
   def eth_address(self):
     return self.__eth_address
   
+  @property
+  def eth_account(self):
+    return self.__eth_account
+  
+  ### end Ethereum
