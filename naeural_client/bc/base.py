@@ -365,7 +365,7 @@ class BaseBlockEngine:
     self.__public_key = self._get_pk(private_key=self.__private_key)    
     self.__address = self._pk_to_address(self.__public_key)
     self.__eth_address = self._get_eth_address()
-    self.P("Current address: {}".format(self.address), boxed=True, verbosity=1)
+    self.P("Address: {} / ETH: {}".format(self.address, self.eth_address), boxed=True, verbosity=1)
     self.P("Allowed list of senders: {}".format(self.allowed_list), verbosity=1)
     return
   
