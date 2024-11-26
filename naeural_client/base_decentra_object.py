@@ -24,6 +24,7 @@ class BaseDecentrAIObject(object):
                show_prefixes=False,
                prefix_log=None,
                log_at_startup=False,
+               silent=False,
                **kwargs):
 
     super(BaseDecentrAIObject, self).__init__()
@@ -32,7 +33,13 @@ class BaseDecentrAIObject(object):
       if not create_logger:
         raise ValueError("Logger object is invalid: {}".format(log))
       else:
-        log = Logger("DEF", DEBUG=DEBUG, base_folder='.', app_folder='_local_cache')
+        log = Logger(
+          "DEF", 
+          DEBUG=DEBUG, 
+          base_folder='.', 
+          app_folder='_local_cache',
+          silent=silent,
+        )
     # endif
 
     self.log = log
@@ -79,7 +86,6 @@ class BaseDecentrAIObject(object):
         msg = "{} {}".format(self.prefix_log, s)
       # endif
     # endif
-
     _r = self.log.P(msg, show_time=t, color=color, **kwargs)
     return _r
 

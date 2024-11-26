@@ -78,7 +78,8 @@ class BaseLogger(object):
               DEBUG=True,
               data_config_subfolder=None,
               check_additional_configs=False,
-              append_spaces=True,
+              append_spaces=True,    
+              silent=False,          
               default_color='n',
               ):
 
@@ -91,6 +92,7 @@ class BaseLogger(object):
     self.no_folders_no_save = no_folders_no_save
     self.max_lines = max_lines
     self.HTML = HTML
+    self.silent = silent
     self.DEBUG = DEBUG
     self.log_suffix = lib_name
     self.default_color = default_color
@@ -145,13 +147,15 @@ class BaseLogger(object):
     
     # START: bundling -- se also properties
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+      if not self.silent:
         print('  Running in a PyInstaller bundle')
-        self.__is_bundled = True
-        self.__bundle_path = sys._MEIPASS
+      self.__is_bundled = True
+      self.__bundle_path = sys._MEIPASS
     else:
+      if not self.silent:
         print('  Running in a normal Python process')
-        self.__is_bundled = False
-        self.__bundle_path = None
+      self.__is_bundled = False
+      self.__bundle_path = None
     # END: bundling -- se also properties
     
     self.analyze_processor_platform()
@@ -187,7 +191,7 @@ class BaseLogger(object):
       color='green',
       boxed=True,
     )
-    self.verbose_log("  Timezone: {}.".format(self.timezone),color='green')
+    self.P("  Timezone: {}.".format(self.timezone),color='green')
 
 
     if self.DEBUG:
@@ -634,10 +638,10 @@ class BaseLogger(object):
                     
 
 
-  def _logger(self, logstr, show=True, noprefix=False, show_time=False, color=None):
+  def _logger(self, logstr, show=None, noprefix=False, show_time=False, color=None):
     """
     log processing method
-    """
+    """    
     with self.managed_lock_logger():
       # now that we have locking in place we no longer need to cancel in-thread logging    
       # if not self.is_main_thread:
@@ -722,7 +726,9 @@ class BaseLogger(object):
     # endfor
     return
 
-  def _add_log(self, logstr, show=True, noprefix=False, show_time=False, color=None):
+  def _add_log(self, logstr, show=None, noprefix=False, show_time=False, color=None):
+    if show is None:
+      show = not self.silent    
     if type(logstr) != str:
       logstr = str(logstr)
     if logstr == "":
@@ -747,17 +753,18 @@ class BaseLogger(object):
     if show_time:
       logstr += " [{:.2f}s]".format(elapsed)
     print_logstr = logstr
+    if color is None:
+      color = self.default_color
+      if not self.__first_print and show:
+        if not self.silent:
+          BaseLogger.print_color("<Logging with default color: {}>".format(color), color=color)
+        self.__first_print = True
     if show:
       if self.append_spaces:
         spaces = " " * max(60 - len(print_logstr), 0)
       else:
         spaces = ''
       print_logstr = print_logstr + spaces
-      if color is None:
-        color = self.default_color
-        if not self.__first_print:
-          BaseLogger.print_color("<Logging with default color: {}>".format(color), color=color)
-          self.__first_print = True
       #endif use default color
       BaseLogger.print_color(print_logstr, color=color)
     if color.lower()[0] in ['e', 'r']:
@@ -841,16 +848,36 @@ class BaseLogger(object):
       )
       return
 
-  def verbose_log(self, str_msg, show_time=False, noprefix=False, color=None):
+  def verbose_log(self, str_msg, show_time=False, noprefix=False, color=None, show=None):
     return self._logger(
       str_msg,
-      show=True,
+      show=show,
       show_time=show_time,
       noprefix=noprefix, color=color
     )
 
-  def P(self, str_msg, show_time=False, noprefix=False, color=None, boxed=False, **kwargs):
-    return self.p(str_msg, show_time=show_time, noprefix=noprefix, color=color, boxed=boxed, **kwargs)
+  def P(
+    self, 
+    str_msg, 
+    show_time=False, 
+    noprefix=False, 
+    color=None, 
+    boxed=False, 
+    show=None, 
+    **kwargs
+  ):
+    """
+    Will print & log a message. If show is None it will be set to not self.silent.
+    """
+    return self.p(
+      str_msg, 
+      show_time=show_time, 
+      noprefix=noprefix, 
+      color=color, 
+      boxed=boxed, 
+      show=show,
+      **kwargs
+    )
 
   def D(self, str_msg, show_time=False, noprefix=False, color=None, **kwargs):
     if False:
@@ -891,17 +918,18 @@ class BaseLogger(object):
 
     return msg
 
-  def p(self, str_msg, show_time=False, noprefix=False, color=None, boxed=False, **kwargs):
+  def p(self, str_msg, show_time=False, noprefix=False, color=None, boxed=False, show=None, **kwargs):
     if boxed:
       msg = self.__convert_to_box(str_msg, **kwargs)
-      self._logger(msg, show=True, noprefix=noprefix, color=color)
+      self._logger(msg, show=show, noprefix=noprefix, color=color)
     else:
       return self._logger(
         str_msg,
-        show=True,
+        show=show,
         show_time=show_time,
         noprefix=noprefix, color=color
       )
+      
 
   def Pmd(self, s=''):
     print_func = None
@@ -955,10 +983,10 @@ class BaseLogger(object):
     if type(str_text) != str:
       str_text = str(str_text)
     str_final = str_msg + "\n" + textwrap.indent(str_text, n * " ")
-    self._logger(str_final, show=True, show_time=False)
+    self._logger(str_final, show=None, show_time=False)
     return
 
-  def log(self, str_msg, show=False, show_time=False, color=None):
+  def log(self, str_msg, show=None, show_time=False, color=None):
     return self._logger(str_msg, show=show, show_time=show_time, color=color)
 
   def _generate_log_path(self):
@@ -1037,7 +1065,8 @@ class BaseLogger(object):
         self._app_folder = self.config_data["APP_FOLDER"]
       #endif no defaults for base/app folders
 
-      print("Loaded config [{}]".format(config_file), flush=True)
+      if not self.silent:
+        print("Loaded config [{}]".format(config_file), flush=True)
       self.config_file = config_file
     else:
       self.config_data = {
@@ -1045,6 +1074,8 @@ class BaseLogger(object):
         'APP_FOLDER' : self._app_folder
       }
       self.config_file = "default_config.txt"
+      if not self.silent:
+        print("No config file provided. Using default config.", flush=True)
     #endif have or not config file
     
     self.config_data = {
@@ -1053,13 +1084,18 @@ class BaseLogger(object):
     }
     
     matches = self.replace_secrets(self.config_data)
-    print("  Config modified with following env vars: {}".format(matches))
+    if not self.silent:    
+      if len(matches) > 0:
+        print("  Config modified with following env vars: {}".format(matches))
+      else:
+        print("  No secrets/template found in config")
 
     self._base_folder = self.expand_tilda(self._base_folder)
     self._base_folder = self._get_cloud_base_folder(self._base_folder)
     self._root_folder = os.path.abspath(self._base_folder)
     self._base_folder = os.path.join(self._base_folder, self._app_folder)
-    print("BASE: {}".format(self._base_folder), flush=True)
+    if not self.silent:
+      print("BASE: {}".format(self._base_folder), flush=True)
 
     self._normalize_path_sep()
 

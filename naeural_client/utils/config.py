@@ -20,6 +20,12 @@ def get_user_folder():
   """
   return Path.home() / ".naeural"
 
+def get_user_config_file():
+  """
+  Returns the user configuration file.
+  """
+  return get_user_folder() / "config"
+
 def reset_config():
   """
   Resets the configuration by creating a ~/.naeural folder and populating
@@ -27,8 +33,8 @@ def reset_config():
   """
   # Define the target config folder and file
   config_dir = get_user_folder()
-  config_file = config_dir / "config"
-
+  config_file = get_user_config_file()
+  
   # Create the ~/.naeural folder if it doesn't exist
   config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -49,7 +55,7 @@ def show_config():
   """
   Displays the current configuration from ~/.naeural/config.
   """
-  config_file = get_user_folder() / "config"
+  config_file = get_user_config_file()
 
   if config_file.exists():
     print(f"Current configuration ({config_file}):")
@@ -63,7 +69,7 @@ def load_user_defined_config(verbose=False):
   """
   Loads the ~/.naeural/config file into the current environment.
   """
-  config_file = get_user_folder() / "config"
+  config_file = get_user_config_file()
   result = False
 
   if config_file.exists():
@@ -89,7 +95,7 @@ def maybe_init_config():
   """
   Initializes the configuration if it doesn't exist yet.
   """
-  config_file = get_user_folder() / "config"
+  config_file = get_user_config_file()
 
   if not config_file.exists():
     reset_config()

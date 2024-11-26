@@ -48,7 +48,7 @@ class MessageHandler:
     session.P("{} ({}) has {}".format(
       heartbeat['EE_ID'], 
       self.shorten_address(node_addr), 
-      heartbeat["CPU"])
+      heartbeat["CPU"]),
     )
     return
 
@@ -106,7 +106,7 @@ class MessageHandler:
       }
       message += "{}".format(json.dumps(self.last_data, indent=2))
       color = 'g'
-    session.P(message, color=color)
+    session.P(message, color=color, show=True, noprefix=True)
     return
 
 
@@ -119,6 +119,7 @@ if __name__ == '__main__':
   session = Session(
       on_heartbeat=filterer.on_heartbeat,
       on_payload=filterer.on_data,
+      silent=True,
   )
 
 
