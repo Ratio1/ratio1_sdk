@@ -747,7 +747,7 @@ class BaseLogger(object):
       logstr = logstr[1:]
       prefix = "\n" + prefix
     res_log = logstr
-    if len(logstr) == 0 or logstr[0] != '[':
+    if (len(logstr) == 0 or logstr[0] != '[') and not noprefix:
       prefix = prefix + ' '
     logstr = prefix + logstr
     if show_time:

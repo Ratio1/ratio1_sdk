@@ -362,8 +362,9 @@ class BaseBlockEngine:
         password=self.__password,
         fn=self.__pem_file,
       )
-    self.__public_key = self._get_pk(private_key=self.__private_key)
+    self.__public_key = self._get_pk(private_key=self.__private_key)    
     self.__address = self._pk_to_address(self.__public_key)
+    self.__eth_address = self._get_eth_address()
     self.P("Current address: {}".format(self.address), boxed=True, verbosity=1)
     self.P("Allowed list of senders: {}".format(self.allowed_list), verbosity=1)
     return
@@ -371,6 +372,11 @@ class BaseBlockEngine:
   @property
   def private_key(self):
     return self.__private_key
+  
+  
+  @property
+  def public_key(self):
+    return self.private_key.public_key()
   
  
   @staticmethod
@@ -726,6 +732,19 @@ class BaseBlockEngine:
 
     """
     raise NotImplementedError()  
+  
+  
+  def _get_eth_address(self):
+    """
+    Returns the Ethereum address for the current pk
+
+    Returns
+    -------
+    eth_address : str
+      the Ethereum address.
+
+    """
+    raise NotImplementedError()
     
       
   
@@ -1053,4 +1072,8 @@ class BaseBlockEngine:
 
     """
     raise NotImplementedError()
+  
+  @property
+  def eth_address(self):
+    return self.__eth_address
   

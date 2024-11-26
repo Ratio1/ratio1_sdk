@@ -11,6 +11,8 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from eth_utils import keccak
+
 from .base import BaseBlockEngine, VerifyMessage, BCct
 
 
@@ -233,6 +235,21 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       data=bpublic_key
     )
     return public_key
+  
+
+  def _get_eth_address(self):
+    pk = self.public_key
+    raw_public_key = pk.public_numbers()
+
+    # Compute Ethereum-compatible address
+    x = raw_public_key.x.to_bytes(32, 'big')
+    y = raw_public_key.y.to_bytes(32, 'big')
+    uncompressed_key = b'\x04' + x + y
+    keccak_hash = keccak(uncompressed_key[1:])  # Remove 0x04 prefix
+    eth_address = "0x" + keccak_hash[-20:].hex()
+
+    return eth_address    
+  
 
   def __derive_shared_key(self, peer_public_key : str, info : str = BCct.DEFAULT_INFO, debug : bool = False):
     """
@@ -386,3 +403,5 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
         )
       result = None
     return result
+  
+  
