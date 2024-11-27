@@ -31,8 +31,9 @@ def log_with_color(s, color='n'):
       'r': '\033[31m',  # Red
       'g': '\033[32m',  # Green
       'y': '\033[33m',  # Yellow
-      'b': '\033[34m',  # Blue
+      'b': "\x1b[1;34m",  # bright blue
       'w': '\033[97m',  # Light white
+      'c': "\x1b[1;36m",  # bright cyan
       'n': '\033[37m',  # Dark white (default)
   }
 
