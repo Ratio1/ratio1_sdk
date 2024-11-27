@@ -31,8 +31,9 @@ def log_with_color(s, color='n'):
       'r': '\033[31m',  # Red
       'g': '\033[32m',  # Green
       'y': '\033[33m',  # Yellow
-      'b': '\033[34m',  # Blue
+      'b': "\x1b[1;34m",  # bright blue
       'w': '\033[97m',  # Light white
+      'c': "\x1b[1;36m",  # bright cyan
       'n': '\033[37m',  # Dark white (default)
   }
 
@@ -53,7 +54,7 @@ def get_user_config_file():
   """
   return get_user_folder() / "config"
 
-def reset_config():
+def reset_config(args):
   """
   Resets the configuration by creating a ~/.naeural folder and populating
   ~/.naeural/config with values from a local .env file, if it exists.
@@ -78,7 +79,7 @@ def reset_config():
     log_with_color(f"Configuration has been reset to default in {config_file}:\n{ENV_TEMPLATE}", color='y')
 
 
-def show_config():
+def show_config(args):
   """
   Displays the current configuration from ~/.naeural/config.
   """

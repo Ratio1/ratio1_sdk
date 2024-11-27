@@ -4,7 +4,7 @@ class COLORS:
   TIMERS = 'd'
   STATUS = 'n'
   SERVING = 'm'
-  BIZ = 'b'
+  BIZ = 'c'
   COMM = 'y'
   TIMERS = 'd'
 

@@ -35,6 +35,8 @@ COLORS = {
   'y': "\x1b[1;33m",
   'b': "\x1b[1;34m",
   'm': "\x1b[1;35m",
+  'c': "\x1b[1;36m",  # bright cyan
+  'v': "\x1b[0;36m",  # dim cyan  
   'a': "\x1b[41m",
   'e': "\x1b[41m",
   'w': "\x1b[1;31m", # warning == red
