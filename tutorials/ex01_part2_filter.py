@@ -119,7 +119,7 @@ if __name__ == '__main__':
   session = Session(
       on_heartbeat=filterer.on_heartbeat,
       on_payload=filterer.on_data,
-      silent=True,
+      # silent=True,
   )
 
 
