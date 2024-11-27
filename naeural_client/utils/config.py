@@ -14,6 +14,33 @@ EE_SECURED=true
 TARGET_NODE=
 """
 
+def log_with_color(s, color='n'):
+  """
+  Prints the string `s` to the console in the specified color.
+
+  Parameters
+  ----------
+  s : str
+      The string to be logged.
+  color : str, optional
+      The color code: 
+      'r' for red, 'g' for green, 'y' for yellow, 
+      'b' for blue, 'w' for light white, 'n' for dark white (default).
+  """
+  color_codes = {
+      'r': '\033[31m',  # Red
+      'g': '\033[32m',  # Green
+      'y': '\033[33m',  # Yellow
+      'b': '\033[34m',  # Blue
+      'w': '\033[97m',  # Light white
+      'n': '\033[37m',  # Dark white (default)
+  }
+
+  reset_code = '\033[0m'  # Reset color
+  color_code = color_codes.get(color, color_codes['n'])
+  print(f"{color_code}{s}{reset_code}", flush=True)
+
+
 def get_user_folder():
   """
   Returns the user folder.
@@ -43,12 +70,12 @@ def reset_config():
   if current_env_file.exists():
     # Copy .env content to ~/.naeural/config
     shutil.copy(current_env_file, config_file)
-    print(f"Configuration has been reset using {current_env_file} into {config_file}")
+    log_with_color(f"Configuration has been reset using {current_env_file} into {config_file}", color='y')
   else:
     # Create an empty config file
     with config_file.open("wt") as file:
       file.write(ENV_TEMPLATE)
-    print(f"Configuration has been reset to default in {config_file}:\n{ENV_TEMPLATE}")
+    log_with_color(f"Configuration has been reset to default in {config_file}:\n{ENV_TEMPLATE}", color='y')
 
 
 def show_config():
@@ -58,11 +85,12 @@ def show_config():
   config_file = get_user_config_file()
 
   if config_file.exists():
-    print(f"Current configuration ({config_file}):")
+    log_with_color(f"Current configuration ({config_file}):")
     with config_file.open("r") as file:
-      print(file.read())
+      log_with_color(file.read())
   else:
-    print(f"No configuration found at {config_file}. Please run `reset_config` first.")
+    log_with_color(f"No configuration found at {config_file}. Please run `reset_config` first.", color="r")
+  return
     
 
 def load_user_defined_config(verbose=False):
@@ -84,10 +112,10 @@ def load_user_defined_config(verbose=False):
             result = True
           os.environ[key.strip()] = value
     if verbose:
-      print(f"Configuration from {config_file} has been loaded into the environment.")
+      log_with_color(f"Configuration from {config_file} has been loaded into the environment.", color='b')
   else:
     if verbose:
-      print(f"No configuration file found at {config_file}. Please run `reset_config` first.")
+      log_with_color(f"No configuration file found at {config_file}. Please run `reset_config` first.", color="r")
   return result
   
 

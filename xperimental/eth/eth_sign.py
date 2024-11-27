@@ -41,24 +41,23 @@ if __name__ == '__main__' :
   types = ["string", "uint256[]", "uint256[]"]
   values = [node, epochs, epochs_vals]
   
-  # hash1 = eng1.eth_sign_message(types, values)
   
-  # from web3 import Web3
-  # from eth_account import Account
-  # from eth_account.messages import encode_defunct
+  from web3 import Web3
+  from eth_account import Account
+  from eth_account.messages import encode_defunct
   
-  # message_hash = Web3.solidity_keccak(types, values)
-  # signable_message = encode_defunct(primitive=message_hash)
-  # signed_message = Account.sign_message(signable_message, private_key=private_key)
+  message_hash = Web3.solidity_keccak(types, values)
+  signable_message = encode_defunct(primitive=message_hash)
+  signed_message = Account.sign_message(signable_message, private_key=private_key)
   
-  # results = {
-  #   "sender" : eng1.eth_address,
-  #   "message_hash": message_hash.hex(),
-  #   "signature": signed_message.signature.hex(),
-  #   "signed_message": signed_message.message_hash.hex(),
-  # }
-  # l.P("Signable message: {}".format(signable_message))
-  # l.P("Results:\n{}".format(json.dumps(results, indent=2)))
+  results = {
+    "sender" : eng1.eth_address,
+    "message_hash": message_hash.hex(),
+    "signature": signed_message.signature.hex(),
+    "signed_message": signed_message.message_hash.hex(),
+  }
+  l.P("Signable message: {}".format(signable_message))
+  l.P("Results:\n{}".format(json.dumps(results, indent=2)))
   
   s2 = eng1.eth_sign_message(types, values)
   l.P("Results:\n{}".format(json.dumps(s2, indent=2)))
