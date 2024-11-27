@@ -16,8 +16,7 @@ def build_parser():
   """
   descr = f"nepctl v{version} - CLI for Naeural Edge Protocol SDK package"
   
-  log_with_color(descr, color="w")
-  
+ 
   parser = argparse.ArgumentParser(description=descr)
   subparsers = parser.add_subparsers(dest="command", help="Available commands")
 

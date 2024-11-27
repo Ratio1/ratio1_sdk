@@ -480,13 +480,17 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     message_hash = self.eth_hash_message(types, values, as_hex=False)
     signable_message = encode_defunct(primitive=message_hash)
     signed_message = Account.sign_message(signable_message, private_key=self.eth_account.key)
+    if hasattr(signed_message, "message_hash"): # backward compatibility
+      signed_message_hash = signed_message.message_hash
+    else:
+      signed_message_hash = signed_message.messageHash
     return {
         "message_hash": message_hash.hex(),
         "r": hex(signed_message.r),
         "s": hex(signed_message.s),
         "v": signed_message.v,
         "signature": signed_message.signature.hex(),
-        "signed_message": signed_message.message_hash.hex(),
+        "signed_message": signed_message_hash.hex(),
         "sender" : self.eth_address,
     }
     
