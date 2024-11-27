@@ -20,3 +20,29 @@ def get_supervisors():
   """
   log_with_color("Getting supervisors information", color='b')
   return
+
+
+def restart_node(args):
+  """
+  This function is used to restart the node.
+  
+  Parameters
+  ----------
+  args : argparse.Namespace
+      Arguments passed to the function.
+  """
+  log_with_color(f"Restarting node {args.node}", color='b')
+  return
+
+
+def shutdown_node(args):
+  """
+  This function is used to shutdown the node.
+  
+  Parameters
+  ----------
+  args : argparse.Namespace
+      Arguments passed to the function.
+  """
+  log_with_color(f"Shutting down node {args.node}", color='b')
+  return
