@@ -53,7 +53,7 @@ def get_user_config_file():
   """
   return get_user_folder() / "config"
 
-def reset_config():
+def reset_config(args):
   """
   Resets the configuration by creating a ~/.naeural folder and populating
   ~/.naeural/config with values from a local .env file, if it exists.
@@ -78,7 +78,7 @@ def reset_config():
     log_with_color(f"Configuration has been reset to default in {config_file}:\n{ENV_TEMPLATE}", color='y')
 
 
-def show_config():
+def show_config(args):
   """
   Displays the current configuration from ~/.naeural/config.
   """

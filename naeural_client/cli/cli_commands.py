@@ -15,22 +15,28 @@ CLI_COMMANDS = {
                 "--peered": "Get only peered nodes"
             }
         },
-        "supervisors": get_supervisors,
+        "supervisors": {
+            "func": get_supervisors,
+        },
     },
     "config": {
-        "show": show_config,
-        "reset": reset_config,
+        "show": {
+            "func": show_config,
+        },
+        "reset": {
+            "func": reset_config,
+        },
     },
-    "restart" : {
-      "func" : restart_node,
-      "params" : {
-        "node" : "The node to restart"
-      }
+    "restart": {
+        "func": restart_node,
+        "params": {
+            "node": "The node to restart"
+        }
     },
-    "shutdown" : {
-      "func" : shutdown_node,
-      "params" : {
-        "node" : "The node to shutdown"
-      }
+    "shutdown": {
+        "func": shutdown_node,
+        "params": {
+            "node": "The node to shutdown"
+        }
     }
 }
