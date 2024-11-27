@@ -1,7 +1,9 @@
 import argparse
 
-from naeural_client.utils.config import maybe_init_config
+from naeural_client.utils.config import maybe_init_config, log_with_color
 from naeural_client.cli.cli_commands import CLI_COMMANDS
+
+from naeural_client import version
 
 def build_parser():
   """
@@ -12,7 +14,11 @@ def build_parser():
   argparse.ArgumentParser
       Configured argument parser.
   """
-  parser = argparse.ArgumentParser(description="nepctl  - CLI for Naeural Edge Protocol SDK package")
+  descr = f"nepctl v{version} - CLI for Naeural Edge Protocol SDK package"
+  
+  log_with_color(descr, color="w")
+  
+  parser = argparse.ArgumentParser(description=descr)
   subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
   # Iterate over top-level commands

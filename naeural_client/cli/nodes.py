@@ -1,4 +1,4 @@
-
+from naeural_client.utils.config import log_with_color
 
 
 def get_nodes():
@@ -10,7 +10,7 @@ def get_nodes():
   3. Wait for the second net mon message via Session and show progress.  
   4. Get the active nodes union via Session and display the nodes marking those peered vs non-peered.
   """
-  print("Getting nodes information")
+  log_with_color("Getting nodes information", color="b")
   return
   
   
@@ -18,5 +18,5 @@ def get_supervisors():
   """
   This function is used to get the information about the supervisors.
   """
-  print("Getting supervisors information")
+  log_with_color("Getting supervisors information", color='b')
   return
