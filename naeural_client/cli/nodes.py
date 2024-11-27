@@ -14,6 +14,8 @@ def get_nodes(args):
     log_with_color("Getting all nodes information", color="b")
   elif args.peered:
     log_with_color("Getting peered nodes information", color="b")
+  else:
+    log_with_color("Getting default nodes information", color="b")
   return
   
   
