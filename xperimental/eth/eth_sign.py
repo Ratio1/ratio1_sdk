@@ -25,16 +25,18 @@ if __name__ == '__main__' :
         "PEM_LOCATION" : "data"
       }
   )
-  
-  dct_message = {
-    "node": "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
-    "epochs_vals": { "245": 124, "246": 37, "247": 30,"248": 6, "249": 19,"250": 4,}, # epochs ommited for brevity
-  }
-  
+    
   l.P(eng1.eth_address)
   l.P(eng1.eth_account.address)
   l.P(eng1.eth_address == eng1.eth_account.address)
 
+  private_key = eng1.eth_account.key
+
+
+  dct_message = {
+    "node": "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
+    "epochs_vals": { "245": 124, "246": 37, "247": 30,"248": 6, "249": 19,"250": 4,}, # epochs ommited for brevity
+  }
   
   types = ["string", "uint256[]", "uint8[]"]
   epochs = sorted(list(dct_message["epochs_vals"].keys()))
@@ -42,18 +44,15 @@ if __name__ == '__main__' :
   epochs = [int(epoch) for epoch in epochs]
   values = [dct_message["node"], epochs, epochs_vals]
   
+  # hash1 = eng1.eth_sign_message(types, values)
+  
   from web3 import Web3
+  from eth_account import Account
+  from eth_account.messages import encode_defunct
   
-  msg_hash1 = Web3.solidity_keccak(types, values)
-  
-  from eth_abi import encode
-  from eth_utils import keccak
-  
-  encoded = encode(types, values)
-  msg_hash2 = keccak(encoded)
-  
-  assert msg_hash1 == msg_hash2, "Hashes do not match"
-  
+  message_hash = Web3.solidity_keccak(types, values)
+  signable_message = encode_defunct(primitive=message_hash)
+  signed_message = Account.sign_message(signable_message, private_key=private_key)
   
   
   

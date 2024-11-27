@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from web3 import Web3
 from eth_account import Account
 from eth_utils import keccak, to_checksum_address
-from eth_abi import encode
+from eth_account.messages import encode_defunct
 
 from .base import BaseBlockEngine, VerifyMessage, BCct
 
@@ -274,27 +274,6 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       print('derived-shared_key: ', base64.b64encode(derived_key))
     return derived_key
   
-### ETH
-
-  def _get_eth_address(self):
-    pk = self.public_key
-    raw_public_key = pk.public_numbers()
-
-    # Compute Ethereum-compatible address
-    x = raw_public_key.x.to_bytes(32, 'big')
-    y = raw_public_key.y.to_bytes(32, 'big')
-    uncompressed_key = b'\x04' + x + y
-    keccak_hash = keccak(uncompressed_key[1:])  # Remove 0x04 prefix
-    eth_address = "0x" + keccak_hash[-20:].hex()
-    eth_address = to_checksum_address(eth_address)
-    return eth_address    
-  
-  def _get_eth_account(self):
-    private_key_bytes = self.private_key.private_numbers().private_value.to_bytes(32, 'big')
-    return Account.from_key(private_key_bytes)
-  
-### END ETH  
-  
 
   def encrypt(
     self, 
@@ -418,6 +397,46 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
   
   
   
+  ### ETH
+
+  def _get_eth_address(self, pk=None):
+    if pk is None:
+      pk = self.public_key
+    raw_public_key = pk.public_numbers()
+
+    # Compute Ethereum-compatible address
+    x = raw_public_key.x.to_bytes(32, 'big')
+    y = raw_public_key.y.to_bytes(32, 'big')
+    uncompressed_key = b'\x04' + x + y
+    keccak_hash = keccak(uncompressed_key[1:])  # Remove 0x04 prefix
+    eth_address = "0x" + keccak_hash[-20:].hex()
+    eth_address = to_checksum_address(eth_address)
+    return eth_address    
+  
+  def _get_eth_account(self):
+    private_key_bytes = self.private_key.private_numbers().private_value.to_bytes(32, 'big')
+    return Account.from_key(private_key_bytes)
+  
+  
+  def address_to_eth_address(self, address):
+    """
+    Converts a node address to an Ethereum address.
+
+    Parameters
+    ----------
+    address : str
+        The node address convert.
+
+    Returns
+    -------
+    str
+        The Ethereum address.
+    """
+    public_key = self._address_to_pk(address)
+    return self._get_eth_address(pk=public_key)
+    
+
+  
   def eth_hash_message(self, types, values, as_hex=False):
     """
     Hashes a message using the keccak256 algorithm.
@@ -463,7 +482,8 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
         ["bytes"],
         [b"\x19Ethereum Signed Message:\n32" + message_hash]
     )    
-    signed_message = Account.signHash(prefixed_message)
+    sk = self.eth_account.key
+    signed_message = Account.sign_message(prefixed_message, private_key=sk)
     return {
         "message_hash": prefixed_message.hex(),
         "r": hex(signed_message.r),
