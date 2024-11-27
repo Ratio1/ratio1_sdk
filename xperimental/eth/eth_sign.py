@@ -33,26 +33,36 @@ if __name__ == '__main__' :
   private_key = eng1.eth_account.key
 
 
-  dct_message = {
-    "node": "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
-    "epochs_vals": { "245": 124, "246": 37, "247": 30,"248": 6, "249": 19,"250": 4,}, # epochs ommited for brevity
-  }
+   
+  node = "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6"
+  epochs = [245, 246, 247, 248, 249, 250]
+  epochs_vals = [124, 37, 30, 6, 19, 4]
   
-  types = ["string", "uint256[]", "uint8[]"]
-  epochs = sorted(list(dct_message["epochs_vals"].keys()))
-  epochs_vals = [dct_message["epochs_vals"][epoch] for epoch in epochs]
-  epochs = [int(epoch) for epoch in epochs]
-  values = [dct_message["node"], epochs, epochs_vals]
+  types = ["string", "uint256[]", "uint256[]"]
+  values = [node, epochs, epochs_vals]
   
   # hash1 = eng1.eth_sign_message(types, values)
   
-  from web3 import Web3
-  from eth_account import Account
-  from eth_account.messages import encode_defunct
+  # from web3 import Web3
+  # from eth_account import Account
+  # from eth_account.messages import encode_defunct
   
-  message_hash = Web3.solidity_keccak(types, values)
-  signable_message = encode_defunct(primitive=message_hash)
-  signed_message = Account.sign_message(signable_message, private_key=private_key)
+  # message_hash = Web3.solidity_keccak(types, values)
+  # signable_message = encode_defunct(primitive=message_hash)
+  # signed_message = Account.sign_message(signable_message, private_key=private_key)
+  
+  # results = {
+  #   "sender" : eng1.eth_address,
+  #   "message_hash": message_hash.hex(),
+  #   "signature": signed_message.signature.hex(),
+  #   "signed_message": signed_message.message_hash.hex(),
+  # }
+  # l.P("Signable message: {}".format(signable_message))
+  # l.P("Results:\n{}".format(json.dumps(results, indent=2)))
+  
+  s2 = eng1.eth_sign_message(types, values)
+  l.P("Results:\n{}".format(json.dumps(s2, indent=2)))
+  l.P("Signature: {}".format(eng1.eth_sign_node_epochs(node, epochs, epochs_vals)))
   
   
   

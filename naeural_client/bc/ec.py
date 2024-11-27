@@ -418,7 +418,7 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     return Account.from_key(private_key_bytes)
   
   
-  def address_to_eth_address(self, address):
+  def node_address_to_eth_address(self, address):
     """
     Converts a node address to an Ethereum address.
 
@@ -478,18 +478,46 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
         The signature of the message.
     """
     message_hash = self.eth_hash_message(types, values, as_hex=False)
-    prefixed_message = Web3.solidity_keccak(
-        ["bytes"],
-        [b"\x19Ethereum Signed Message:\n32" + message_hash]
-    )    
-    sk = self.eth_account.key
-    signed_message = Account.sign_message(prefixed_message, private_key=sk)
+    signable_message = encode_defunct(primitive=message_hash)
+    signed_message = Account.sign_message(signable_message, private_key=self.eth_account.key)
     return {
-        "message_hash": prefixed_message.hex(),
+        "message_hash": message_hash.hex(),
         "r": hex(signed_message.r),
         "s": hex(signed_message.s),
         "v": signed_message.v,
         "signature": signed_message.signature.hex(),
+        "signed_message": signed_message.message_hash.hex(),
+        "sender" : self.eth_address,
     }
+    
+  def eth_sign_node_epochs(self, node, epochs, epochs_vals, signature_only=True):
+    """
+    Signs the node availability
+
+    Parameters
+    ----------
+    node : str
+        The node address.
+        
+    epochs : list of int
+        The epochs to sign.
+        
+    epochs_vals : list of int
+        The values for each epoch.
+        
+    signature_only : bool, optional
+        Whether to return only the signature. The default is True.
+
+    Returns
+    -------
+    str
+        The signature of the message.
+    """
+    types = ["string", "uint256[]", "uint256[]"]
+    values = [node, epochs, epochs_vals]
+    result = self.eth_sign_message(types, values)
+    if signature_only:
+      return result["signature"]
+    return result
   
   
