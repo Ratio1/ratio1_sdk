@@ -17,8 +17,11 @@ from ..utils import load_dotenv
 from .payload import Payload
 from .pipeline import Pipeline
 from .transaction import Transaction
+from ..utils.config import load_user_defined_config, get_user_config_file
 
 # TODO: add support for remaining commands from EE
+
+DEBUG_MQTT_SERVER = "r9092118.ala.eu-central-1.emqxsl.com"
 
 
 class GenericSession(BaseDecentrAIObject):
@@ -59,7 +62,8 @@ class GenericSession(BaseDecentrAIObject):
                on_payload=None,
                on_notification=None,
                on_heartbeat=None,
-               silent=True,
+               debug_silent=True,
+               silent=False,
                verbosity=1,
                dotenv_path=None,
                show_commands=False,
@@ -120,8 +124,14 @@ class GenericSession(BaseDecentrAIObject):
         Callback that handles heartbeats received from this network.
         As arguments, it has a reference to this Session object, the node name and the heartbeat payload.
         Defaults to None.
-    silent : bool, optional
+        
+    debug_silent : bool, optional
         This flag will disable debug logs, set to 'False` for a more verbose log, by default True
+        
+    silent : bool, optional
+        This flag will disable all logs, set to 'False` for a more verbose log, by default False
+        The logs will still be recored in the log file even if this flag is set to True.
+        
     dotenv_path : str, optional
         Path to the .env file, by default None. If None, the path will be searched in the current working directory and in the directories of the files from the call stack.
     root_topic : str, optional
@@ -142,6 +152,7 @@ class GenericSession(BaseDecentrAIObject):
 
     self.log = log
     self.name = name
+    self.silent = silent
 
     self._verbosity = verbosity
     self.encrypt_comms = encrypt_comms
@@ -158,7 +169,10 @@ class GenericSession(BaseDecentrAIObject):
     pwd = pwd or kwargs.get('password', kwargs.get('pass', None))
     user = user or kwargs.get('username', None)
     host = host or kwargs.get('hostname', None)
+    
+    ## now we prepare config via ~/.naeural/config or .env
     self.__fill_config(host, port, user, pwd, secured, dotenv_path)
+    ## end config
 
     self.custom_on_payload = on_payload
     self.custom_on_heartbeat = on_heartbeat
@@ -180,15 +194,30 @@ class GenericSession(BaseDecentrAIObject):
     self.__open_transactions_lock = Lock()
 
     self.__create_user_callback_threads()
-    super(GenericSession, self).__init__(log=log, DEBUG=not silent, create_logger=True)
+    super(GenericSession, self).__init__(
+      log=log, 
+      DEBUG=not debug_silent, 
+      create_logger=True,
+      silent=self.silent,
+    )
     return
 
   def startup(self):
-    self.__start_blockchain(self.__bc_engine, self.__blockchain_config)
+    # start the blockchain engine assuming config is already set
+    self.__start_blockchain(
+      self.__bc_engine, self.__blockchain_config, 
+      user_config=self.__user_config_loaded,
+    )
+    # end bc_engine
     self.formatter_wrapper = IOFormatterWrapper(self.log, plugin_search_locations=self.__formatter_plugins_locations)
 
     self._connect()
 
+    self.P("Created {} comms session '{}' from <{}> SDKv{}.".format(
+      "decrypted" if not self.encrypt_comms else "encrypted", 
+      self.name, self.bc_engine.address, self.log.version
+    ))
+    
     if not self.encrypt_comms:
       self.P(
         "Warning: Emitted messages will not be encrypted.\n"
@@ -546,7 +575,7 @@ class GenericSession(BaseDecentrAIObject):
 
   # Main loop
   if True:
-    def __start_blockchain(self, bc_engine, blockchain_config):
+    def __start_blockchain(self, bc_engine, blockchain_config, user_config=False):
       if bc_engine is not None:
         self.bc_engine = bc_engine
         return
@@ -557,6 +586,7 @@ class GenericSession(BaseDecentrAIObject):
           name=self.name,
           config=blockchain_config,
           verbosity=self._verbosity,
+          user_config=user_config,
         )
       except:
         raise ValueError("Failure in private blockchain setup:\n{}".format(traceback.format_exc()))
@@ -780,15 +810,19 @@ class GenericSession(BaseDecentrAIObject):
       host : str
           The hostname of the server.
           Can be retrieved from the environment variables AIXP_HOSTNAME, AIXP_HOST
+          
       port : int
           The port.
           Can be retrieved from the environment variable AIXP_PORT
+          
       user : str
           The user name.
           Can be retrieved from the environment variables AIXP_USERNAME, AIXP_USER
+          
       pwd : str
           The password.
           Can be retrieved from the environment variables AIXP_PASSWORD, AIXP_PASS, AIXP_PWD
+          
       dotenv_path : str, optional
           Path to the .env file, by default None. If None, the path will be searched in the current working directory and in the directories of the files from the call stack.
 
@@ -798,11 +832,21 @@ class GenericSession(BaseDecentrAIObject):
           Missing credentials
       """
 
-      # this method will search for the credentials in the environment variables
-      # the path to env file, if not specified, will be search in the following order:
-      #  1. current working directory
-      #  2-N. directories of the files from the call stack
-      load_dotenv(dotenv_path=dotenv_path, verbose=False)
+      # if the ~/.naeural/config file exists, load the credentials from there else try to load them from .env
+      if not load_user_defined_config():        
+        # this method will search for the credentials in the environment variables
+        # the path to env file, if not specified, will be search in the following order:
+        #  1. current working directory
+        #  2-N. directories of the files from the call stack
+        load_dotenv(dotenv_path=dotenv_path, verbose=False)
+        if not self.silent:
+          print("Loaded credentials from environment variables.", flush=True)
+        self.__user_config_loaded = False
+      else:
+        if not self.silent:
+          print(f"Loaded credentials from `{get_user_config_file()}`.", flush=True)
+        self.__user_config_loaded = True
+      # endif config loading from ~ or ./.env
 
       possible_user_values = [
         user,
@@ -849,7 +893,7 @@ class GenericSession(BaseDecentrAIObject):
         os.getenv(ENVIRONMENT.EE_HOST),
         os.getenv(ENVIRONMENT.EE_MQTT_HOST),
         self._config.get(comm_ct.HOST),
-        "r9092118.ala.eu-central-1.emqxsl.com",
+        DEBUG_MQTT_SERVER,
       ]
 
       host = next((x for x in possible_host_values if x is not None), None)

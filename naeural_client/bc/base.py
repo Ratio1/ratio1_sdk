@@ -12,6 +12,8 @@ from copy import deepcopy
 
 from cryptography.hazmat.primitives import serialization
 
+from ..utils.config import get_user_folder
+
 
 class BCct:
   SIGN      = 'EE_SIGN'
@@ -21,6 +23,7 @@ class BCct:
   ADDR_PREFIX_OLD = "aixp_"
   ADDR_PREFIX   = "0xai_"
   
+  K_USER_CONFIG_PEM_FILE = 'NAEURAL_PEM_FILE'
   K_PEM_FILE = 'PEM_FILE'
   K_PASSWORD = 'PASSWORD'
   K_PEM_LOCATION = 'PEM_LOCATION'
@@ -270,7 +273,7 @@ class BaseBlockEngine:
   _lock: Lock = Lock()
   __instances = {}
   
-  def __new__(cls, name, log, config, ensure_ascii_payloads=False, verbosity=1):
+  def __new__(cls, name, log, config, ensure_ascii_payloads=False, verbosity=1, user_config=False):
     with cls._lock:
       if name not in cls.__instances:
         instance = super(BaseBlockEngine, cls).__new__(cls)
@@ -278,6 +281,7 @@ class BaseBlockEngine:
           name=name, log=log, config=config, 
           ensure_ascii_payloads=ensure_ascii_payloads,
           verbosity=verbosity,
+          user_config=user_config,
         )
         cls.__instances[name] = instance
       else:
@@ -291,6 +295,7 @@ class BaseBlockEngine:
       log=None, 
       ensure_ascii_payloads=False,
       verbosity=1,
+      user_config=False,
     ):
 
     self.__name = name
@@ -304,11 +309,15 @@ class BaseBlockEngine:
     self.__config = config
     self.__ensure_ascii_payloads = ensure_ascii_payloads
     
-    pem_name = config.get(BCct.K_PEM_FILE, '_pk.pem')
-    pem_folder = config.get(BCct.K_PEM_LOCATION, 'data')
-    pem_fn = os.path.join(log.get_target_folder(pem_folder), pem_name)
+    if user_config:
+      user_folder = get_user_folder()
+      pem_fn = str(user_folder / '_naeural.pem')
+    else:
+      pem_name = config.get(BCct.K_PEM_FILE, '_pk.pem')
+      pem_folder = config.get(BCct.K_PEM_LOCATION, 'data')
+      pem_fn = os.path.join(log.get_target_folder(pem_folder), pem_name)
+    #endif pem is defined in ~/.naeural/config
     self.__pem_file = pem_fn
-    
     self._init()
     return
   
@@ -353,15 +362,24 @@ class BaseBlockEngine:
         password=self.__password,
         fn=self.__pem_file,
       )
-    self.__public_key = self._get_pk(private_key=self.__private_key)
+    self.__public_key = self._get_pk(private_key=self.__private_key)    
     self.__address = self._pk_to_address(self.__public_key)
-    self.P("Current address: {}".format(self.address), boxed=True, verbosity=1)
+    ### Ethereum
+    self.__eth_address = self._get_eth_address()
+    self.__eth_account = self._get_eth_account()
+    ### end Ethereum
+    self.P("Address: {} / ETH: {}".format(self.address, self.eth_address), boxed=True, verbosity=1)
     self.P("Allowed list of senders: {}".format(self.allowed_list), verbosity=1)
     return
   
   @property
   def private_key(self):
     return self.__private_key
+  
+  
+  @property
+  def public_key(self):
+    return self.private_key.public_key()
   
  
   @staticmethod
@@ -717,6 +735,32 @@ class BaseBlockEngine:
 
     """
     raise NotImplementedError()  
+  
+  
+  def _get_eth_address(self):
+    """
+    Returns the Ethereum address for the current pk
+
+    Returns
+    -------
+    eth_address : str
+      the Ethereum address.
+
+    """
+    raise NotImplementedError()
+  
+  
+  def _get_eth_acccount(self):
+    """
+    Returns the Ethereum account for the current sk
+
+    Returns
+    -------
+    eth_account : str
+      the Ethereum account.
+
+    """
+    raise NotImplementedError()
     
       
   
@@ -1045,3 +1089,15 @@ class BaseBlockEngine:
     """
     raise NotImplementedError()
   
+  
+  ### Ethereum
+  
+  @property
+  def eth_address(self):
+    return self.__eth_address
+  
+  @property
+  def eth_account(self):
+    return self.__eth_account
+  
+  ### end Ethereum

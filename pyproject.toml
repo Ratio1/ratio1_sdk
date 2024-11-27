@@ -6,9 +6,9 @@ build-backend = "hatchling.build"
 name = "naeural_client"
 version = "2.1.2"
 authors = [
-  { name="Stefan Saraev", email="saraevstefan@gmail.com" },
   { name="Andrei Ionut Damian", email="andrei.damian@me.com" },
   { name="Cristan Bleotiu", email="cristibleotiu@gmail.com" },
+  { name="Stefan Saraev", email="saraevstefan@gmail.com" },
 ]
 description = "`naeural_client` is the Python SDK required for client app development for the Naeural Edge Protocol Edge Protocol framework"
 readme = "README.md"
@@ -25,9 +25,14 @@ dependencies = [
   "pyopenssl>=23.0.0",
   "cryptography>=39.0.0",
   "python-dateutil",
-  "pyaml"
+  "pyaml",
+  "web3"
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/Naeural Edge ProtocolEdgeProtocol/naeural_client"
-"Bug Tracker" = "https://github.com/Naeural Edge ProtocolEdgeProtocol/naeural_client/issues"
+"Homepage" = "https://github.com/NaeuralEdgeProtocol/naeural_client"
+"Bug Tracker" = "https://github.com/NaeuralEdgeProtocol/naeural_client/issues"
+
+
+[project.scripts]
+nepctl = "naeural_client.cli.cli:main"

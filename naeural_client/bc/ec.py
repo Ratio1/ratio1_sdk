@@ -11,12 +11,18 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from web3 import Web3
+from eth_account import Account
+from eth_utils import keccak, to_checksum_address
+from eth_account.messages import encode_defunct
+
 from .base import BaseBlockEngine, VerifyMessage, BCct
 
 
 
 class BaseBCEllipticCurveEngine(BaseBlockEngine):
   MAX_ADDRESS_VALUE = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+  
   
   def _get_pk(self, private_key : ec.EllipticCurvePrivateKey) -> ec.EllipticCurvePublicKey:
     """
@@ -233,6 +239,7 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       data=bpublic_key
     )
     return public_key
+  
 
   def __derive_shared_key(self, peer_public_key : str, info : str = BCct.DEFAULT_INFO, debug : bool = False):
     """
@@ -266,6 +273,7 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     if debug:
       print('derived-shared_key: ', base64.b64encode(derived_key))
     return derived_key
+  
 
   def encrypt(
     self, 
@@ -380,5 +388,136 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       
       result = plaintext.decode()
     except Exception as exc:
+      if debug:
+        self.P("Error decrypting from <{}> (compressed_flag `{}`): {}".format(
+          sender_address, compressed_flag, exc), color='r'
+        )
       result = None
     return result
+  
+  
+  
+  ### ETH
+
+  def _get_eth_address(self, pk=None):
+    if pk is None:
+      pk = self.public_key
+    raw_public_key = pk.public_numbers()
+
+    # Compute Ethereum-compatible address
+    x = raw_public_key.x.to_bytes(32, 'big')
+    y = raw_public_key.y.to_bytes(32, 'big')
+    uncompressed_key = b'\x04' + x + y
+    keccak_hash = keccak(uncompressed_key[1:])  # Remove 0x04 prefix
+    eth_address = "0x" + keccak_hash[-20:].hex()
+    eth_address = to_checksum_address(eth_address)
+    return eth_address    
+  
+  def _get_eth_account(self):
+    private_key_bytes = self.private_key.private_numbers().private_value.to_bytes(32, 'big')
+    return Account.from_key(private_key_bytes)
+  
+  
+  def node_address_to_eth_address(self, address):
+    """
+    Converts a node address to an Ethereum address.
+
+    Parameters
+    ----------
+    address : str
+        The node address convert.
+
+    Returns
+    -------
+    str
+        The Ethereum address.
+    """
+    public_key = self._address_to_pk(address)
+    return self._get_eth_address(pk=public_key)
+    
+
+  
+  def eth_hash_message(self, types, values, as_hex=False):
+    """
+    Hashes a message using the keccak256 algorithm.
+
+    Parameters
+    ----------
+    types : list
+        The types of the values.
+        
+    values : list of any
+        The values to hash.
+
+    Returns
+    -------
+    bytes
+        The hash of the message in hexadecimal format.
+    """
+    message = Web3.solidity_keccak(types, values)
+    if as_hex:
+      return message.hex()
+    return message
+  
+  
+  def eth_sign_message(self, types, values):
+    """
+    Signs a message using the private key.
+
+    Parameters
+    ----------
+    types : list
+        The types of the values.
+        
+    values : list of any
+        The values to sign.
+
+    Returns
+    -------
+    str
+        The signature of the message.
+    """
+    message_hash = self.eth_hash_message(types, values, as_hex=False)
+    signable_message = encode_defunct(primitive=message_hash)
+    signed_message = Account.sign_message(signable_message, private_key=self.eth_account.key)
+    return {
+        "message_hash": message_hash.hex(),
+        "r": hex(signed_message.r),
+        "s": hex(signed_message.s),
+        "v": signed_message.v,
+        "signature": signed_message.signature.hex(),
+        "signed_message": signed_message.message_hash.hex(),
+        "sender" : self.eth_address,
+    }
+    
+  def eth_sign_node_epochs(self, node, epochs, epochs_vals, signature_only=True):
+    """
+    Signs the node availability
+
+    Parameters
+    ----------
+    node : str
+        The node address.
+        
+    epochs : list of int
+        The epochs to sign.
+        
+    epochs_vals : list of int
+        The values for each epoch.
+        
+    signature_only : bool, optional
+        Whether to return only the signature. The default is True.
+
+    Returns
+    -------
+    str
+        The signature of the message.
+    """
+    types = ["string", "uint256[]", "uint256[]"]
+    values = [node, epochs, epochs_vals]
+    result = self.eth_sign_message(types, values)
+    if signature_only:
+      return result["signature"]
+    return result
+  
+  
