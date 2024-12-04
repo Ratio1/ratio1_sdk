@@ -494,6 +494,32 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
         "sender" : self.eth_address,
     }
     
+  def eth_sign_text(self, message, signature_only=True):
+    """
+    Signs a text message using the private key.
+
+    Parameters
+    ----------
+    message : str
+        The message to sign.
+        
+    signature_only : bool, optional
+        Whether to return only the signature. The default is True
+
+    Returns
+    -------
+    str
+        The signature of the message.
+    """
+    types = ["string"]
+    values = [message]
+    result = self.eth_sign_message(types, values)
+    if signature_only:
+      return result["signature"]
+    return result
+    
+    
+    
   def eth_sign_node_epochs(self, node, epochs, epochs_vals, signature_only=True):
     """
     Signs the node availability

@@ -901,7 +901,7 @@ class BaseBlockEngine:
     return result
   
   
-  def sign(self, dct_data: dict, add_data=True, use_digest=True, replace_nan=True) -> str:
+  def sign(self, dct_data: dict, add_data=True, use_digest=True, replace_nan=True, eth_sign=False) -> str:
     """
     Generates the signature for a dict object.
     Does not add the signature to the dict object
@@ -920,6 +920,9 @@ class BaseBlockEngine:
       
     replace_nan: bool, optional
       will replace `np.nan` and `np.inf` with `None` before signing. 
+      
+    eth_sign: bool, optional
+      will also sign the data with the Ethereum account. Default `False`
 
     Returns
     -------
@@ -947,8 +950,13 @@ class BaseBlockEngine:
       dct_data[BCct.SIGN] = result
       dct_data[BCct.SENDER] = self.address
       dct_data[BCct.ETH_SENDER] = self.eth_address
-      ### TODO: add eth signature
+      ### add eth signature
       dct_data[BCct.ETH_SIGN] = "0xBEEF"
+      if eth_sign:
+        eth_sign_info = self.eth_sign_text(bdata.decode(), signature_only=False)
+        # can be replaced with dct_data[BCct.ETH_SIGN] = self.eth_sign_text(bdata.decode(), signature_only=True)
+        eth_sign = eth_sign_info.get('signature')
+        dct_data[BCct.ETH_SIGN] = eth_sign
       ### end eth signature
       if use_digest:
         dct_data[BCct.HASH] = hexdigest
