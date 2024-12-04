@@ -941,6 +941,7 @@ class BaseBlockEngine:
       return_all=True, 
       replace_nan=replace_nan,
     )
+    text_data = bdata.decode()
     if use_digest:
       bdata = bin_hexdigest # to-sign data is the hash
     # finally sign either full or just hash
@@ -953,7 +954,7 @@ class BaseBlockEngine:
       ### add eth signature
       dct_data[BCct.ETH_SIGN] = "0xBEEF"
       if eth_sign:
-        eth_sign_info = self.eth_sign_text(bdata.decode(), signature_only=False)
+        eth_sign_info = self.eth_sign_text(text_data, signature_only=False)
         # can be replaced with dct_data[BCct.ETH_SIGN] = self.eth_sign_text(bdata.decode(), signature_only=True)
         eth_sign = eth_sign_info.get('signature')
         dct_data[BCct.ETH_SIGN] = eth_sign
