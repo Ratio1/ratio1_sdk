@@ -14,11 +14,23 @@ from cryptography.hazmat.primitives import serialization
 
 from ..utils.config import get_user_folder
 
-
-class BCct:
+class BCctbase: 
   SIGN      = 'EE_SIGN'
   SENDER    = 'EE_SENDER'
   HASH      = 'EE_HASH'
+  
+  ETH_SIGN  = 'EE_ETH_SIGN'
+  ETH_SENDER= 'EE_ETH_SENDER'
+  
+  # TODO: generate automaticall the NON_DATA_FIELDS
+  
+
+class BCct:
+  SIGN        = BCctbase.SIGN
+  SENDER      = BCctbase.SENDER
+  HASH        = BCctbase.HASH
+  ETH_SIGN    = BCctbase.ETH_SIGN
+  ETH_SENDER  = BCctbase.ETH_SENDER
   
   ADDR_PREFIX_OLD = "aixp_"
   ADDR_PREFIX   = "0xai_"
@@ -56,7 +68,7 @@ class VerifyMessage(_DotDict):
     self.sender = None
     
     
-NON_DATA_FIELDS = [BCct.HASH, BCct.SIGN, BCct.SENDER]
+NON_DATA_FIELDS = [val for key, val in BCctbase.__dict__.items() if key[0] != '_']
 
 def replace_nan_inf(data, inplace=False):
   assert isinstance(data, (dict, list)), "Only dictionaries and lists are supported"
@@ -934,6 +946,10 @@ class BaseBlockEngine:
       # not populate dict
       dct_data[BCct.SIGN] = result
       dct_data[BCct.SENDER] = self.address
+      dct_data[BCct.ETH_SENDER] = self.eth_address
+      ### TODO: add eth signature
+      dct_data[BCct.ETH_SIGN] = "0xBEEF"
+      ### end eth signature
       if use_digest:
         dct_data[BCct.HASH] = hexdigest
     return result
