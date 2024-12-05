@@ -546,6 +546,25 @@ class BaseBlockEngine:
       address = address[len(BCct.ADDR_PREFIX_OLD):]
     return address
   
+  def _add_prefix(self, address):
+    """
+    Adds the prefix to the address
+
+    Parameters
+    ----------
+    address : str
+      the text address.
+
+    Returns
+    -------
+    address : str
+      the address with the prefix.
+    """
+    address = self._remove_prefix(address)
+    address = BCct.ADDR_PREFIX + address  
+    return address
+
+  
   def _pk_to_address(self, public_key):
     """
     Given a pk object will return the simple text address.
