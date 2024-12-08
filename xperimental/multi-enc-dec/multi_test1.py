@@ -16,28 +16,22 @@ if __name__ == '__main__' :
       }
   )
   
-  eng2 = DefaultBlockEngine(
-    log=l, name="test2", 
-    config={
-        "PEM_FILE"     : "test2.pem",
-        "PASSWORD"     : None,      
-        "PEM_LOCATION" : "data"
-      }
-  )
-
-  eng3 = DefaultBlockEngine(
-    log=l, name="test3", 
-    config={
-        "PEM_FILE"     : "test3.pem",
-        "PASSWORD"     : None,      
-        "PEM_LOCATION" : "data"
-      }
-  )
+  receivers = [
+    DefaultBlockEngine(
+      log=l, name=f"test{x}", 
+      config={
+          "PEM_FILE"     : f"test{x}.pem",
+          "PASSWORD"     : None,      
+          "PEM_LOCATION" : "data"
+        }
+    ) for x in range(2, 7)
+  ]
   
-  eng4 = DefaultBlockEngine( # bandit
-    log=l, name="test4", 
+  
+  bandit = DefaultBlockEngine( # bandit
+    log=l, name="bandit", 
     config={
-        "PEM_FILE"     : "test4.pem",
+        "PEM_FILE"     : "bandit.pem",
         "PASSWORD"     : None,      
         "PEM_LOCATION" : "data"
       }
@@ -50,41 +44,48 @@ if __name__ == '__main__' :
    
   str_data = json.dumps(data)
   l.P("Data size: {}".format(len(str_data)), color='b')
-  enc_data1s = eng1.encrypt(plaintext=str_data, receiver_address=eng2.address)
+  enc_data1s = eng1.encrypt(
+    plaintext=str_data, 
+    receiver_address=receivers[0].address, debug=True
+  )
   enc_data1m = eng1.encrypt_for_multi(
     plaintext=str_data,
-    receiver_addresses=[eng2.address, eng3.address]
+    receiver_addresses=[x.address for x in receivers]
   )
   l.P("Encrypted data size: {}".format(len(enc_data1m)), color='b')
+  receivers.append(bandit) # bandit inserts itself into the list of receivers
+  single = receivers[0]
+  bandit = receivers[-1]
   
-  decdata2 = eng2.decrypt(encrypted_data_b64=enc_data1m, sender_address=eng1.address)
-  if decdata2 == str_data:
-    l.P("Data (multi) successfully decrypted by eng2", color='g')
+  decdata = single.decrypt(
+    encrypted_data_b64=enc_data1s, 
+    sender_address=eng1.address,
+    debug=False,
+  )
+  if decdata == str_data:
+    l.P(f"Data (single) successfully decrypted by {single.name}", color='g')
   else:
-    l.P("Data (multi) decryption failed by eng2", color='r')
-    
-  decdata2s = eng2.decrypt(encrypted_data_b64=enc_data1s, sender_address=eng1.address)
-  if decdata2s == str_data:
-    l.P("Data (single) successfully decrypted by eng2", color='g')
+    l.P(f"Data (single) decryption failed by {single.name}", color='r')
+
+  decdata = bandit.decrypt(
+    encrypted_data_b64=enc_data1s, 
+    sender_address=eng1.address,
+    debug=False,
+  )
+  if decdata == str_data:
+    l.P(f"Data (single) successfully decrypted by {bandit.name}", color='g')
   else:
-    l.P("Data (single) decryption failed by eng2", color='r')
-    
-  decdata3 = eng3.decrypt(encrypted_data_b64=enc_data1m, sender_address=eng1.address)
-  if decdata3 == str_data:
-    l.P("Data (multi) successfully decrypted by eng3", color='g')
-  else:
-    l.P("Data (multi) decryption failed by eng3", color='r')
-    
-  decdata4 = eng4.decrypt(encrypted_data_b64=enc_data1m, sender_address=eng1.address, debug=True)
-  if decdata4 == str_data:
-    l.P("Data (multi) successfully decrypted by eng4", color='g')
-  else:
-    l.P("Data (multi) decryption failed by eng4", color='r')
+    l.P(f"Data (single) decryption failed by {bandit.name}", color='r')
   
-  decdata4s = eng4.decrypt(encrypted_data_b64=enc_data1s, sender_address=eng1.address, debug=True)
-  if decdata4s == str_data:
-    l.P("Data (single) successfully decrypted by eng4", color='g')
-  else:
-    l.P("Data (single) decryption failed by eng4", color='r')
-    
   
+  for receiver in receivers:
+    decdata = receiver.decrypt(
+      encrypted_data_b64=enc_data1m, 
+      sender_address=eng1.address,
+      debug=False,
+    )
+    if decdata == str_data:
+      l.P("Data (multi) successfully decrypted by {}".format(receiver.name), color='g')
+    else:
+      l.P("Data (multi) decryption failed by {}".format(receiver.name), color='r')
+      
