@@ -48,9 +48,9 @@ if __name__ == '__main__' :
     plaintext=str_data, 
     receiver_address=receivers[0].address, debug=True
   )
-  enc_data1m = eng1.encrypt_for_multi(
+  enc_data1m = eng1.encrypt(
     plaintext=str_data,
-    receiver_addresses=[x.address for x in receivers]
+    receiver_address=[x.address for x in receivers]
   )
   l.P("Encrypted data size: {}".format(len(enc_data1m)), color='b')
   receivers.append(bandit) # bandit inserts itself into the list of receivers

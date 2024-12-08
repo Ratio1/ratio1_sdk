@@ -328,47 +328,6 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     #end if      
     return base64.b64encode(encrypted_data).decode()  # Encode to base64
   
-  
-  def encrypt(
-    self, 
-    plaintext: str, 
-    receiver_address: str, 
-    info: str = BCct.DEFAULT_INFO, 
-    debug: bool = False,
-    **kwargs
-  ):
-    """
-    Encrypts plaintext using the sender's private key and receiver's public key, 
-    then base64 encodes the output.
-
-    Parameters
-    ----------
-    receiver_address : str
-        The receiver's address
-        
-    plaintext : str
-        The plaintext to encrypt.
-        
-    Obsolete:          
-      compressed : bool, optional
-          Whether to compress the plaintext before encryption. The default is True.
-          
-      embed_compressed : bool, optional
-          Whether to embed the compressed flag in the encrypted data. The default is True.
-
-    Returns
-    -------
-    str
-        The base64 encoded nonce and ciphertext.
-    """  
-    return self._encrypt(
-      plaintext=plaintext, 
-      receiver_address=receiver_address, 
-      compressed=True, 
-      embed_compressed=True, 
-      info=info, 
-      debug=debug,      
-    )
     
   
   def _decrypt(
@@ -611,7 +570,59 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       if debug:
         self.P(f"Error decrypting multi scenario: {exc}", color='r')
       return None
-  
+
+
+  def encrypt(
+    self, 
+    plaintext: str, 
+    receiver_address: any, 
+    info: str = BCct.DEFAULT_INFO, 
+    debug: bool = False,
+    **kwargs
+  ):
+    """
+    Encrypts plaintext using the sender's private key and receiver's public key, 
+    then base64 encodes the output.
+
+    Parameters
+    ----------
+    plaintext : str
+        The plaintext to encrypt.
+
+    receiver_address : str or list[str]
+        The receiver's address or list of multiple receivers addresses.
+        
+        
+    Obsolete:          
+      compressed : bool, optional
+          Whether to compress the plaintext before encryption. The default is True.
+          
+      embed_compressed : bool, optional
+          Whether to embed the compressed flag in the encrypted data. The default is True.
+
+    Returns
+    -------
+    str
+        The base64 encoded nonce and ciphertext.
+    """  
+    assert isinstance(receiver_address, (str, list)), "receiver_address must be a string or a list of strings."
+    if isinstance(receiver_address, list):
+      return self.encrypt_for_multi(
+        plaintext=plaintext, 
+        receiver_addresses=receiver_address, 
+        info=info, 
+        debug=debug
+      )      
+    return self._encrypt(
+      plaintext=plaintext, 
+      receiver_address=receiver_address, 
+      compressed=True, 
+      embed_compressed=True, 
+      info=info, 
+      debug=debug,      
+    )
+
+
   def decrypt(  
     self,
     encrypted_data_b64: str,

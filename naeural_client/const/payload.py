@@ -185,7 +185,8 @@ class PAYLOAD_DATA:
   EE_ETH_ADDR = 'EE_ETH_SENDER'
   EE_ETH_SIGN = 'EE_ETH_SIGN'
   
-  EE_DESTINATION = "EE_DEST"
+  EE_DESTINATION = "EE_DEST" # can be either single address or list of addresses
+  EE_DESTINATION_ID = "EE_DEST_ID" # can be either single alias or list of aliases
 
   NOTIFICATION = 'NOTIFICATION'
   INFO = 'INFO'
