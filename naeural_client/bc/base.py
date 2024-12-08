@@ -344,7 +344,10 @@ class BaseBlockEngine:
       boxed=boxed, 
       **kwargs
     )
-     
+  
+  @property
+  def name(self):
+    return self.__name
 
   def _init(self):
     self.P("Initializing Blockchain engine manager...", boxed=True, box_char='*', verbosity=1)

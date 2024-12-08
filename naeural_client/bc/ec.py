@@ -3,6 +3,7 @@ import hashlib
 import os
 import binascii
 import zlib
+import json
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -273,16 +274,16 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     if debug:
       print('derived-shared_key: ', base64.b64encode(derived_key))
     return derived_key
-  
 
-  def encrypt(
+
+  def _encrypt(
     self, 
     plaintext: str, 
     receiver_address: str, 
-    compressed: bool = True,
-    embed_compressed: bool = True,
+    compressed: bool = True, # compressed is always True
+    embed_compressed: bool = True, # embed_compressed is always True
     info: str = BCct.DEFAULT_INFO, 
-    debug: bool = False
+    debug: bool = False,
   ):
     """
     Encrypts plaintext using the sender's private key and receiver's public key, 
@@ -307,6 +308,7 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     str
         The base64 encoded nonce and ciphertext.
     """
+    
     if compressed:
       to_encrypt_data = zlib.compress(plaintext.encode())
       compressed_flag = (1).to_bytes(1, byteorder='big')
@@ -325,8 +327,51 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       encrypted_data = nonce + ciphertext  # Prepend the nonce to the ciphertext
     #end if      
     return base64.b64encode(encrypted_data).decode()  # Encode to base64
+  
+  
+  def encrypt(
+    self, 
+    plaintext: str, 
+    receiver_address: str, 
+    info: str = BCct.DEFAULT_INFO, 
+    debug: bool = False,
+    **kwargs
+  ):
+    """
+    Encrypts plaintext using the sender's private key and receiver's public key, 
+    then base64 encodes the output.
 
-  def decrypt(
+    Parameters
+    ----------
+    receiver_address : str
+        The receiver's address
+        
+    plaintext : str
+        The plaintext to encrypt.
+        
+    Obsolete:          
+      compressed : bool, optional
+          Whether to compress the plaintext before encryption. The default is True.
+          
+      embed_compressed : bool, optional
+          Whether to embed the compressed flag in the encrypted data. The default is True.
+
+    Returns
+    -------
+    str
+        The base64 encoded nonce and ciphertext.
+    """  
+    return self._encrypt(
+      plaintext=plaintext, 
+      receiver_address=receiver_address, 
+      compressed=True, 
+      embed_compressed=True, 
+      info=info, 
+      debug=debug,      
+    )
+    
+  
+  def _decrypt(
     self, 
     encrypted_data_b64 : str, 
     sender_address : str, 
@@ -395,6 +440,220 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       result = None
     return result
   
+
+  ## Multi destination encryption
+  def encrypt_for_multi(
+    self, 
+    plaintext: str, 
+    receiver_addresses: list, 
+    info: str = BCct.DEFAULT_INFO, 
+    debug: bool = False
+  ):
+    """
+    Encrypts plaintext for multiple receivers.
+    
+    The overall approach is to encrypt the plaintext with a symmetric key, 
+    then encrypt the symmetric key with the public key of each receiver.
+
+    Parameters
+    ----------
+    plaintext : str
+        The plaintext to encrypt.
+        
+    receiver_addresses : list
+        List of receiver addresses.
+
+    Returns
+    -------
+    str
+        The base64 encoded encrypted package.
+    """
+    to_encrypt_data = zlib.compress(plaintext.encode())
+    compressed_flag = (1).to_bytes(1, byteorder='big')
+    
+    # Generate a random symmetric key
+    symmetric_key = os.urandom(32)  # 256-bit key
+    
+    # Encrypt the plaintext with the symmetric key
+    nonce = os.urandom(12)
+    aesgcm = AESGCM(symmetric_key)
+    ciphertext = aesgcm.encrypt(nonce, to_encrypt_data, None)
+    
+    # For each receiver, encrypt the symmetric key
+    encrypted_keys = []
+    for receiver_address in receiver_addresses:
+      receiver_pk = self._address_to_pk(receiver_address)
+      shared_key = self.__derive_shared_key(receiver_pk, info=info, debug=debug)
+      # Use shared_key to encrypt the symmetric key
+      aesgcm_shared = AESGCM(shared_key)
+      nonce_shared = os.urandom(12)
+      encrypted_symmetric_key = aesgcm_shared.encrypt(nonce_shared, symmetric_key, None)
+      full_enc_key = nonce_shared + encrypted_symmetric_key
+      encrypted_keys.append({
+        'a': receiver_address,  # Address of the receiver
+        'k': full_enc_key.hex() # Encrypted symmetric key
+      })
+    
+    # Package the encrypted symmetric keys and the ciphertext
+    encrypted_package = {
+      'M': True,                  # Multi-recipient flag
+      'c': compressed_flag.hex(), # Compressed flag
+      'n': nonce.hex(),           # Nonce
+      'd': ciphertext.hex(),      # Ciphertext
+      'k': encrypted_keys         # Encrypted symmetric keys
+    }
+    
+    # Convert to JSON, compress, and base64 encode
+    enc_data = json.dumps(encrypted_package)
+    enc_data_compressed = zlib.compress(enc_data.encode())
+    enc_data_compressed_b64 = base64.b64encode(enc_data_compressed).decode()
+    return enc_data_compressed_b64
+
+
+  def decrypt_for_multi(
+      self,
+      encrypted_data_b64: str,
+      sender_address: str,
+      info: str = BCct.DEFAULT_INFO,
+      debug: bool = False
+  ):
+    """
+    Decrypts data encrypted for multiple receivers.
+
+    Parameters
+    ----------
+    encrypted_data_b64 : str
+      The base64 encoded encrypted package as produced by encrypt_for_multi.
+    
+    sender_address : str
+      The sender's address (public key address) used to derive the shared key.
+    
+    info : str, optional
+      Additional info used in the HKDF for shared key derivation.
+    
+    debug : bool, optional
+      If True, prints debug information.
+
+    Returns
+    -------
+    str or None
+      The decrypted plaintext as a string, or None if decryption fails.
+    """
+    try:
+      # 1. Base64 decode
+      enc_data_compressed = base64.b64decode(encrypted_data_b64)
+
+      # 2. Decompress the JSON structure
+      enc_data_json = zlib.decompress(enc_data_compressed).decode()
+
+      # 3. Parse JSON
+      encrypted_package = json.loads(enc_data_json)
+
+      # Expecting keys: 'M', 'c', 'n', 'd', 'k'
+      # 'M' = True indicates multi-recipient
+      if 'M' not in encrypted_package or encrypted_package['M'] != True:
+        if debug:
+          self.P("Not a multi-recipient package.", color='y')
+        return None
+
+      # 'c' = compressed flag (hex)
+      compressed_flag_hex = encrypted_package['c']
+      compressed_flag = int(compressed_flag_hex, 16)
+
+      # 'n' = nonce (hex)
+      nonce = bytes.fromhex(encrypted_package['n'])
+
+      # 'd' = ciphertext (hex)
+      ciphertext = bytes.fromhex(encrypted_package['d'])
+
+      # 'k' = list of encrypted symmetric keys
+      encrypted_keys = encrypted_package['k']
+
+      # 4. Identify this receiver's encrypted symmetric key
+      my_address = self.address
+      my_encrypted_key_hex = None
+      for ek in encrypted_keys:
+        if ek['a'] == my_address:
+          my_encrypted_key_hex = ek['k']
+          break
+
+      if my_encrypted_key_hex is None:
+        if debug:
+          self.P("No encrypted symmetric key for this receiver.", color='r')
+        return None
+
+      # Decode the encrypted symmetric key
+      my_encrypted_key = bytes.fromhex(my_encrypted_key_hex)
+
+      # The first 12 bytes are nonce_shared, rest is encrypted symmetric key
+      nonce_shared = my_encrypted_key[:12]
+      encrypted_symmetric_key = my_encrypted_key[12:]
+
+      # 5. Derive shared key using sender's public key
+      sender_pk = self._address_to_pk(sender_address)
+      shared_key = self.__derive_shared_key(sender_pk, info=info, debug=debug)
+
+      # 6. Decrypt the symmetric key
+      aesgcm_shared = AESGCM(shared_key)
+      symmetric_key = aesgcm_shared.decrypt(nonce_shared, encrypted_symmetric_key, None)
+
+      # 7. Decrypt the ciphertext using the symmetric key
+      aesgcm = AESGCM(symmetric_key)
+      plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+
+      # 8. Decompress the plaintext if compressed_flag == 1
+      if compressed_flag == 1:
+        plaintext = zlib.decompress(plaintext)
+
+      return plaintext.decode()
+
+    except Exception as exc:
+      if debug:
+        self.P(f"Error decrypting multi scenario: {exc}", color='r')
+      return None
+  
+  def decrypt(  
+    self,
+    encrypted_data_b64: str,
+    sender_address: str,
+    info: str = BCct.DEFAULT_INFO,
+    debug: bool = False,
+    is_multi: bool = True
+  ):
+    """
+    Decrypts data encrypted for a single or multi  receiver.
+
+    Parameters
+    ----------
+    encrypted_data_b64 : str
+      The base64 encoded encrypted data.
+    
+    sender_address : str
+      The sender's address (public key address) used to derive the shared key.
+    
+    info : str, optional
+      Additional info used in the HKDF for shared key derivation.
+    
+    debug : bool, optional
+      If True, prints debug information.
+    
+    is_multi : bool, optional
+      If True, decrypts as multi-recipient package.
+
+    Returns
+    -------
+    str or None
+      The decrypted plaintext as a string, or None if decryption fails.
+    """
+    result = None
+    if is_multi:
+      result = self.decrypt_for_multi(encrypted_data_b64, sender_address, info=info, debug=debug)
+    if result is None:
+      result = self._decrypt(encrypted_data_b64, sender_address, decompress=True, embed_compressed=True, info=info, debug=debug)  
+    return result
+  
+  
+  ## end multi destination encryption
   
   
   ### ETH
