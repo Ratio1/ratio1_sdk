@@ -233,12 +233,16 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
       the pk object.
 
     """
-    simple_address = self._remove_prefix(address)
-    bpublic_key = self._text_to_binary(simple_address)
-    public_key = ec.EllipticCurvePublicKey.from_encoded_point(
-      curve=ec.SECP256K1(), 
-      data=bpublic_key
-    )
+    try:
+      simple_address = self._remove_prefix(address)
+      bpublic_key = self._text_to_binary(simple_address)
+      public_key = ec.EllipticCurvePublicKey.from_encoded_point(
+        curve=ec.SECP256K1(), 
+        data=bpublic_key
+      )
+    except Exception as exp:
+      self.P(f"Error converting address <{address}>to pk: {exp}", color='r')
+      raise exp
     return public_key
   
 
