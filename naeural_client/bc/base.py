@@ -551,11 +551,13 @@ class BaseBlockEngine:
     lst_allowed = [x.strip() for x in lst_allowed]
     lst_allowed = [x.split()[0] for x in lst_allowed if x != '']
     lst_allowed = [self._remove_prefix(x) for x in lst_allowed if x != '']
+    lst_final = []
     for allowed in lst_allowed:
       if not self.address_is_valid(allowed):
         self.P("WARNING: address <{}> is not valid. Removing from allowed list.".format(allowed), color='r')
-        lst_allowed.remove(allowed)
-    return lst_allowed
+      else:
+        lst_final.append(allowed)
+    return lst_final
   
         
   def _remove_prefix(self, address):
