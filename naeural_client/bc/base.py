@@ -512,6 +512,31 @@ class BaseBlockEngine:
     path = os.path.join(folder, BCct.AUTHORISED_ADDRS)
     return path  
   
+  
+  def address_is_valid(self, address):
+    """
+    Checks if an address is valid
+
+    Parameters
+    ----------
+    address : str
+      the text address.
+
+    Returns
+    -------
+    bool
+      True if the address is valid.
+
+    """
+    result = False
+    try:
+      pk = self._address_to_pk(address)
+      result = False if pk is None else True
+    except:
+      result = False
+    return result
+    
+  
   def _load_and_maybe_create_allowed(self):
     fn = self._get_allowed_file()
     lst_allowed = []
@@ -526,6 +551,10 @@ class BaseBlockEngine:
     lst_allowed = [x.strip() for x in lst_allowed]
     lst_allowed = [x.split()[0] for x in lst_allowed if x != '']
     lst_allowed = [self._remove_prefix(x) for x in lst_allowed if x != '']
+    for allowed in lst_allowed:
+      if not self.address_is_valid(allowed):
+        self.P("WARNING: address <{}> is not valid. Removing from allowed list.".format(allowed), color='r')
+        lst_allowed.remove(allowed)
     return lst_allowed
   
         
