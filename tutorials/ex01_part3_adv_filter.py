@@ -12,7 +12,7 @@ from naeural_client import Session, Payload, PAYLOAD_DATA
 
 
 class MessageHandler:
-  def __init__(self, signature_filter = None):
+  def __init__(self, signature_filter: str = None):
     """
     This class is used to handle the messages received from the edge nodes.
     
@@ -91,25 +91,28 @@ class MessageHandler:
         The payload received from the edge node.      
     """
     addr = self.shorten_address(node_addr)
-    message = "Recv from <{}::{}::{}::{}>".format(
-        addr, pipeline_name, plugin_signature, plugin_instance
-    )
+    
     if plugin_signature.upper() not in self.signature_filter:
-      # we are not interested in this data but we still want to log it      
+      # we are not interested in this data but we still want to log it
+      message = "Recv from <{}::{}::{}::{}>".format(
+        addr, pipeline_name, plugin_signature, plugin_instance
+      )
       color = 'dark'
     else:
-      # we are interested in this data
-      # the actual data is stored in the data.data attribute of the Payload UserDict object
-      # now we just copy some data as a naive example
-      self.last_data = {
-        k:v for k,v in data.data.items() 
-        if k in [ # some of the base keys in the payloads
-          PAYLOAD_DATA.EE_HASH, PAYLOAD_DATA.EE_IS_ENCRYPTED,
-          PAYLOAD_DATA.EE_MESSAGE_SEQ, PAYLOAD_DATA.EE_SIGN,
-          PAYLOAD_DATA.EE_TIMESTAMP
+      self.last_payload = data # save the full payload for debugging purposes
+      # we can also access the "payload path" that matches 
+      # the node-alias, pipeline_name, plugin_signature, and plugin_instance
+      path = data.EE_PAYLOAD_PATH 
+      # we extract the data from the payload to check for online nodes considering
+      # that we are waiting for NET_MON_01 payloads      
+      # now we do some low-level processing of the data
+      if PAYLOAD_DATA.NETMON_CURRENT_NETWORK in data.data:
+        all_nodes = list(data.data[PAYLOAD_DATA.NETMON_CURRENT_NETWORK].keys())
+        online_nodes = [
+          n for n in all_nodes 
+          if data.data[PAYLOAD_DATA.NETMON_CURRENT_NETWORK][n][PAYLOAD_DATA.NETMON_STATUS_KEY] == PAYLOAD_DATA.NETMON_STATUS_ONLINE
         ]
-      }
-      message += f"\n{json.dumps(self.last_data, indent=2)}"
+      message = f"{path[0]} Reports {len(online_nodes)} online nodes of {len(all_nodes)} known overall."
       color = 'g'
     session.P(message, color=color, show=True)  #, noprefix=True)
     return
@@ -117,14 +120,14 @@ class MessageHandler:
 
 if __name__ == '__main__':
   # create a naive message handler for network monitoring public messages
-  filterer = MessageHandler(["REST_CUSTOM_EXEC_01", "NET_MON_01"])
+  filterer = MessageHandler("NET_MON_01")
   
   # create a session
   # the network credentials are read from the .env file automatically
   session = Session(
       on_heartbeat=filterer.on_heartbeat,
       on_payload=filterer.on_data,
-      silent=False,
+      # silent=True,
   )
 
   # Observation:
@@ -135,3 +138,6 @@ if __name__ == '__main__':
     close_pipelines=True # when the user stops the execution, the remote edge-node pipelines will be closed
   )
   session.P("Main thread exiting...")
+  
+  df_net, supervisor = session.get_network_known_nodes()
+  print(f"Network known nodes by the supervisor: '{supervisor}'\n{df_net}")

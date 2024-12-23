@@ -31,7 +31,8 @@ def log_with_color(s, color='n'):
       'r': '\033[31m',  # Red
       'g': '\033[32m',  # Green
       'y': '\033[33m',  # Yellow
-      'b': "\x1b[1;34m",  # bright blue
+      # 'b': "\x1b[1;34m",  # bright blue
+      'b': "\x1b[1;36m",  # bright cyan
       'w': '\033[97m',  # Light white
       'c': "\x1b[1;36m",  # bright cyan
       'n': '\033[37m',  # Dark white (default)
@@ -80,17 +81,33 @@ def reset_config(*args, **kwargs):
     log_with_color(f"Please update the configuration in the file {config_file}", color='r')
   return
 
+def show_address(*args):
+  """
+  Displays the current client address.
+  """
+  from naeural_client import Session
+  sess = Session(
+    silent=True
+  )
+  log_with_color(f"{sess.get_client_address()}", color='b')
+  return
 
 def show_config(*args):
   """
   Displays the current configuration from ~/.naeural/config.
   """
+  from naeural_client import Session
+  sess = Session(
+    silent=True
+  )
+  
   user_folder = get_user_folder()
   config_file = get_user_config_file()
 
   log_with_color(f"NEP SDK folder: {user_folder}", color='b')
+  log_with_color(f"SDK Client address: {sess.get_client_address()}", color='b')
   if config_file.exists():
-    log_with_color(f"Current configuration ({config_file}):")
+    log_with_color(f"Current configuration ({config_file}):", color='y')
     with config_file.open("r") as file:
       log_with_color(file.read())
   else:

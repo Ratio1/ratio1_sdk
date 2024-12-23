@@ -1,7 +1,9 @@
 import json
 import os
 import traceback
-from collections import deque
+import pandas as pd
+
+from collections import deque, OrderedDict
 from datetime import datetime as dt
 from threading import Lock, Thread
 from time import sleep
@@ -9,7 +11,11 @@ from time import time as tm
 
 from ..base_decentra_object import BaseDecentrAIObject
 from ..bc import DefaultBlockEngine
-from ..const import COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, PLUGIN_SIGNATURES, BLOCKCHAIN_CONFIG
+from ..const import (
+  COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, 
+  PLUGIN_SIGNATURES, DEFAULT_PIPELINES,
+  BLOCKCHAIN_CONFIG
+)
 from ..const import comms as comm_ct
 from ..io_formatter import IOFormatterWrapper
 from ..logging import Logger
@@ -173,6 +179,9 @@ class GenericSession(BaseDecentrAIObject):
     self.online_timeout = 60
     self.filter_workers = filter_workers
     self.__show_commands = show_commands
+    
+    # this is used to store data received from net-mon instances
+    self.__current_network_statuses = {} 
 
     pwd = pwd or kwargs.get('password', kwargs.get('pass', None))
     user = user or kwargs.get('username', None)
@@ -450,6 +459,8 @@ class GenericSession(BaseDecentrAIObject):
       self._dct_online_nodes_last_heartbeat[msg_node_addr] = dict_msg
 
       msg_node_id = dict_msg[PAYLOAD_DATA.EE_ID]
+      # track the node based on heartbeat - a normal heartbeat means the node is online
+      # however this can lead to long wait times for the first heartbeat for all nodes
       self.__track_online_node(msg_node_addr, msg_node_id)
 
       msg_active_configs = dict_msg.get(HB.CONFIG_STREAMS)
@@ -545,11 +556,48 @@ class GenericSession(BaseDecentrAIObject):
         self.custom_on_notification(self, msg_node_addr, Payload(dict_msg))
 
       return
+    
+    
+    def __maybe_process_net_mon(
+      self, 
+      dict_msg: dict,  
+      msg_pipeline : str, 
+      msg_signature : str
+    ):
+      REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
+      REQUIRED_SIGNATURE = PLUGIN_SIGNATURES.NET_MON_01
+      if msg_pipeline.lower() == REQUIRED_PIPELINE.lower() and msg_signature.upper() == REQUIRED_SIGNATURE.upper():
+        # handle net mon message
+        sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
+        path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None, None, None, None])
+        ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
+        current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})
+        if current_network:
+          all_addresses = [
+            x[PAYLOAD_DATA.NETMON_ADDRESS] for x in current_network.values()
+          ]
+          online_addresses = [
+            x[PAYLOAD_DATA.NETMON_ADDRESS] for x in current_network.values() 
+            if x[PAYLOAD_DATA.NETMON_STATUS_KEY] == PAYLOAD_DATA.NETMON_STATUS_ONLINE
+          ] 
+          self.P(f"Net config from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
+          self.__current_network_statuses[sender_addr] = current_network
+        # end if current_network is valid
+      # end if NET_MON_01
+      return
+      
 
     # TODO: maybe convert dict_msg to Payload object
     #       also maybe strip the dict from useless info for the user of the sdk
     #       Add try-except + sleep
-    def __on_payload(self, dict_msg: dict, msg_node_addr, msg_pipeline, msg_signature, msg_instance) -> None:
+    def __on_payload(
+      self, 
+      dict_msg: dict, 
+      msg_node_addr, 
+      msg_pipeline, 
+      msg_signature, 
+      msg_instance
+    ) -> None:
       """
       Handle a payload message received from the communication server.
 
@@ -571,6 +619,8 @@ class GenericSession(BaseDecentrAIObject):
 
       if self.__maybe_ignore_message(msg_node_addr):
         return
+      
+      self.__maybe_process_net_mon(dict_msg, msg_pipeline, msg_signature)
 
       # call the pipeline and instance defined callbacks
       for pipeline in self.own_pipelines:
@@ -2097,3 +2147,54 @@ class GenericSession(BaseDecentrAIObject):
     @property
     def client_address(self):
       return self.get_client_address()
+    
+    def get_network_known_nodes(self, timeout=10, online_only=False, supervisors_only=False):
+      """
+      This function will return a Pandas dataframe  known nodes in the network based on
+      all the net-mon messages received so far.
+      """
+      mapping = OrderedDict({
+        'Address': PAYLOAD_DATA.NETMON_ADDRESS,
+        'Alias'  : PAYLOAD_DATA.NETMON_EEID,
+        'Last state': PAYLOAD_DATA.NETMON_STATUS_KEY,
+        'Ago (s)' : PAYLOAD_DATA.NETMON_LAST_SEEN,
+        'Last probe' : PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME,
+        'Node zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
+        'Supervisor' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
+      })
+      reverse_mapping = {v: k for k, v in mapping.items()}
+      res = OrderedDict()
+      for k in mapping:
+        res[k] = []
+      start = tm()      
+      while (tm() - start) < timeout:
+        if len(self.__current_network_statuses) > 0:
+          break
+        sleep(0.1)
+      # end while
+      if len(self.__current_network_statuses) > 0:
+        best_info = {}
+        best_super = None
+        for supervisor, net_info in self.__current_network_statuses.items():
+          if len(net_info) > len(best_info):
+            best_info = net_info
+            best_super = supervisor
+        # done found best supervisor
+        for _, node_info in best_info.items():
+          is_online = node_info.get(PAYLOAD_DATA.NETMON_STATUS_KEY, None) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
+          is_supervisor = node_info.get(PAYLOAD_DATA.NETMON_IS_SUPERVISOR, False)
+          if online_only and not is_online:
+            continue
+          if supervisors_only and not is_supervisor:
+            continue
+          for key, column in reverse_mapping.items():
+            val = node_info.get(key, None)
+            if key == PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME:
+              # val hols a string '2024-12-23 23:50:16.462155' and must be converted to a datetime
+              val = dt.strptime(val, '%Y-%m-%d %H:%M:%S.%f')
+              # strip the microseconds
+              val = val.replace(microsecond=0)
+            res[column].append(val)          
+        # end for
+      # end if
+      return pd.DataFrame(res), best_super

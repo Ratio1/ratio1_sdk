@@ -10,12 +10,17 @@ def get_nodes(args):
   3. Wait for the second net mon message via Session and show progress.  
   4. Get the active nodes union via Session and display the nodes marking those peered vs non-peered.
   """
+  from naeural_client import Session
+  sess = Session(silent=True)
   if args.all:
-    log_with_color("Getting all nodes information", color="b")
-  elif args.peered:
-    log_with_color("Getting peered nodes information", color="b")
+    df, supervisor = sess.get_network_known_nodes()
+    log_with_color(f"Network map as seen by the <{supervisor}>:\n{df}")    
+  elif args.online:
+    df, supervisor = sess.get_network_known_nodes(online_only=True)
+    log_with_color(f"Online nodes as seen by the <{supervisor}>:\n{df}")    
   else:
-    log_with_color("Getting default nodes information", color="b")
+    df, supervisor = sess.get_network_known_nodes(online_only=True)
+    log_with_color(f"Online nodes as seen by the <{supervisor}>:\n{df}")    
   return
   
   
@@ -23,7 +28,10 @@ def get_supervisors(args):
   """
   This function is used to get the information about the supervisors.
   """
-  log_with_color("Getting supervisors information", color='b')
+  from naeural_client import Session
+  sess = Session(silent=True)
+  df, supervisor = sess.get_network_known_nodes(online_only=True, supervisors_only=True)
+  log_with_color(f"Supervisors reported by <{supervisor}>:\n{df}")
   return
 
 

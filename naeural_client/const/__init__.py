@@ -7,4 +7,4 @@ from .payload import STATUS_TYPE, PAYLOAD_DATA, COMMANDS, NOTIFICATION_CODES, NE
 from .base import CONFIG_STREAM, BIZ_PLUGIN_DATA, PLUGIN_INFO, BLOCKCHAIN_CONFIG
 from . import heartbeat as HB
 from .environment import ENVIRONMENT
-from .apps import PLUGIN_SIGNATURES
+from .apps import PLUGIN_SIGNATURES, DEFAULT_PIPELINES

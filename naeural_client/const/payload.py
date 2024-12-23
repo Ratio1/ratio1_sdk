@@ -195,6 +195,16 @@ class PAYLOAD_DATA:
 
   ID_TAGS = 'ID_TAGS'
   
+  NETMON_CURRENT_NETWORK = 'CURRENT_NETWORK'
+  NETMON_STATUS_KEY = "working"
+  NETMON_STATUS_ONLINE = "ONLINE"
+  NETMON_ADDRESS = "address"
+  NETMON_EEID = "eeid"
+  NETMON_LAST_REMOTE_TIME = 'last_remote_time'
+  NETMON_NODE_UTC = 'node_utc'
+  NETMON_LAST_SEEN = 'last_seen_sec'
+  NETMON_IS_SUPERVISOR = 'is_supervisor'
+  
   
 class NET_CONFIG:
   STORE_COMMAND = "SET_CONFIG"
