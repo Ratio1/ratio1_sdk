@@ -16,8 +16,11 @@ from ..logging import Logger
 from ..utils import load_dotenv
 from .payload import Payload
 from .pipeline import Pipeline
+from .webapp_pipeline import WebappPipeline
 from .transaction import Transaction
 from ..utils.config import load_user_defined_config, get_user_config_file
+
+# from ..default.instance import PLUGIN_TYPES # circular import
 
 # TODO: add support for remaining commands from EE
 
@@ -1182,6 +1185,7 @@ class GenericSession(BaseDecentrAIObject):
                         on_data=None,
                         on_notification=None,
                         max_wait_time=0,
+                        pipeline_type=None,
                         **kwargs) -> Pipeline:
       """
       Create a new pipeline on a node. A pipeline is the equivalent of the "config file" used by the Naeural Edge Protocol edge node team internally.
@@ -1249,7 +1253,8 @@ class GenericSession(BaseDecentrAIObject):
         raise Exception("Unable to attach to pipeline. Node does not exist")
 
       node_addr = self.__get_node_address(node)
-      pipeline = Pipeline(
+      pipeline_type = pipeline_type or Pipeline
+      pipeline = pipeline_type(
           self,
           self.log,
           node_addr=node_addr,
@@ -1699,9 +1704,11 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name,
-      signature=PLUGIN_SIGNATURES.CUSTOM_WEB_APP_01,
+      signature,
+      ngrok_edge_label=None,
       endpoints=None,
       use_ngrok=True,
+      extra_debug=False,
       **kwargs
     ):
       """
@@ -1717,7 +1724,7 @@ class GenericSession(BaseDecentrAIObject):
           Name of the web app.
           
       signature : str, optional
-          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEB_APP_01.
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01.
           
       endpoints : list[dict], optional
           A list of dictionaries defining the endpoint configuration. Defaults to None.
@@ -1728,9 +1735,16 @@ class GenericSession(BaseDecentrAIObject):
       
       """
 
-      pipeline: Pipeline = self.create_pipeline(
+      ngrok_use_api = True
+      
+      # if isinstance(signature, str):
+        
+
+      pipeline: WebappPipeline = self.create_pipeline(
         node=node,
         name=name,
+        pipeline_type=WebappPipeline,
+        extra_debug=extra_debug,
         # default TYPE is "Void"
       )
 
@@ -1738,6 +1752,8 @@ class GenericSession(BaseDecentrAIObject):
         signature=signature,
         instance_id=self.log.get_unique_id(),
         use_ngrok=use_ngrok,
+        ngrok_edge_label=ngrok_edge_label,
+        ngrok_use_api=ngrok_use_api,
         **kwargs
       )
       

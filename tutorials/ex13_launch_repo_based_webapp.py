@@ -14,7 +14,7 @@ if __name__ == "__main__":
   node = "INSERT_YOUR_NODE_ADDRESS_HERE"
   session.wait_for_node(node)
 
-  instance: PLUGIN_TYPES.CUSTOM_WEB_APP_01
+  instance: PLUGIN_TYPES.CUSTOM_WEBAPI_01
   pipeline, instance = session.create_web_app(
   
   )

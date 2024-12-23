@@ -28,7 +28,21 @@ class Pipeline(BaseCodeChecker):
     `Plugin` == `Signature`
   """
 
-  def __init__(self, session, log, *, node_addr, name, config={}, plugins=[], on_data=None, on_notification=None, is_attached=False, existing_config=None, **kwargs) -> None:
+  def __init__(
+    self, 
+    session, 
+    log, 
+    *, 
+    node_addr, 
+    name, 
+    config={}, 
+    plugins=[], 
+    on_data=None, 
+    on_notification=None, 
+    is_attached=False, 
+    existing_config=None, 
+    **kwargs
+  ) -> None:
     """
     A `Pipeline` is a an object that encapsulates a one-to-many, data acquisition to data processing, flow of data.
 
@@ -112,9 +126,24 @@ class Pipeline(BaseCodeChecker):
     self.on_notification_callbacks = []
 
     if on_data is not None:
-      self.on_data_callbacks.append(on_data)
+      if isinstance(on_data, list):
+        for cb in on_data:
+          if cb is not None:
+            self.on_data_callbacks.append(cb)
+      elif callable(on_data):
+        self.on_data_callbacks.append(on_data)
+      else:
+        raise ValueError("on_data should be a callable or a list of callables")
+      
     if on_notification is not None:
-      self.on_notification_callbacks.append(on_notification)
+      if isinstance(on_notification, list):
+        for cb in on_data:
+          if cb is not None:
+            self.on_notification_callbacks.append(cb)
+      elif callable(on_notification):
+        self.on_notification_callbacks.append(on_notification)
+      else:
+        raise ValueError("on_notification should be a callable or a list of callables")
 
     self.lst_plugin_instances: list[Instance] = []
 
@@ -798,7 +827,16 @@ class Pipeline(BaseCodeChecker):
       """
       return self.__was_last_operation_successful
 
-    def create_plugin_instance(self, *, signature, instance_id, config={}, on_data=None, on_notification=None, **kwargs) -> Instance:
+    def create_plugin_instance(
+      self, 
+      *, 
+      signature, 
+      instance_id, 
+      config={}, 
+      on_data=None, 
+      on_notification=None, 
+      **kwargs
+    ) -> Instance:
       """
       Create a new instance of a desired plugin, with a given configuration. This instance is attached to this pipeline, 
       meaning it processes data from this pipelines data source. Parameters can be passed either in the `config` dict, or as `kwargs`.
@@ -988,7 +1026,13 @@ class Pipeline(BaseCodeChecker):
           **kwargs
       )
 
-    def deploy(self, with_confirmation=True, wait_confirmation=True, timeout=10, verbose=False):
+    def deploy(
+      self, 
+      with_confirmation=True, 
+      wait_confirmation=True, 
+      timeout=10, 
+      verbose=False
+    ):
       """
       This method is used to deploy the pipeline on the Naeural Edge Protocol edge node. 
       Here we collect all the proposed configurations and send them to the Naeural Edge Protocol edge node.

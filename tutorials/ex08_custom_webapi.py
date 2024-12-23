@@ -1,22 +1,21 @@
+import os
 from naeural_client import CustomPluginTemplate, Session, PLUGIN_TYPES
 
-# this tutorial can be run only on the local edge node
-# because it uses ngrok to expose the fastapi server
-# and this requires an ngrok auth token
-
-# See https://naeural-013.ngrok.app/docs
 
 
 def hello_world(plugin, name: str = "naeural_developer"):
   # name is a query parameter
+  plugin.P("Running hello endpoint...")
   return f"Hello, {name}! I am {plugin.e2_addr}"
 
 
 def get_uuid(plugin: CustomPluginTemplate):
+  plugin.P("Running get_uuid endpoint...")
   return f"New uuid: {plugin.uuid()}!"
 
 
 def get_addr(plugin: CustomPluginTemplate):
+  plugin.P("Running get_addr endpoint...")
   return plugin.node_addr
 
 
@@ -36,22 +35,29 @@ def predict(plugin: CustomPluginTemplate, series: list[int], steps: int) -> list
   list
       A list of integers representing the predicted values.
   """
+  plugin.P("Running predict endpoint...")
   result = plugin.basic_ts_fit_predict(series, steps)
   result = list(map(int, result))
   return result
 
 
 if __name__ == "__main__":
-  session = Session()
+  session = Session(silent=True)
 
-  node = "INSERT_YOUR_NODE_ADDRESS_HERE"
+  node = os.environ.get("TARGET_NODE", "INSERT_YOUR_NODE_ADDRESS_HERE")
+  session.P(f"Waiting for node {node} to be available for deployment...")
   session.wait_for_node(node)
 
-  instance: PLUGIN_TYPES.CUSTOM_WEB_APP_01
+  instance: PLUGIN_TYPES.CUSTOM_WEBAPI_01
   pipeline, instance = session.create_web_app(
     node=node,
-    name="naeural_predict_app",    
-    ngrok_edge_label="INSERT_YOUR_NGROK_EDGE_LABEL_HERE",
+    name="naeural_predict_app",   
+    signature=PLUGIN_TYPES.CUSTOM_WEBAPI_01, 
+    # by default ngrok_edge_label should not be provided as a unique URL will be generated
+    # othwerwise, you can provide a custom ngrok_edge_label that should be preconfigured via ngrok dashboard
+    # ngrok_edge_label=os.environ.get("NGROK_EDGE_LABEL", None),
+    ngrok_edge_label=None, 
+    extra_debug=True,
     endpoints=[
       {
         # we omit the "endpoint_type" key, because the default value is "default" ie the "function" type
@@ -99,7 +105,9 @@ if __name__ == "__main__":
   #   endpoint_route="/",
   # )
 
-  pipeline.deploy()
+  url = pipeline.deploy(verbose=True)
+  
+  session.P(f"Webapp available at: {url}", color='g', boxed=True, show=True)
 
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources

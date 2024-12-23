@@ -21,11 +21,11 @@ if __name__ == "__main__":
   node = "0xai_At8N0Qgz78sBLgPtMgifmCabJGkgEzgkEP-1laDggXVM"
   session.wait_for_node(node)
 
-  instance: PLUGIN_TYPES.CUSTOM_WEB_APP_01
+  instance: PLUGIN_TYPES.CUSTOM_WEBAPI_01
   pipeline, instance = session.create_web_app(
     node=node,
     name="naeural_code_sandbox_copycat_app",
-    signature=PLUGIN_TYPES.CUSTOM_WEB_APP_01, # not mandatory as it is the default value
+    signature=PLUGIN_TYPES.CUSTOM_WEBAPI_01, # not mandatory as it is the default value
 
     ngrok_edge_label="edghts_2jSQ4nm5TuzGgHh8I0wlfDz3Vr0",  # https://naeural-001.ngrok.app
     use_ngrok=True,
