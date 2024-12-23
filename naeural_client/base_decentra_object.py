@@ -25,6 +25,8 @@ class BaseDecentrAIObject(object):
                prefix_log=None,
                log_at_startup=False,
                silent=False,
+               local_cache_base_folder='.',
+               local_cache_app_folder='_local_cache',
                **kwargs):
 
     super(BaseDecentrAIObject, self).__init__()
@@ -34,10 +36,10 @@ class BaseDecentrAIObject(object):
         raise ValueError("Logger object is invalid: {}".format(log))
       else:
         log = Logger(
-          "DEF", 
+          "R1", 
           DEBUG=DEBUG, 
-          base_folder='.', 
-          app_folder='_local_cache',
+          base_folder=local_cache_base_folder, 
+          app_folder=local_cache_app_folder,
           silent=silent,
         )
     # endif

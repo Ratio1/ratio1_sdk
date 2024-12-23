@@ -14,8 +14,8 @@ def build_parser():
   argparse.ArgumentParser
       Configured argument parser.
   """
-  descr = f"nepctl v{version} - CLI for Naeural Edge Protocol SDK package"
-  parser = argparse.ArgumentParser(description=descr)
+  title = f"nepctl v{version} - CLI for Naeural Edge Protocol SDK package"
+  parser = argparse.ArgumentParser(description=title)
   subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
   for command, subcommands in CLI_COMMANDS.items():
@@ -25,8 +25,9 @@ def build_parser():
       # Nested subcommands
       command_subparsers = command_parser.add_subparsers(dest="subcommand")
       for subcommand, subcmd_info in subcommands.items():
+        description = subcmd_info.get("description", f"{subcommand} command")
         subcommand_parser = command_subparsers.add_parser(
-          subcommand, help=f"{subcommand} command"
+          subcommand, help=description
         )
         if isinstance(subcmd_info, dict) and "params" in subcmd_info:
           for param, description in subcmd_info["params"].items():

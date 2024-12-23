@@ -64,6 +64,19 @@ class Payload(UserDict):
     except ModuleNotFoundError:
       raise "This functionality requires the PIL library. To use this feature, please install it using 'pip install pillow'"
     return image
+  
+  def __getattr__(self, key):
+    try:
+      return self.data[key]
+    except KeyError as e:
+      raise AttributeError(f"{self.__class__.__name__} object has no attribute '{key}'") from e
+
+  def __setattr__(self, key, value):
+    # If we're setting 'data' itself, just call super()
+    if key == 'data':
+      super().__setattr__(key, value)
+    else:
+      self.data[key] = value  
 
 
 if __name__ == "__main__":
@@ -71,9 +84,10 @@ if __name__ == "__main__":
   payload = Payload()
   payload.data = {
     "IMG": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABKklEQVR42mNkAAwOyKg",
-    "TEST" : "TEST"
+    "TEST" : "TEST VALUE"
   }
   
   print(type(payload), payload)
   print(type(payload.data), payload.data)
   print(json.dumps(payload.data, indent=2))
+  print(payload.TEST)
