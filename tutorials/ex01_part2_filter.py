@@ -46,10 +46,9 @@ class MessageHandler:
     heartbeat : dict
         The heartbeat received from the edge node.        
     """
-    session.P("{} ({}) has {}".format(
-      heartbeat['EE_ID'], 
-      self.shorten_address(node_addr), 
-      heartbeat["CPU"]),
+    session.P(
+      f"{heartbeat['EE_ID']} ({self.shorten_address(node_addr)}) has {heartbeat['CPU']}",
+      color='b',
     )
     return
 
@@ -105,7 +104,11 @@ class MessageHandler:
         k:v for k,v in data.data.items() 
         if k in ["EE_HASH", "EE_IS_ENCRYPTED", "EE_MESSAGE_SEQ", "EE_SIGN", "EE_TIMESTAMP"]
       }
-      self.last_payload = data.data
+      self.last_payload = data # save the full payload for debugging purposes
+      # we can also access the "payload path" that matches 
+      # the node-alias, pipeline_name, plugin_signature, and plugin_instance
+      path = data.EE_PAYLOAD_PATH 
+      # we save the payload for debugging purposes
       NET_KEY = "CURRENT_NETWORK"
       STATUS_KEY = "working"
       ONLINE_STATUS = "ONLINE"
@@ -116,7 +119,7 @@ class MessageHandler:
           n for n in all_nodes 
           if data.data[NET_KEY][n][STATUS_KEY] == ONLINE_STATUS
         ]
-      message += f" - Online nodes: {len(online_nodes)}/{len(all_nodes)}"
+      message += f" {path[0]} Reports {len(online_nodes)} online nodes of {len(all_nodes)} known overall."
       color = 'g'
     session.P(message, color=color, show=True)  #, noprefix=True)
     return
@@ -133,7 +136,6 @@ if __name__ == '__main__':
       on_payload=filterer.on_data,
       # silent=True,
   )
-
 
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources
