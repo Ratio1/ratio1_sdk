@@ -29,7 +29,8 @@ _HTML_END = "</pre></BODY>"
 
 COLORS = {
   'n': "\x1b[1;37m", # normal white
-  'd': "\x1b[0;37m", # grey white
+  'd': "\033[90m", # dark gray
+  # 'd': "\x1b[0;37m", # grey white
   'r': "\x1b[1;31m",
   'g': "\x1b[1;32m",
   'y': "\x1b[1;33m",

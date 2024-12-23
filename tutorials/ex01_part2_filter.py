@@ -22,6 +22,7 @@ class MessageHandler:
     """
     self.signature_filter = signature_filter.upper() if isinstance(signature_filter, str) else None
     self.last_data = None # some variable to store the last data received for debugging purposes
+    self.last_payload = None # some variable to store the last payload received for debugging purposes
     return
   
   def shorten_address(self, address):
@@ -98,21 +99,32 @@ class MessageHandler:
       message = "Recv data from <{}::{}::{}::{}>\n".format(
         addr, pipeline_name, plugin_signature, plugin_instance
       )
-      # the actual data is stored in the data.data attribute of the Payload UserDic+-t object
+      # the actual data is stored in the data.data attribute of the Payload UserDict object
       # now we just copy some data as a naive example
       self.last_data = {
         k:v for k,v in data.data.items() 
         if k in ["EE_HASH", "EE_IS_ENCRYPTED", "EE_MESSAGE_SEQ", "EE_SIGN", "EE_TIMESTAMP"]
       }
-      message += "{}".format(json.dumps(self.last_data, indent=2))
+      self.last_payload = data.data
+      NET_KEY = "CURRENT_NETWORK"
+      STATUS_KEY = "working"
+      ONLINE_STATUS = "ONLINE"
+      # now we do some low-level processing of the data
+      if NET_KEY in data.data:
+        all_nodes = list(data.data[NET_KEY].keys())
+        online_nodes = [
+          n for n in all_nodes 
+          if data.data[NET_KEY][n][STATUS_KEY] == ONLINE_STATUS
+        ]
+      message += f" - Online nodes: {len(online_nodes)}/{len(all_nodes)}"
       color = 'g'
-    session.P(message, color=color, show=True, noprefix=True)
+    session.P(message, color=color, show=True)  #, noprefix=True)
     return
 
 
 if __name__ == '__main__':
-  # create a naive message handler   
-  filterer = MessageHandler("REST_CUSTOM_EXEC_01")
+  # create a naive message handler for network monitoring public messages
+  filterer = MessageHandler("NET_MON_01")
   
   # create a session
   # the network credentials are read from the .env file automatically

@@ -54,7 +54,7 @@ def get_user_config_file():
   """
   return get_user_folder() / "config"
 
-def reset_config(args):
+def reset_config(*args, **kwargs):
   """
   Resets the configuration by creating a ~/.naeural folder and populating
   ~/.naeural/config with values from a local .env file, if it exists.
@@ -77,14 +77,18 @@ def reset_config(args):
     with config_file.open("wt") as file:
       file.write(ENV_TEMPLATE)
     log_with_color(f"Configuration has been reset to default in {config_file}:\n{ENV_TEMPLATE}", color='y')
+    log_with_color(f"Please update the configuration in the file {config_file}", color='r')
+  return
 
 
-def show_config(args):
+def show_config(*args):
   """
   Displays the current configuration from ~/.naeural/config.
   """
+  user_folder = get_user_folder()
   config_file = get_user_config_file()
 
+  log_with_color(f"NEP SDK folder: {user_folder}", color='b')
   if config_file.exists():
     log_with_color(f"Current configuration ({config_file}):")
     with config_file.open("r") as file:
@@ -127,5 +131,6 @@ def maybe_init_config():
   config_file = get_user_config_file()
 
   if not config_file.exists():
+    log_with_color(f"No configuration file found at {config_file}. Initializing configuration...", color="y") 
     reset_config()
   load_user_defined_config()

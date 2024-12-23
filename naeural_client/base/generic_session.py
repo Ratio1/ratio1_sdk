@@ -18,7 +18,7 @@ from .payload import Payload
 from .pipeline import Pipeline
 from .webapp_pipeline import WebappPipeline
 from .transaction import Transaction
-from ..utils.config import load_user_defined_config, get_user_config_file
+from ..utils.config import load_user_defined_config, get_user_config_file, get_user_folder
 
 # from ..default.instance import PLUGIN_TYPES # circular import
 
@@ -51,30 +51,35 @@ class GenericSession(BaseDecentrAIObject):
   }
 
 
-  def __init__(self, *,
-               host=None,
-               port=None,
-               user=None,
-               pwd=None,
-               secured=None,
-               name='pySDK',
-               encrypt_comms=True,
-               config={},
-               filter_workers=None,
-               log: Logger = None,
-               on_payload=None,
-               on_notification=None,
-               on_heartbeat=None,
-               debug_silent=True,
-               silent=False,
-               verbosity=1,
-               dotenv_path=None,
-               show_commands=False,
-               blockchain_config=BLOCKCHAIN_CONFIG,
-               bc_engine=None,
-               formatter_plugins_locations=['plugins.io_formatters'],
-               root_topic="naeural",
-               **kwargs) -> None:
+  def __init__(
+              self, *,
+              host=None,
+              port=None,
+              user=None,
+              pwd=None,
+              secured=None,
+              name='pySDK',
+              encrypt_comms=True,
+              config={},
+              filter_workers=None,
+              log: Logger = None,
+              on_payload=None,
+              on_notification=None,
+              on_heartbeat=None,
+              debug_silent=True,
+              silent=False,
+              verbosity=1,
+              dotenv_path=None,
+              show_commands=False,
+              blockchain_config=BLOCKCHAIN_CONFIG,
+              bc_engine=None,
+              formatter_plugins_locations=['plugins.io_formatters'],
+              root_topic="naeural",
+              local_cache_base_folder=None,
+              local_cache_app_folder='_local_cache',
+              use_home_folder=False,
+              **kwargs
+            ) -> None:
     """
     A Session is a connection to a communication server which provides the channel to interact with nodes from the Naeural Edge Protocol network.
     A Session manages `Pipelines` and handles all messages received from the communication server.
@@ -197,11 +202,28 @@ class GenericSession(BaseDecentrAIObject):
     self.__open_transactions_lock = Lock()
 
     self.__create_user_callback_threads()
+    
+    if local_cache_app_folder is None:
+      local_cache_app_folder = '_local_cache'
+    #
+
+    if os.path.exists(os.path.join(".", local_cache_app_folder)) and local_cache_base_folder is None:
+      local_cache_base_folder = '.'
+    # end if
+    
+    if local_cache_base_folder is None or use_home_folder:
+      # use_home_folder allows us to use the home folder as the base folder
+      local_cache_base_folder = get_user_folder()
+    # end if
+    
+      
     super(GenericSession, self).__init__(
       log=log, 
       DEBUG=not debug_silent, 
       create_logger=True,
       silent=self.silent,
+      local_cache_base_folder=local_cache_base_folder,
+      local_cache_app_folder=local_cache_app_folder,
     )
     return
 

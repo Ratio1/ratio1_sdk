@@ -280,12 +280,23 @@ class BaseBlockEngine:
     
   ensure_ascii_payloads: bool
     flag that controls if the payloads are encoded as ascii or not. Default `False` for JS compatibility.
+
+  user_config: bool
+    flag that controls if the keys are stored in the user private folder or in the data folder of the _local_cache
   
   """
   _lock: Lock = Lock()
   __instances = {}
   
-  def __new__(cls, name, log, config, ensure_ascii_payloads=False, verbosity=1, user_config=False):
+  def __new__(
+    cls, 
+    name, 
+    log, 
+    config, 
+    ensure_ascii_payloads=False, 
+    verbosity=1, 
+    user_config=False
+  ):
     with cls._lock:
       if name not in cls.__instances:
         instance = super(BaseBlockEngine, cls).__new__(cls)
@@ -328,7 +339,7 @@ class BaseBlockEngine:
       pem_name = config.get(BCct.K_PEM_FILE, '_pk.pem')
       pem_folder = config.get(BCct.K_PEM_LOCATION, 'data')
       pem_fn = os.path.join(log.get_target_folder(pem_folder), pem_name)
-    #endif pem is defined in ~/.naeural/config
+    #endif pem is defined in ~/.naeural/ or in the data folder of the _local_cache
     self.__pem_file = pem_fn
     self._init()
     return
