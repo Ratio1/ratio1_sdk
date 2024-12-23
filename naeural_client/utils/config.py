@@ -72,13 +72,20 @@ def reset_config(*args, **kwargs):
   if current_env_file.exists():
     # Copy .env content to ~/.naeural/config
     shutil.copy(current_env_file, config_file)
-    log_with_color(f"Configuration has been reset using {current_env_file} into {config_file}", color='y')
+    log_with_color(
+      f"Configuration has been reset using {current_env_file} into {config_file}", 
+      color='y'
+    )
+    log_with_color(f"Please REVIEW the configuration in the file {config_file}", color='b')
   else:
     # Create an empty config file
     with config_file.open("wt") as file:
       file.write(ENV_TEMPLATE)
-    log_with_color(f"Configuration has been reset to default in {config_file}:\n{ENV_TEMPLATE}", color='y')
-    log_with_color(f"Please update the configuration in the file {config_file}", color='r')
+    log_with_color(
+      f"Configuration has been reset to default in {config_file}:\n{ENV_TEMPLATE}", 
+      color='y'
+    )
+    log_with_color(f"Please UPDATE the configuration in the file {config_file}", color='b')
   return
 
 def show_address(*args):

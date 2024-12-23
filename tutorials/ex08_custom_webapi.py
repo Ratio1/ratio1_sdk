@@ -107,7 +107,11 @@ if __name__ == "__main__":
 
   url = pipeline.deploy(verbose=True)
   
+  # print the url of the webapp
   session.P(f"Webapp available at: {url}", color='g', boxed=True, show=True)
+  
+  # at this point the webapp is deployed and the endpoints are available
+  # and we can access the webapp via the url provided
 
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources

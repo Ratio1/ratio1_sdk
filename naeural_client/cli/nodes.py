@@ -14,13 +14,16 @@ def get_nodes(args):
   sess = Session(silent=True)
   if args.all:
     df, supervisor = sess.get_network_known_nodes()
-    log_with_color(f"Network map as seen by the <{supervisor}>:\n{df}")    
+    log_with_color(f"Network historical map as seen by <{supervisor}>:", color='b')
+    log_with_color(f"{df}")    
   elif args.online:
     df, supervisor = sess.get_network_known_nodes(online_only=True)
-    log_with_color(f"Online nodes as seen by the <{supervisor}>:\n{df}")    
+    log_with_color(f"Online nodes as seen by <{supervisor}>:", color='b')
+    log_with_color(f"{df}")    
   else:
     df, supervisor = sess.get_network_known_nodes(online_only=True)
-    log_with_color(f"Online nodes as seen by the <{supervisor}>:\n{df}")    
+    log_with_color(f"Online nodes as seen by <{supervisor}>:", color='b')
+    log_with_color(f"{df}")    
   return
   
   
