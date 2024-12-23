@@ -363,6 +363,9 @@ class _DownloadMixin(object):
     import urllib3
     from datetime import timedelta
 
+    if isinstance(secure, str):
+      secure = secure.lower() in ['true', 'yes', '1']
+      
     try:
       start_up = time()
 
@@ -371,6 +374,7 @@ class _DownloadMixin(object):
       cert_reqs = None
       http_client = None
       if secure:
+        self.P(f"Creating secure connection to Minio (secure({type(secure)}): {secure})...", color='y')
         if SSL_CERT_FILE is not None:
           if not os.path.isfile(SSL_CERT_FILE):
             raise ValueError("Invalid SSL_CERT_FILE in config")
@@ -391,6 +395,7 @@ class _DownloadMixin(object):
             status_forcelist=[500, 502, 503, 504]
           )
         )
+      #endif
       self.P("Downloading from Minio: <{} {} @{}>, secure:{}, SSL_CERT_FILE:'{}', cert_reqs:'{}' using http_client: {}...".format(
         access_key, secret_key, endpoint, secure, SSL_CERT_FILE,
         cert_reqs,
