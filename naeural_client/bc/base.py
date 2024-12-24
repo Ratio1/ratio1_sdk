@@ -377,6 +377,7 @@ class BaseBlockEngine:
           password=self.__password,
         )
         self.P("  Loaded sk from {}".format(full_path), verbosity=1)
+        os.environ[BCct.K_USER_CONFIG_PEM_FILE] = self.__pem_file
       except:
         self.P("  Failed to load sk from {}".format(full_path), color='r', verbosity=1)
 
