@@ -1810,9 +1810,6 @@ class GenericSession(BaseDecentrAIObject):
       """
 
       ngrok_use_api = True
-      
-      # if isinstance(signature, str):
-        
 
       pipeline: WebappPipeline = self.create_pipeline(
         node=node,
@@ -1887,14 +1884,15 @@ class GenericSession(BaseDecentrAIObject):
       kwargs.pop('use_ngrok', None)
       kwargs.pop('ngrok_use_api', None)
       
-      # if isinstance(signature, str):
-      
+      if ngrok_edge_label is None:
+        raise ValueError("The `ngrok_edge_label` parameter is mandatory when creating a balanced web app, in order for all instances to respond to the same URL.")
+
       pipelines, instances = [], []
       
       for node in nodes:
         self.P("Creating web app on node {}...".format(node), color='b')
         pipeline: WebappPipeline = self.create_pipeline(
-          node=nodes[0],
+          node=node,
           name=name,
           pipeline_type=WebappPipeline,
           extra_debug=extra_debug,
