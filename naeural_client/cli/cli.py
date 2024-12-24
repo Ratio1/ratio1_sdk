@@ -4,6 +4,24 @@ from naeural_client.utils.config import maybe_init_config, log_with_color
 from naeural_client.cli.cli_commands import CLI_COMMANDS
 
 from naeural_client import version
+import traceback
+
+
+def create_global_parser():
+  """
+  Creates a global argument parser with shared options like verbosity.
+
+  Returns
+  -------
+  argparse.ArgumentParser
+      Global argument parser.
+  """
+  global_parser = argparse.ArgumentParser(add_help=False)  # Prevent duplicate help
+  global_parser.add_argument(
+    "-v", "--verbose", action="store_true", help="Enable verbose output"
+  )
+  return global_parser
+
 
 def build_parser():
   """
@@ -14,8 +32,10 @@ def build_parser():
   argparse.ArgumentParser
       Configured argument parser.
   """
+  global_parser = create_global_parser()  # Add global parameters
+  
   title = f"nepctl v{version} - CLI for Naeural Edge Protocol SDK package"
-  parser = argparse.ArgumentParser(description=title)
+  parser = argparse.ArgumentParser(description=title, parents=[global_parser])
   subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
   for command, subcommands in CLI_COMMANDS.items():
@@ -32,9 +52,14 @@ def build_parser():
         if isinstance(subcmd_info, dict) and "params" in subcmd_info:
           for param, description in subcmd_info["params"].items():
             if param.startswith("--"):
-              subcommand_parser.add_argument(
-                param, action="store_true", help=description
-              )
+              if description.upper().endswith("FLAG"):
+                subcommand_parser.add_argument(
+                  param, action="store_true", help=description
+                )
+              else:
+                subcommand_parser.add_argument(
+                  param, help=description, type=str
+                )
             else:
               subcommand_parser.add_argument(
                 param, help=description
@@ -43,6 +68,9 @@ def build_parser():
           #end for
         #end if
         subcommand_parser.set_defaults(func=subcmd_info["func"])
+      #end for
+      # Fallback help for `-h <subcommand>` like `nepctl -h config`
+      command_parser.set_defaults(func=lambda args: command_parser.print_help())        
     else:
       # Single-level commands with parameters
       if "params" in subcommands:
@@ -84,7 +112,7 @@ def main():
 
   except Exception as e:
     # Handle unexpected errors gracefully
-    print(f"Error: {e}")
+    log_with_color(f"Error: {e}:\n{traceback.format_exc()}", color='r')
 
 
 if __name__ == "__main__":

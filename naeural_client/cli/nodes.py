@@ -10,19 +10,26 @@ def get_nodes(args):
   3. Wait for the second net mon message via Session and show progress.  
   4. Get the active nodes union via Session and display the nodes marking those peered vs non-peered.
   """
+  supervisor_addr = args.supervisor  
+  if args.verbose:
+    log_with_color(f"Getting nodes from supervisor <{supervisor_addr}>...", color='b')
   from naeural_client import Session
-  sess = Session(silent=True)
+  sess = Session(silent=not args.verbose)
   if args.all:
-    df, supervisor = sess.get_network_known_nodes()
-    log_with_color(f"Network historical map as seen by <{supervisor}>:", color='b')
+    df, supervisor = sess.get_network_known_nodes(supervisor=supervisor_addr)
+    log_with_color(f"Network full map reported by <{supervisor}>:", color='b')
     log_with_color(f"{df}")    
   elif args.online:
-    df, supervisor = sess.get_network_known_nodes(online_only=True)
-    log_with_color(f"Online nodes as seen by <{supervisor}>:", color='b')
+    df, supervisor = sess.get_network_known_nodes(
+      online_only=True, supervisor=supervisor_addr
+    )
+    log_with_color(f"Online nodes reported by <{supervisor}>:", color='b')
     log_with_color(f"{df}")    
   else:
-    df, supervisor = sess.get_network_known_nodes(online_only=True)
-    log_with_color(f"Online nodes as seen by <{supervisor}>:", color='b')
+    df, supervisor = sess.get_network_known_nodes(
+      online_only=True, supervisor=supervisor_addr
+    )
+    log_with_color(f"Online nodes reported by <{supervisor}>:", color='b')
     log_with_color(f"{df}")    
   return
   
@@ -31,10 +38,13 @@ def get_supervisors(args):
   """
   This function is used to get the information about the supervisors.
   """
-  from naeural_client import Session
-  sess = Session(silent=True)
+  if args.verbose:
+    log_with_color("Getting supervisors...", color='b')
+  from naeural_client import Session  
+  sess = Session(silent=not args.verbose)
   df, supervisor = sess.get_network_known_nodes(online_only=True, supervisors_only=True)
-  log_with_color(f"Supervisors reported by <{supervisor}>:\n{df}")
+  log_with_color(f"Supervisors reported by <{supervisor}>", color='b')
+  log_with_color(f"{df}")
   return
 
 
@@ -47,7 +57,7 @@ def restart_node(args):
   args : argparse.Namespace
       Arguments passed to the function.
   """
-  log_with_color(f"Restarting node {args.node}", color='b')
+  log_with_color(f"Restarting node {args.node} NOT IMPLEMENTED", color='r')
   return
 
 
@@ -60,5 +70,5 @@ def shutdown_node(args):
   args : argparse.Namespace
       Arguments passed to the function.
   """
-  log_with_color(f"Shutting down node {args.node}", color='b')
+  log_with_color(f"Shutting down node {args.node} NOT IMPLEMENTED", color='r')
   return

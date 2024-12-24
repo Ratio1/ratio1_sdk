@@ -11,9 +11,10 @@ CLI_COMMANDS = {
         "nodes": {
             "func": get_nodes,
             "params": {
-                "--all": "Get all known nodes",  # DONE
-                "--online" : "Get only online nodes", # DONE
+                "--all": "Get all known nodes flag",  # DONE
+                "--online" : "Get only online nodes flag", # DONE
                 # "--peered": "Get only peered nodes"
+                "--supervisor" : "Use a specific supervisor node"
             }
         },
         "supervisors": {
@@ -26,7 +27,7 @@ CLI_COMMANDS = {
             "description": "Show the current configuration including the location",
         },
         "reset": {
-            "func": reset_config,
+            "func": reset_config, # DONE
             "description": "Reset the configuration to default",
         },
         "addr": {

@@ -24,7 +24,9 @@ from .payload import Payload
 from .pipeline import Pipeline
 from .webapp_pipeline import WebappPipeline
 from .transaction import Transaction
-from ..utils.config import load_user_defined_config, get_user_config_file, get_user_folder
+from ..utils.config import (
+  load_user_defined_config, get_user_config_file, get_user_folder, seconds_to_short_format
+)
 
 # from ..default.instance import PLUGIN_TYPES # circular import
 
@@ -222,7 +224,7 @@ class GenericSession(BaseDecentrAIObject):
     
     if local_cache_base_folder is None or use_home_folder:
       # use_home_folder allows us to use the home folder as the base folder
-      local_cache_base_folder = get_user_folder()
+      local_cache_base_folder = str(get_user_folder())
     # end if
     
       
@@ -571,7 +573,7 @@ class GenericSession(BaseDecentrAIObject):
         sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
         path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None, None, None, None])
         ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
-        current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})
+        current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})        
         if current_network:
           all_addresses = [
             x[PAYLOAD_DATA.NETMON_ADDRESS] for x in current_network.values()
@@ -1838,6 +1840,90 @@ class GenericSession(BaseDecentrAIObject):
 
       return pipeline, instance
     
+    
+    def create_and_deploy_balanced_web_app(
+      self,
+      *,
+      nodes,
+      name,
+      signature,
+      ngrok_edge_label,
+      endpoints=None,
+      extra_debug=False,
+      **kwargs
+    ):
+      """
+      Create a new web app on a list of nodes.
+      
+      IMPORTANT: 
+        The web app will be exposed using ngrok from multiple nodes that all will share the 
+        same edge label so the ngrok_edge_label is mandatory.
+      
+      Parameters
+      ----------
+      
+      nodes : list
+          List of addresses or Names of the Naeural Edge Protocol edge nodes that will handle this web app.
+          
+      name : str
+          Name of the web app.
+          
+      signature : str
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01.
+
+      ngrok_edge_label : str
+          The label of the edge node that will be used to expose the web app. This is mandatory due to the fact
+          that the web app will be exposed using ngrok from multiple nodes that all will share the same edge label.
+          
+      endpoints : list[dict], optional
+          A list of dictionaries defining the endpoint configuration. Defaults to None.
+          
+          
+      
+      """
+
+      ngrok_use_api = True
+      use_ngrok = True
+      kwargs.pop('use_ngrok', None)
+      kwargs.pop('ngrok_use_api', None)
+      
+      # if isinstance(signature, str):
+      
+      pipelines, instances = [], []
+      
+      for node in nodes:
+        self.P("Creating web app on node {}...".format(node), color='b')
+        pipeline: WebappPipeline = self.create_pipeline(
+          node=nodes[0],
+          name=name,
+          pipeline_type=WebappPipeline,
+          extra_debug=extra_debug,
+          # default TYPE is "Void"
+        )
+
+        instance = pipeline.create_plugin_instance(
+          signature=signature,
+          instance_id=self.log.get_unique_id(),
+          use_ngrok=use_ngrok,
+          ngrok_edge_label=ngrok_edge_label,
+          ngrok_use_api=ngrok_use_api,
+          **kwargs
+        )
+        
+        if endpoints is not None:
+          for endpoint in endpoints:
+            assert isinstance(endpoint, dict), "Each endpoint must be a dictionary defining the endpoint configuration."
+            instance.add_new_endpoint(**endpoint)
+          # end for
+        # end if we have endpoints defined in the call
+
+        pipeline.deploy()
+        pipelines.append(pipeline)
+        instances.append(instance)
+      # end for
+      return pipelines, instances
+      
+    
 
     def create_telegram_simple_bot(
       self,
@@ -2148,7 +2234,14 @@ class GenericSession(BaseDecentrAIObject):
     def client_address(self):
       return self.get_client_address()
     
-    def get_network_known_nodes(self, timeout=10, online_only=False, supervisors_only=False):
+    def get_network_known_nodes(
+      self, 
+      timeout=10, 
+      online_only=False, 
+      supervisors_only=False,
+      min_supervisors=2,
+      supervisor=None,
+    ):
       """
       This function will return a Pandas dataframe  known nodes in the network based on
       all the net-mon messages received so far.
@@ -2156,10 +2249,10 @@ class GenericSession(BaseDecentrAIObject):
       mapping = OrderedDict({
         'Address': PAYLOAD_DATA.NETMON_ADDRESS,
         'Alias'  : PAYLOAD_DATA.NETMON_EEID,
+        'Seen ago' : PAYLOAD_DATA.NETMON_LAST_SEEN,
         'Last state': PAYLOAD_DATA.NETMON_STATUS_KEY,
-        'Ago (s)' : PAYLOAD_DATA.NETMON_LAST_SEEN,
         'Last probe' : PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME,
-        'Node zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
+        'Zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
         'Supervisor' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
       })
       reverse_mapping = {v: k for k, v in mapping.items()}
@@ -2167,8 +2260,12 @@ class GenericSession(BaseDecentrAIObject):
       for k in mapping:
         res[k] = []
       start = tm()      
+  
       while (tm() - start) < timeout:
-        if len(self.__current_network_statuses) > 0:
+        if supervisor is not None:
+          if supervisor in self.__current_network_statuses:
+            break
+        elif len(self.__current_network_statuses) >= min_supervisors:
           break
         sleep(0.1)
       # end while
@@ -2191,10 +2288,15 @@ class GenericSession(BaseDecentrAIObject):
             val = node_info.get(key, None)
             if key == PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME:
               # val hols a string '2024-12-23 23:50:16.462155' and must be converted to a datetime
-              val = dt.strptime(val, '%Y-%m-%d %H:%M:%S.%f')
-              # strip the microseconds
-              val = val.replace(microsecond=0)
+              val = dt.strptime(val, '%Y-%m-%d %H:%M:%S.%f')              
+              val = val.replace(microsecond=0) # strip the microseconds
+            elif key == PAYLOAD_DATA.NETMON_LAST_SEEN:
+              # convert val (seconds) to a human readable format
+              val = seconds_to_short_format(val)
+            elif key == PAYLOAD_DATA.NETMON_ADDRESS:
+              val = self.bc_engine._add_prefix(val)
             res[column].append(val)          
         # end for
       # end if
+      pd.options.display.float_format = '{:.1f}'.format
       return pd.DataFrame(res), best_super

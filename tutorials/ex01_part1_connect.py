@@ -18,7 +18,7 @@ IMPORTANT: Session will WAIT until network map is clarified.
 """
 import json
 
-from naeural_client import Session, Payload
+from naeural_client import Session, Payload, PAYLOAD_DATA
 
 
 class MessageHandler:  
@@ -44,7 +44,7 @@ class MessageHandler:
         The heartbeat received from the edge node.        
     """
     session.P("{} ({}) has a {}".format(
-      heartbeat['EE_ID'], 
+      heartbeat[PAYLOAD_DATA.EE_ID], 
       self.shorten_address(node_addr), 
       heartbeat["CPU"])
     )

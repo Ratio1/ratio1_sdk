@@ -14,6 +14,34 @@ EE_SECURED=true
 TARGET_NODE=
 """
 
+def seconds_to_short_format(seconds):
+  """
+  Converts a duration in seconds into a short human-readable format: "Xd HH:MM:SS".
+
+  Parameters
+  ----------
+  seconds : int
+      The total duration in seconds.
+
+  Returns
+  -------
+  str
+      Short human-readable duration in "Xd HH:MM:SS" format.
+  """
+  days = int(seconds / (24 * 3600))
+  seconds %= (24 * 3600)
+  hours = int(seconds / 3600)
+  seconds %= 3600
+  minutes = int(seconds / 60)
+  seconds %= 60
+  seconds = int(seconds)
+
+  # Format the result
+  if days > 0:
+    return f"{days}d {hours:02}:{minutes:02}:{seconds:02}"
+  else:
+    return f"{hours:02}:{minutes:02}:{seconds:02}"
+
 def log_with_color(s, color='n'):
   """
   Prints the string `s` to the console in the specified color.
@@ -32,9 +60,9 @@ def log_with_color(s, color='n'):
       'g': '\033[32m',  # Green
       'y': '\033[33m',  # Yellow
       # 'b': "\x1b[1;34m",  # bright blue
-      'b': "\x1b[1;36m",  # bright cyan
+      'b': "\033[36m",  # bright cyan
       'w': '\033[97m',  # Light white
-      'c': "\x1b[1;36m",  # bright cyan
+      'c': "\033[36m",  # bright cyan
       'n': '\033[37m',  # Dark white (default)
   }
 
@@ -55,7 +83,7 @@ def get_user_config_file():
   """
   return get_user_folder() / "config"
 
-def reset_config(*args, **kwargs):
+def reset_config(args, *larg, **kwargs):
   """
   Resets the configuration by creating a ~/.naeural folder and populating
   ~/.naeural/config with values from a local .env file, if it exists.
@@ -88,7 +116,7 @@ def reset_config(*args, **kwargs):
     log_with_color(f"Please UPDATE the configuration in the file {config_file}", color='b')
   return
 
-def show_address(*args):
+def show_address(args):
   """
   Displays the current client address.
   """
@@ -99,7 +127,8 @@ def show_address(*args):
   log_with_color(f"{sess.get_client_address()}", color='b')
   return
 
-def show_config(*args):
+
+def show_config(args):
   """
   Displays the current configuration from ~/.naeural/config.
   """
