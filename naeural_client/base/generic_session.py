@@ -1374,7 +1374,8 @@ class GenericSession(BaseDecentrAIObject):
 
     def get_allowed_nodes(self):
       """
-      Get the list of all active Naeural Edge Protocol edge nodes to whom this session can send messages
+      Get the list of all active Naeural Edge Protocol edge nodes to whom this 
+      ssion can send messages. This is based on the last heartbeat received from each individual node.
 
       Returns
       -------
@@ -2238,11 +2239,43 @@ class GenericSession(BaseDecentrAIObject):
       online_only=False, 
       supervisors_only=False,
       min_supervisors=2,
+      allowed_only=False,
       supervisor=None,
     ):
       """
       This function will return a Pandas dataframe  known nodes in the network based on
       all the net-mon messages received so far.
+      
+      Parameters
+      ----------
+      
+      timeout : int, optional
+          The maximum time to wait for the desired number of supervisors to appear online.
+          Defaults to 10.
+          
+      online_only : bool, optional  
+          If True, will return only the online nodes. Defaults to False.
+      
+      supervisors_only : bool, optional
+          If True, will return only the supervisors. Defaults to False.
+          
+      min_supervisors : int, optional 
+          The minimum number of supervisors to wait for. Defaults to 2.
+          
+      allowed_only : bool, optional 
+          If True, will return only the allowed nodes. Defaults to False.
+          
+      supervisor : str, optional  
+          The supervisor to wait for. Defaults to None.
+          
+      Returns
+      -------
+      
+      dict
+          A dictionary containing the report, the reporter and the number of supervisors.
+          
+
+      
       """
       mapping = OrderedDict({
         'Address': PAYLOAD_DATA.NETMON_ADDRESS,
@@ -2252,13 +2285,16 @@ class GenericSession(BaseDecentrAIObject):
         'Last probe' : PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME,
         'Zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
         'Supervisor' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
+        'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
       })
       reverse_mapping = {v: k for k, v in mapping.items()}
       res = OrderedDict()
       for k in mapping:
         res[k] = []
+
+      # the following loop will wait for the desired number of supervisors to appear online
+      # for the current session
       start = tm()      
-  
       while (tm() - start) < timeout:
         if supervisor is not None:
           if supervisor in self.__current_network_statuses:
@@ -2266,7 +2302,10 @@ class GenericSession(BaseDecentrAIObject):
         elif len(self.__current_network_statuses) >= min_supervisors:
           break
         sleep(0.1)
+      elapsed = tm() - start
       # end while
+      # done waiting for supervisors
+      
       if len(self.__current_network_statuses) > 0:
         best_info = {}
         best_super = None
@@ -2274,10 +2313,17 @@ class GenericSession(BaseDecentrAIObject):
           if len(net_info) > len(best_info):
             best_info = net_info
             best_super = supervisor
+        best_super_alias = None
         # done found best supervisor
         for _, node_info in best_info.items():
           is_online = node_info.get(PAYLOAD_DATA.NETMON_STATUS_KEY, None) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
           is_supervisor = node_info.get(PAYLOAD_DATA.NETMON_IS_SUPERVISOR, False)
+          # the following will get the whitelist for the current inspected  node
+          # without calling self.get_allowed_nodes but instead using the netmon data
+          whitelist = node_info.get(PAYLOAD_DATA.NETMON_WHITELIST, [])
+          client_is_allowed = self.bc_engine.contains_current_address(whitelist)          
+          if allowed_only and not client_is_allowed:
+            continue
           if online_only and not is_online:
             continue
           if supervisors_only and not is_supervisor:
@@ -2292,9 +2338,21 @@ class GenericSession(BaseDecentrAIObject):
               # convert val (seconds) to a human readable format
               val = seconds_to_short_format(val)
             elif key == PAYLOAD_DATA.NETMON_ADDRESS:
+              if self.bc_engine._remove_prefix(val) == self.bc_engine._remove_prefix(best_super):
+                # again self.get_node_name(best_super) might not work if using the hb data
+                best_super_alias = node_info.get(PAYLOAD_DATA.NETMON_EEID, None)
               val = self.bc_engine._add_prefix(val)
+            elif key == PAYLOAD_DATA.NETMON_WHITELIST:
+              val = client_is_allowed
             res[column].append(val)          
         # end for
       # end if
       pd.options.display.float_format = '{:.1f}'.format
-      return pd.DataFrame(res), best_super
+      dct_result ={
+        'report' : pd.DataFrame(res),
+        'reporter' : best_super,
+        'reporter_alias' : best_super_alias,
+        'nr_super' : len(self.__current_network_statuses),
+        'elapsed' : elapsed,
+      }
+      return dct_result

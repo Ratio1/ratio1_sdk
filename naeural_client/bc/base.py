@@ -847,10 +847,30 @@ class BaseBlockEngine:
   ####                                                                     ####
   #############################################################################
   
+  
+  def contains_current_address(self, lst_addresses):
+    """
+    Checks if the current address is in the list of addresses
+
+    Parameters
+    ----------
+    lst_addresses : list
+      the list of addresses.
+
+    Returns
+    -------
+    bool
+      True if the current address is in the list.
+
+    """
+    lst = [self._remove_prefix(x) for x in lst_addresses]
+    return self.address_no_prefix in lst
+  
   @property
   def address(self):
     """Returns the public address"""
     return self.__address
+    
   
   @property
   def address_no_prefix(self):
