@@ -25,6 +25,12 @@ def get_nodes(args):
     )
     log_with_color(f"Online nodes reported by <{supervisor}>:", color='b')
     log_with_color(f"{df}")    
+  elif args.peered:
+    df, supervisor = sess.get_network_known_nodes(
+      online_only=True, supervisor=supervisor_addr, allowed_only=True,
+    )
+    log_with_color(f"Online nodes reported by <{supervisor}>:", color='b')
+    log_with_color(f"{df}")    
   else:
     df, supervisor = sess.get_network_known_nodes(
       online_only=True, supervisor=supervisor_addr

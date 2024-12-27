@@ -204,6 +204,7 @@ class PAYLOAD_DATA:
   NETMON_NODE_UTC = 'node_utc'
   NETMON_LAST_SEEN = 'last_seen_sec'
   NETMON_IS_SUPERVISOR = 'is_supervisor'
+  NETMON_WHITELIST = 'whitelist'
   
   
 class NET_CONFIG:

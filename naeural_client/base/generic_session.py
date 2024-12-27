@@ -1374,7 +1374,8 @@ class GenericSession(BaseDecentrAIObject):
 
     def get_allowed_nodes(self):
       """
-      Get the list of all active Naeural Edge Protocol edge nodes to whom this session can send messages
+      Get the list of all active Naeural Edge Protocol edge nodes to whom this 
+      ssion can send messages. This is based on the last heartbeat received from each individual node.
 
       Returns
       -------
@@ -2238,6 +2239,7 @@ class GenericSession(BaseDecentrAIObject):
       online_only=False, 
       supervisors_only=False,
       min_supervisors=2,
+      allowed_only=False,
       supervisor=None,
     ):
       """
@@ -2252,13 +2254,16 @@ class GenericSession(BaseDecentrAIObject):
         'Last probe' : PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME,
         'Zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
         'Supervisor' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
+        'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
       })
       reverse_mapping = {v: k for k, v in mapping.items()}
       res = OrderedDict()
       for k in mapping:
         res[k] = []
       start = tm()      
-  
+
+      # the following loop will wait for the desired number of supervisors to appear online
+      # for the current session
       while (tm() - start) < timeout:
         if supervisor is not None:
           if supervisor in self.__current_network_statuses:
@@ -2267,6 +2272,8 @@ class GenericSession(BaseDecentrAIObject):
           break
         sleep(0.1)
       # end while
+      # done waiting for supervisors
+      
       if len(self.__current_network_statuses) > 0:
         best_info = {}
         best_super = None
@@ -2278,6 +2285,12 @@ class GenericSession(BaseDecentrAIObject):
         for _, node_info in best_info.items():
           is_online = node_info.get(PAYLOAD_DATA.NETMON_STATUS_KEY, None) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
           is_supervisor = node_info.get(PAYLOAD_DATA.NETMON_IS_SUPERVISOR, False)
+          # the following will get the whitelist for the current inspected  node
+          # without calling self.get_allowed_nodes but instead using the netmon data
+          whitelist = node_info.get(PAYLOAD_DATA.NETMON_WHITELIST, [])
+          client_is_allowed = self.bc_engine.contains_current_address(whitelist)
+          if allowed_only and not client_is_allowed:
+            continue
           if online_only and not is_online:
             continue
           if supervisors_only and not is_supervisor:
@@ -2293,6 +2306,8 @@ class GenericSession(BaseDecentrAIObject):
               val = seconds_to_short_format(val)
             elif key == PAYLOAD_DATA.NETMON_ADDRESS:
               val = self.bc_engine._add_prefix(val)
+            elif key == PAYLOAD_DATA.NETMON_WHITELIST:
+              val = client_is_allowed
             res[column].append(val)          
         # end for
       # end if
