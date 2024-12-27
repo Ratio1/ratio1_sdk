@@ -15,28 +15,20 @@ def get_nodes(args):
     log_with_color(f"Getting nodes from supervisor <{supervisor_addr}>...", color='b')
   from naeural_client import Session
   sess = Session(silent=not args.verbose)
-  if args.all:
-    df, supervisor = sess.get_network_known_nodes(supervisor=supervisor_addr)
-    log_with_color(f"Network full map reported by <{supervisor}>:", color='b')
-    log_with_color(f"{df}")    
-  elif args.online:
-    df, supervisor = sess.get_network_known_nodes(
-      online_only=True, supervisor=supervisor_addr
-    )
-    log_with_color(f"Online nodes reported by <{supervisor}>:", color='b')
-    log_with_color(f"{df}")    
-  elif args.peered:
-    df, supervisor = sess.get_network_known_nodes(
-      online_only=True, supervisor=supervisor_addr, allowed_only=True,
-    )
-    log_with_color(f"Online nodes reported by <{supervisor}>:", color='b')
-    log_with_color(f"{df}")    
-  else:
-    df, supervisor = sess.get_network_known_nodes(
-      online_only=True, supervisor=supervisor_addr
-    )
-    log_with_color(f"Online nodes reported by <{supervisor}>:", color='b')
-    log_with_color(f"{df}")    
+  online_only = args.online or args.peered
+  allowed_only = args.peered
+  
+  dct_info = sess.get_network_known_nodes(
+    online_only=online_only, allowed_only=allowed_only, supervisor=supervisor_addr
+  )
+  df = dct_info['report']
+  supervisor = dct_info['reporter']
+  super_alias = dct_info['reporter_alias']
+  nr_supers = dct_info['nr_super']
+  elapsed = dct_info['elapsed']
+  prefix = "Online n" if online_only else "N"
+  log_with_color(f"{prefix}odes reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s ({nr_supers} supervisors seen):", color='b')
+  log_with_color(f"{df}")    
   return
   
   
@@ -48,8 +40,12 @@ def get_supervisors(args):
     log_with_color("Getting supervisors...", color='b')
   from naeural_client import Session  
   sess = Session(silent=not args.verbose)
-  df, supervisor = sess.get_network_known_nodes(online_only=True, supervisors_only=True)
-  log_with_color(f"Supervisors reported by <{supervisor}>", color='b')
+  dct_info = sess.get_network_known_nodes(online_only=True, supervisors_only=True)
+  df = dct_info['report']
+  supervisor = dct_info['reporter']
+  super_alias = dct_info['reporter_alias']
+  elapsed = dct_info['elapsed']  
+  log_with_color(f"Supervisors reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s", color='b')
   log_with_color(f"{df}")
   return
 
