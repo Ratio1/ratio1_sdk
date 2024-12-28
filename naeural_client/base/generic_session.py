@@ -10,7 +10,7 @@ from time import sleep
 from time import time as tm
 
 from ..base_decentra_object import BaseDecentrAIObject
-from ..bc import DefaultBlockEngine
+from ..bc import DefaultBlockEngine, _DotDict
 from ..const import (
   COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, 
   PLUGIN_SIGNATURES, DEFAULT_PIPELINES,
@@ -2272,7 +2272,12 @@ class GenericSession(BaseDecentrAIObject):
       -------
       
       dict
-          A dictionary containing the report, the reporter and the number of supervisors.
+          A "doct-dict" dictionary containing the report, the reporter and the number of supervisors.
+            .report : DataFrame - The report containing the known nodes in the network.
+            .reporter : str - The reporter of the report.
+            .reporter_alias : str - The alias of the reporter.
+            .nr_super : int - The number of supervisors.
+            .elapsed : float - The elapsed time.
           
 
       
@@ -2348,11 +2353,11 @@ class GenericSession(BaseDecentrAIObject):
         # end for
       # end if
       pd.options.display.float_format = '{:.1f}'.format
-      dct_result ={
+      dct_result = _DotDict({
         'report' : pd.DataFrame(res),
         'reporter' : best_super,
         'reporter_alias' : best_super_alias,
         'nr_super' : len(self.__current_network_statuses),
         'elapsed' : elapsed,
-      }
+      })
       return dct_result

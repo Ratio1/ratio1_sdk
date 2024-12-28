@@ -52,7 +52,7 @@ def build_parser():
         if isinstance(subcmd_info, dict) and "params" in subcmd_info:
           for param, description in subcmd_info["params"].items():
             if param.startswith("--"):
-              if description.upper().endswith("FLAG"):
+              if description.lower().endswith("(flag)"):
                 subcommand_parser.add_argument(
                   param, action="store_true", help=description
                 )

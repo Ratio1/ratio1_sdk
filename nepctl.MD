@@ -47,6 +47,7 @@ Retrieve information about network nodes.
 **Options**:
 - `--all`: Get all known nodes.
 - `--online`: Get only online nodes.
+- `--peered`: Get only peered nodes - ie the nodes that allow the current client to connect to them and give them workloads
 - `--supervisor="addr"`: Query nodes using a specific supervisor address.
 
 **Examples**:

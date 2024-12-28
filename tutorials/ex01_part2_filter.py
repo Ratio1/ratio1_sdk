@@ -126,6 +126,11 @@ if __name__ == '__main__':
       on_payload=filterer.on_data,
       silent=False,
   )
+  
+  # lets see top 5 online nodes
+  netinfo = session.get_network_known_nodes(online_only=True)
+  session.P(f"Online nodes reported by {netinfo.reporter}:\n{netinfo.report}")
+  
 
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources

@@ -139,5 +139,5 @@ if __name__ == '__main__':
   )
   session.P("Main thread exiting...")
   
-  df_net, supervisor = session.get_network_known_nodes()
-  print(f"Network known nodes by the supervisor: '{supervisor}'\n{df_net}")
+  netinfo = session.get_network_known_nodes()  
+  print(f"Supervisor <{netinfo.reporter}> '{netinfo.reporter_alias}' ({netinfo.nr_super} supervisors total) reports:\n{netinfo.report}")

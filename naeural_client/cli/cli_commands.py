@@ -11,11 +11,11 @@ CLI_COMMANDS = {
         "nodes": {
             "func": get_nodes,
             "params": {
-              ### use "flag" to indicate a boolean flag otherwise it will be 
-              ### treated as a str parameter
-              "--all": "Get all known nodes flag",  # DONE
-              "--online" : "Get only online nodes flag", # DONE
-              "--peered": "Get only peered nodes flag",  # DONE
+              ### use "(flag)" at the end of the description to indicate a boolean flag 
+              ### otherwise it will be treated as a str parameter
+              "--all": "Get all known nodes including those that have been gone missing (flag)",  # DONE
+              "--online" : "Get only online nodes as seen by a active supervisor (flag)", # DONE
+              "--peered": "Get only peered nodes - ie nodes that can be used by current client address (flag)",  # DONE
               "--supervisor" : "Use a specific supervisor node"
             }
         },
