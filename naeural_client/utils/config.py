@@ -83,11 +83,12 @@ def get_user_config_file():
   """
   return get_user_folder() / "config"
 
-def reset_config(args, *larg, **kwargs):
+def reset_config(*larg, **kwargs):
   """
   Resets the configuration by creating a ~/.naeural folder and populating
   ~/.naeural/config with values from a local .env file, if it exists.
   """
+  log_with_color("Resetting the configuration...", color='y')
   # Define the target config folder and file
   config_dir = get_user_folder()
   config_file = get_user_config_file()

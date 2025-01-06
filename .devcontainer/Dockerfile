@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir \
     "pyopenssl>=23.0.0" \
     "cryptography>=39.0.0" \
     python-dateutil \
-    pyaml
+    pyaml \ 
+    web3
 
 # Set the default command to bash (optional)
 CMD ["bash"]

@@ -21,9 +21,7 @@ class BCctbase:
   
   ETH_SIGN  = 'EE_ETH_SIGN'
   ETH_SENDER= 'EE_ETH_SENDER'
-  
-  # TODO: generate automaticall the NON_DATA_FIELDS
-  
+    
 
 class BCct:
   SIGN        = BCctbase.SIGN
@@ -52,7 +50,7 @@ class BCct:
   AUTHORISED_ADDRS = 'authorized_addrs'
   
   DEFAULT_INFO = '0xai handshake data'
-  
+    
   
   
 class _DotDict(dict):
@@ -68,7 +66,12 @@ class VerifyMessage(_DotDict):
     self.sender = None
     
     
-NON_DATA_FIELDS = [val for key, val in BCctbase.__dict__.items() if key[0] != '_']
+ALL_NON_DATA_FIELDS = [val for key, val in BCctbase.__dict__.items() if key[0] != '_']
+
+NO_ETH_NON_DATA_FIELDS = [
+  val for key, val in BCctbase.__dict__.items() 
+  if key[0] != '_' and not key.startswith('ETH_')
+]
 
 def replace_nan_inf(data, inplace=False):
   assert isinstance(data, (dict, list)), "Only dictionaries and lists are supported"
@@ -295,7 +298,8 @@ class BaseBlockEngine:
     config, 
     ensure_ascii_payloads=False, 
     verbosity=1, 
-    user_config=False
+    user_config=False,   
+    eth_enabled=True, 
   ):
     with cls._lock:
       if name not in cls.__instances:
@@ -305,6 +309,7 @@ class BaseBlockEngine:
           ensure_ascii_payloads=ensure_ascii_payloads,
           verbosity=verbosity,
           user_config=user_config,
+          eth_enabled=eth_enabled,
         )
         cls.__instances[name] = instance
       else:
@@ -319,6 +324,7 @@ class BaseBlockEngine:
       ensure_ascii_payloads=False,
       verbosity=1,
       user_config=False,
+      eth_enabled=True,
     ):
 
     self.__name = name
@@ -331,6 +337,8 @@ class BaseBlockEngine:
     self.__password = config.get(BCct.K_PASSWORD)    
     self.__config = config
     self.__ensure_ascii_payloads = ensure_ascii_payloads
+    
+    self.__eth_enabled = eth_enabled
     
     if user_config:
       user_folder = get_user_folder()
@@ -351,17 +359,24 @@ class BaseBlockEngine:
       s = "<BC:{}> ".format(self.__name) + s
     return self.log.P(
       s, 
-      color='g' if (color is None or color.lower() not in ['r', 'red', 'error']) else color, 
+      color=color or 'd', 
       boxed=boxed, 
       **kwargs
     )
+  
+  
+  @property
+  def eth_enabled(self):
+    return self.__eth_enabled
   
   @property
   def name(self):
     return self.__name
 
   def _init(self):
-    self.P("Initializing Blockchain engine manager...", boxed=True, box_char='*', verbosity=1)
+    self.P(
+      f"Initializing BC-engine (ETH_ENABLED={self.__eth_enabled})...", verbosity=1
+    )
 
     if True:
       self.P("Initializing private blockchain:\n{}".format(
@@ -376,8 +391,7 @@ class BaseBlockEngine:
           from_file=True,
           password=self.__password,
         )
-        self.P("  Loaded sk from {}".format(full_path), verbosity=1)
-        os.environ[BCct.K_USER_CONFIG_PEM_FILE] = self.__pem_file
+        self.P("  Loaded sk from {}".format(full_path), verbosity=1)        
       except:
         self.P("  Failed to load sk from {}".format(full_path), color='r', verbosity=1)
 
@@ -389,13 +403,22 @@ class BaseBlockEngine:
         password=self.__password,
         fn=self.__pem_file,
       )
+      
+    os.environ[BCct.K_USER_CONFIG_PEM_FILE] = self.__pem_file      
+    
     self.__public_key = self._get_pk(private_key=self.__private_key)    
     self.__address = self._pk_to_address(self.__public_key)
     ### Ethereum
     self.__eth_address = self._get_eth_address()
     self.__eth_account = self._get_eth_account()
     ### end Ethereum
-    self.P("Address: {} / ETH: {}".format(self.address, self.eth_address), boxed=True, verbosity=1)
+    if self.__eth_enabled:
+      self.P(
+        "Address: {} / ETH: {}".format(self.address, self.eth_address), boxed=True, verbosity=1,
+        color='g'
+      )
+    else:
+      self.P("Address: {}".format(self.address), boxed=True, color='g', verbosity=1)
     self.P("Allowed list of senders: {}".format(self.allowed_list), verbosity=1)
     return
   
@@ -681,7 +704,7 @@ class BaseBlockEngine:
 
     """
     if from_file and os.path.isfile(source):
-      self.P("Reading SK from '{}'".format(source), color='g', verbosity=1)
+      self.P("Reading SK from '{}'".format(source), verbosity=1)
       with open(source, 'rt') as fh:
         data = fh.read()
     else:
@@ -947,7 +970,11 @@ class BaseBlockEngine:
     The dict will be modified inplace to replace NaN and Inf with None.
     """
     assert isinstance(dct_data, dict), "Cannot compute hash on non-dict data"
-    dct_only_data = {k:dct_data[k] for k in dct_data if k not in NON_DATA_FIELDS}
+    if self.eth_enabled:
+      dct_only_data = {k:dct_data[k] for k in dct_data if k not in ALL_NON_DATA_FIELDS}
+    else:
+      dct_only_data = {k:dct_data[k] for k in dct_data if k not in NO_ETH_NON_DATA_FIELDS}
+    #endif
     str_data = self._dict_to_json(
       dct_only_data, 
       replace_nan=replace_nan, 
@@ -1032,18 +1059,20 @@ class BaseBlockEngine:
     # finally sign either full or just hash
     result = self._sign(data=bdata, private_key=self.__private_key, text=True)
     if add_data:
-      # not populate dict
+      # now populate dict
       dct_data[BCct.SIGN] = result
       dct_data[BCct.SENDER] = self.address
-      dct_data[BCct.ETH_SENDER] = self.eth_address
-      ### add eth signature
-      dct_data[BCct.ETH_SIGN] = "0xBEEF"
-      if eth_sign:
-        eth_sign_info = self.eth_sign_text(text_data, signature_only=False)
-        # can be replaced with dct_data[BCct.ETH_SIGN] = self.eth_sign_text(bdata.decode(), signature_only=True)
-        eth_sign = eth_sign_info.get('signature')
-        dct_data[BCct.ETH_SIGN] = eth_sign
-      ### end eth signature
+      
+      if self.__eth_enabled:
+        dct_data[BCct.ETH_SENDER] = self.eth_address
+        ### add eth signature
+        dct_data[BCct.ETH_SIGN] = "0xBEEF"
+        if eth_sign:
+          eth_sign_info = self.eth_sign_text(text_data, signature_only=False)
+          # can be replaced with dct_data[BCct.ETH_SIGN] = self.eth_sign_text(bdata.decode(), signature_only=True)
+          eth_sign = eth_sign_info.get('signature')
+          dct_data[BCct.ETH_SIGN] = eth_sign
+        ### end eth signature
       if use_digest:
         dct_data[BCct.HASH] = hexdigest
     return result
@@ -1059,7 +1088,7 @@ class BaseBlockEngine:
       verify_allowed=False,
       replace_nan=True,
       log_hash_sign_fails=True,
-    ) -> bool:
+    ):
     """
     Verifies the signature validity of a given text message
 
@@ -1090,7 +1119,8 @@ class BaseBlockEngine:
     Returns
     -------
     bool / VerifyMessage
-      returns `True` if signature verifies else `False`. returns `VerifyMessage` if return_full_info
+      returns `True` if signature verifies else `False`. 
+      returns `VerifyMessage` structure if return_full_info (default `True`)
 
     """
     result = False
@@ -1201,6 +1231,12 @@ class BaseBlockEngine:
   
   
   ### Ethereum
+  
+  def set_eth_flag(self, value):    
+    if value != self.__eth_enabled:
+      self.__eth_enabled = value
+      self.log.P("Changed eth_enabled to {}".format(value), color='d')
+    return
   
   @property
   def eth_address(self):

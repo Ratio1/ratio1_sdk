@@ -86,6 +86,7 @@ class GenericSession(BaseDecentrAIObject):
               local_cache_base_folder=None,
               local_cache_app_folder='_local_cache',
               use_home_folder=False,
+              eth_enabled=True,
               **kwargs
             ) -> None:
     """
@@ -169,6 +170,8 @@ class GenericSession(BaseDecentrAIObject):
     self.log = log
     self.name = name
     self.silent = silent
+    
+    self.__eth_enabled = eth_enabled
 
     self._verbosity = verbosity
     self.encrypt_comms = encrypt_comms
@@ -247,12 +250,18 @@ class GenericSession(BaseDecentrAIObject):
     # end bc_engine
     self.formatter_wrapper = IOFormatterWrapper(self.log, plugin_search_locations=self.__formatter_plugins_locations)
 
+    msg = f"Connection to {self._config[comm_ct.USER]}:*****@{self._config[comm_ct.HOST]}:{self._config[comm_ct.PORT]} {'<secured>' if self._config[comm_ct.SECURED] else '<UNSECURED>'}"
+    self.P(msg, color='y')
     self._connect()
 
-    self.P("Created {} comms session '{}' from <{}> SDKv{}.".format(
-      "decrypted" if not self.encrypt_comms else "encrypted", 
-      self.name, self.bc_engine.address, self.log.version
-    ))
+    msg = f"Created comms session '{self.name}'"
+    msg += f"\n - SDK:     {self.log.version}"
+    msg += f"\n - Address: {self.bc_engine.address}"
+    msg += f"\n - Server:  {self._config[comm_ct.HOST]}:{self._config[comm_ct.PORT]}"
+    msg += f"\n - Secured: {self._config[comm_ct.SECURED]}"
+    msg += f"\n - User:    {self._config[comm_ct.USER]}"
+    msg += f"\n - Encrypt: {'YES' if self.encrypt_comms else 'NO'}"
+    self.P(msg, color='g')
     
     if not self.encrypt_comms:
       self.P(
@@ -654,7 +663,7 @@ class GenericSession(BaseDecentrAIObject):
   if True:
     def __start_blockchain(self, bc_engine, blockchain_config, user_config=False):
       if bc_engine is not None:
-        self.bc_engine = bc_engine
+        self.bc_engine = bc_engine        
         return
 
       try:
@@ -664,9 +673,13 @@ class GenericSession(BaseDecentrAIObject):
           config=blockchain_config,
           verbosity=self._verbosity,
           user_config=user_config,
+          eth_enabled=self.__eth_enabled, 
         )
       except:
         raise ValueError("Failure in private blockchain setup:\n{}".format(traceback.format_exc()))
+      
+      # extra setup flag for re-connections with same multiton instance
+      self.bc_engine.set_eth_flag(self.__eth_enabled)
       return
 
     def __start_main_loop_thread(self):
@@ -1018,6 +1031,7 @@ class GenericSession(BaseDecentrAIObject):
       if secured is not None and self._config.get(comm_ct.SECURED, None) is None:
         secured = str(secured).strip().upper() in ['TRUE', '1']
         self._config[comm_ct.SECURED] = secured
+        
       return
 
     def __get_node_address(self, node):

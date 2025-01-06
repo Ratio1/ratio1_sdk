@@ -12,6 +12,13 @@ This packet depends on the following packets: `pika`, `paho-mqtt`, `numpy`, `pyo
 python -m pip install naeural_client
 ```
 
+### Development installation
+
+```shell
+git clone https://github.com/NaeuralEdgeProtocol/naeural_client
+pip install -e .
+```
+
 ## Documentation
 
 Minimal documentation will be presented here. The complete documentation is

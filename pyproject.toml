@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "naeural_client"
-version = "2.1.2"
+version = "2.5.21"
 authors = [
   { name="Andrei Ionut Damian", email="andrei.damian@me.com" },
   { name="Cristan Bleotiu", email="cristibleotiu@gmail.com" },
