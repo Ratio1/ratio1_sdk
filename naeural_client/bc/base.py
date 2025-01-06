@@ -52,7 +52,7 @@ class BCct:
   AUTHORISED_ADDRS = 'authorized_addrs'
   
   DEFAULT_INFO = '0xai handshake data'
-  
+    
   
   
 class _DotDict(dict):
@@ -376,8 +376,7 @@ class BaseBlockEngine:
           from_file=True,
           password=self.__password,
         )
-        self.P("  Loaded sk from {}".format(full_path), verbosity=1)
-        os.environ[BCct.K_USER_CONFIG_PEM_FILE] = self.__pem_file
+        self.P("  Loaded sk from {}".format(full_path), verbosity=1)        
       except:
         self.P("  Failed to load sk from {}".format(full_path), color='r', verbosity=1)
 
@@ -389,6 +388,9 @@ class BaseBlockEngine:
         password=self.__password,
         fn=self.__pem_file,
       )
+      
+    os.environ[BCct.K_USER_CONFIG_PEM_FILE] = self.__pem_file      
+    
     self.__public_key = self._get_pk(private_key=self.__private_key)    
     self.__address = self._pk_to_address(self.__public_key)
     ### Ethereum
