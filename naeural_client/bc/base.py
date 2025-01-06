@@ -21,9 +21,7 @@ class BCctbase:
   
   ETH_SIGN  = 'EE_ETH_SIGN'
   ETH_SENDER= 'EE_ETH_SENDER'
-  
-  # TODO: generate automaticall the NON_DATA_FIELDS
-  
+    
 
 class BCct:
   SIGN        = BCctbase.SIGN
@@ -68,7 +66,12 @@ class VerifyMessage(_DotDict):
     self.sender = None
     
     
-NON_DATA_FIELDS = [val for key, val in BCctbase.__dict__.items() if key[0] != '_']
+ALL_NON_DATA_FIELDS = [val for key, val in BCctbase.__dict__.items() if key[0] != '_']
+
+NO_ETH_NON_DATA_FIELDS = [
+  val for key, val in BCctbase.__dict__.items() 
+  if key[0] != '_' and not key.startswith('ETH_')
+]
 
 def replace_nan_inf(data, inplace=False):
   assert isinstance(data, (dict, list)), "Only dictionaries and lists are supported"
@@ -295,7 +298,8 @@ class BaseBlockEngine:
     config, 
     ensure_ascii_payloads=False, 
     verbosity=1, 
-    user_config=False
+    user_config=False,   
+    eth_enabled=True, 
   ):
     with cls._lock:
       if name not in cls.__instances:
@@ -305,6 +309,7 @@ class BaseBlockEngine:
           ensure_ascii_payloads=ensure_ascii_payloads,
           verbosity=verbosity,
           user_config=user_config,
+          eth_enabled=eth_enabled,
         )
         cls.__instances[name] = instance
       else:
@@ -319,6 +324,7 @@ class BaseBlockEngine:
       ensure_ascii_payloads=False,
       verbosity=1,
       user_config=False,
+      eth_enabled=True,
     ):
 
     self.__name = name
@@ -331,6 +337,8 @@ class BaseBlockEngine:
     self.__password = config.get(BCct.K_PASSWORD)    
     self.__config = config
     self.__ensure_ascii_payloads = ensure_ascii_payloads
+    
+    self.__eth_enabled = eth_enabled
     
     if user_config:
       user_folder = get_user_folder()
@@ -355,6 +363,11 @@ class BaseBlockEngine:
       boxed=boxed, 
       **kwargs
     )
+  
+  
+  @property
+  def eth_enabled(self):
+    return self.__eth_enabled
   
   @property
   def name(self):
@@ -949,7 +962,11 @@ class BaseBlockEngine:
     The dict will be modified inplace to replace NaN and Inf with None.
     """
     assert isinstance(dct_data, dict), "Cannot compute hash on non-dict data"
-    dct_only_data = {k:dct_data[k] for k in dct_data if k not in NON_DATA_FIELDS}
+    if self.eth_enabled:
+      dct_only_data = {k:dct_data[k] for k in dct_data if k not in ALL_NON_DATA_FIELDS}
+    else:
+      dct_only_data = {k:dct_data[k] for k in dct_data if k not in NO_ETH_NON_DATA_FIELDS}
+    #endif
     str_data = self._dict_to_json(
       dct_only_data, 
       replace_nan=replace_nan, 
@@ -1034,18 +1051,20 @@ class BaseBlockEngine:
     # finally sign either full or just hash
     result = self._sign(data=bdata, private_key=self.__private_key, text=True)
     if add_data:
-      # not populate dict
+      # now populate dict
       dct_data[BCct.SIGN] = result
       dct_data[BCct.SENDER] = self.address
-      dct_data[BCct.ETH_SENDER] = self.eth_address
-      ### add eth signature
-      dct_data[BCct.ETH_SIGN] = "0xBEEF"
-      if eth_sign:
-        eth_sign_info = self.eth_sign_text(text_data, signature_only=False)
-        # can be replaced with dct_data[BCct.ETH_SIGN] = self.eth_sign_text(bdata.decode(), signature_only=True)
-        eth_sign = eth_sign_info.get('signature')
-        dct_data[BCct.ETH_SIGN] = eth_sign
-      ### end eth signature
+      
+      if self.__eth_enabled:
+        dct_data[BCct.ETH_SENDER] = self.eth_address
+        ### add eth signature
+        dct_data[BCct.ETH_SIGN] = "0xBEEF"
+        if eth_sign:
+          eth_sign_info = self.eth_sign_text(text_data, signature_only=False)
+          # can be replaced with dct_data[BCct.ETH_SIGN] = self.eth_sign_text(bdata.decode(), signature_only=True)
+          eth_sign = eth_sign_info.get('signature')
+          dct_data[BCct.ETH_SIGN] = eth_sign
+        ### end eth signature
       if use_digest:
         dct_data[BCct.HASH] = hexdigest
     return result
@@ -1061,7 +1080,7 @@ class BaseBlockEngine:
       verify_allowed=False,
       replace_nan=True,
       log_hash_sign_fails=True,
-    ) -> bool:
+    ):
     """
     Verifies the signature validity of a given text message
 
@@ -1092,7 +1111,8 @@ class BaseBlockEngine:
     Returns
     -------
     bool / VerifyMessage
-      returns `True` if signature verifies else `False`. returns `VerifyMessage` if return_full_info
+      returns `True` if signature verifies else `False`. 
+      returns `VerifyMessage` structure if return_full_info (default `True`)
 
     """
     result = False
