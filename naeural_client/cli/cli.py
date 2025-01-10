@@ -98,17 +98,18 @@ def main():
   """
   try:
     # Initialize configuration if necessary
-    maybe_init_config()
+    initialized = maybe_init_config()
+    
+    if initialized:
+      # Build the CLI parser
+      parser = build_parser()
+      args = parser.parse_args()
 
-    # Build the CLI parser
-    parser = build_parser()
-    args = parser.parse_args()
-
-    # Check if a command function is provided
-    if hasattr(args, "func"):
-      args.func(args)  # Pass parsed arguments to the command function
-    else:
-      parser.print_help()
+      # Check if a command function is provided
+      if hasattr(args, "func"):
+        args.func(args)  # Pass parsed arguments to the command function
+      else:
+        parser.print_help()
 
   except Exception as e:
     # Handle unexpected errors gracefully

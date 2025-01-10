@@ -187,4 +187,4 @@ def maybe_init_config():
   if not config_file.exists():
     log_with_color(f"No configuration file found at {config_file}. Initializing configuration...", color="y") 
     reset_config()
-  load_user_defined_config()
+  return load_user_defined_config()

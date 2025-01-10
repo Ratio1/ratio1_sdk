@@ -2324,10 +2324,11 @@ class GenericSession(BaseDecentrAIObject):
       elapsed = tm() - start
       # end while
       # done waiting for supervisors
+      best_super = 'ERROR'
+      best_super_alias = 'ERROR'
       
       if len(self.__current_network_statuses) > 0:
         best_info = {}
-        best_super = None
         for supervisor, net_info in self.__current_network_statuses.items():
           if len(net_info) > len(best_info):
             best_info = net_info
