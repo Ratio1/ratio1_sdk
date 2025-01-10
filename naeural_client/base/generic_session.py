@@ -14,7 +14,7 @@ from ..bc import DefaultBlockEngine, _DotDict
 from ..const import (
   COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, 
   PLUGIN_SIGNATURES, DEFAULT_PIPELINES,
-  BLOCKCHAIN_CONFIG
+  BLOCKCHAIN_CONFIG, SESSION_CT
 )
 from ..const import comms as comm_ct
 from ..io_formatter import IOFormatterWrapper
@@ -2324,10 +2324,11 @@ class GenericSession(BaseDecentrAIObject):
       elapsed = tm() - start
       # end while
       # done waiting for supervisors
+      best_super = 'ERROR'
+      best_super_alias = 'ERROR'
       
       if len(self.__current_network_statuses) > 0:
         best_info = {}
-        best_super = None
         for supervisor, net_info in self.__current_network_statuses.items():
           if len(net_info) > len(best_info):
             best_info = net_info
@@ -2368,10 +2369,10 @@ class GenericSession(BaseDecentrAIObject):
       # end if
       pd.options.display.float_format = '{:.1f}'.format
       dct_result = _DotDict({
-        'report' : pd.DataFrame(res),
-        'reporter' : best_super,
-        'reporter_alias' : best_super_alias,
-        'nr_super' : len(self.__current_network_statuses),
-        'elapsed' : elapsed,
+        SESSION_CT.NETSTATS_REPORT : pd.DataFrame(res),
+        SESSION_CT.NETSTATS_REPORTER : best_super,
+        SESSION_CT.NETSTATS_REPORTER_ALIAS : best_super_alias,
+        SESSION_CT.NETSTATS_NR_SUPERVISORS : len(self.__current_network_statuses),
+        SESSION_CT.NETSTATS_ELAPSED : elapsed,
       })
       return dct_result
