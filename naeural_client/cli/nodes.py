@@ -10,9 +10,9 @@ def _get_netstats(
   supervisor=None,
   supervisors_only=False,
 ):
+  t1 = time()
   from naeural_client import Session
   sess = Session(silent=silent)
-  t1 = time()
   dct_info = sess.get_network_known_nodes(
     online_only=online_only, allowed_only=allowed_only, supervisor=supervisor,
     supervisors_only=supervisors_only,
@@ -69,8 +69,11 @@ def get_supervisors(args):
   )
   df, supervisor, super_alias, nr_supers, elapsed = res
   
-  log_with_color(f"Supervisors ({nr_supers}) reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s", color='b')
-  log_with_color(f"{df}")
+  if supervisor == "ERROR":
+    log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')
+  else:
+    log_with_color(f"Supervisors reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s", color='b')
+    log_with_color(f"{df}")
   return
 
 
