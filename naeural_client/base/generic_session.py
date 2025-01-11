@@ -2283,6 +2283,9 @@ class GenericSession(BaseDecentrAIObject):
       supervisor : str, optional  
           The supervisor to wait for. Defaults to None.
           
+      df_only : bool, optional
+          If True, will return only the Pandas dataframe. Defaults to False.
+          
       Returns
       -------
       
