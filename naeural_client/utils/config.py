@@ -2,6 +2,13 @@ import os
 from pathlib import Path
 import shutil
 
+from naeural_client.const.base import BCct
+
+
+CONFIG_FILE = "config"
+SDK_HOME = ".naeural"
+LOCAL_PEM_PATH = "./_local_cache/_data/" + BCct.DEFAULT_PEM_FILE
+
 ENV_TEMPLATE = """
 
 EE_MQTT_HOST=r9092118.ala.eu-central-1.emqxsl.com
@@ -75,13 +82,13 @@ def get_user_folder():
   """
   Returns the user folder.
   """
-  return Path.home() / ".naeural"
+  return Path.home() / SDK_HOME
 
 def get_user_config_file():
   """
   Returns the user configuration file.
   """
-  return get_user_folder() / "config"
+  return get_user_folder() / CONFIG_FILE
 
 def reset_config(*larg, **kwargs):
   """
@@ -92,6 +99,9 @@ def reset_config(*larg, **kwargs):
   # Define the target config folder and file
   config_dir = get_user_folder()
   config_file = get_user_config_file()
+  
+  local_pem = Path(LOCAL_PEM_PATH)
+  target_pem = config_dir / BCct.USER_PEM_FILE
   
   # Create the ~/.naeural folder if it doesn't exist
   config_dir.mkdir(parents=True, exist_ok=True)
@@ -115,6 +125,12 @@ def reset_config(*larg, **kwargs):
       color='y'
     )
     log_with_color(f"Please UPDATE the configuration in the file {config_file}", color='b')
+  
+  if local_pem.exists():
+    log_with_color(f"Copying local PEM file {local_pem} to {target_pem}", color='y')
+    shutil.copy(local_pem, target_pem)
+  else:
+    log_with_color(f"No local PEM file found at {local_pem}. A default private key will be generated.", color='r')
   return
 
 def show_address(args):
