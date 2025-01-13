@@ -2255,6 +2255,7 @@ class GenericSession(BaseDecentrAIObject):
       min_supervisors=2,
       allowed_only=False,
       supervisor=None,
+      df_only=False,
     ):
       """
       This function will return a Pandas dataframe  known nodes in the network based on
@@ -2281,6 +2282,9 @@ class GenericSession(BaseDecentrAIObject):
           
       supervisor : str, optional  
           The supervisor to wait for. Defaults to None.
+          
+      df_only : bool, optional
+          If True, will return only the Pandas dataframe. Defaults to False.
           
       Returns
       -------
@@ -2375,4 +2379,6 @@ class GenericSession(BaseDecentrAIObject):
         SESSION_CT.NETSTATS_NR_SUPERVISORS : len(self.__current_network_statuses),
         SESSION_CT.NETSTATS_ELAPSED : elapsed,
       })
+      if df_only:
+        return dct_result[SESSION_CT.NETSTATS_REPORT]
       return dct_result
