@@ -12,4 +12,5 @@ from .plugins_manager_mixin import _PluginsManagerMixin
 from .logging import Logger
 from .code_cheker import BaseCodeChecker
 from .const import PLUGIN_SIGNATURES, PAYLOAD_DATA
+from .const import HB as HEARTBEAT_DATA
 from .default.instance import PLUGIN_TYPES
