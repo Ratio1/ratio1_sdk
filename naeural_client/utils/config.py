@@ -181,10 +181,12 @@ def load_user_defined_config(verbose=False):
 def maybe_init_config():
   """
   Initializes the configuration if it doesn't exist yet.
+  
+  TODO: in v3+ this will be migrated to a online authentication process.
   """
   config_file = get_user_config_file()
-
   if not config_file.exists():
     log_with_color(f"No configuration file found at {config_file}. Initializing configuration...", color="y") 
     reset_config()
+    return False
   return load_user_defined_config()
