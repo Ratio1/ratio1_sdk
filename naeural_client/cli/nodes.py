@@ -1,6 +1,6 @@
 from time import time
 from naeural_client.utils.config import log_with_color
-from naeural_client.const import SESSION_CT
+from naeural_client.const import SESSION_CT, COMMANDS
 
 
 def _get_netstats(
@@ -24,6 +24,7 @@ def _get_netstats(
   _elapsed = dct_info[SESSION_CT.NETSTATS_ELAPSED] # computed on call
   elapsed = time() - t1 # elapsed=_elapsed
   return df, supervisor, super_alias, nr_supers, elapsed
+
 
 def get_nodes(args):
   """
@@ -86,7 +87,15 @@ def restart_node(args):
   args : argparse.Namespace
       Arguments passed to the function.
   """
-  log_with_color(f"Restarting node {args.node} NOT IMPLEMENTED", color='r')
+  node = args.node
+  log_with_color(f"Attempting to restart node <{node}>", color='b')
+  
+  t1 = time()
+  from naeural_client import Session
+  silent = not args.verbose  
+  sess = Session(silent=silent)
+  sess._send_command_restart_node(node)
+  elapsed = time() - t1  
   return
 
 
@@ -99,5 +108,13 @@ def shutdown_node(args):
   args : argparse.Namespace
       Arguments passed to the function.
   """
-  log_with_color(f"Shutting down node {args.node} NOT IMPLEMENTED", color='r')
+  node = args.node
+  log_with_color(f"Attempting to shutdown node <{node}>", color='b')
+  
+  t1 = time()
+  from naeural_client import Session
+  silent = not args.verbose
+  sess = Session(silent=silent)
+  sess._send_command_stop_node(node)
+  elapsed = time() - t1    
   return

@@ -209,8 +209,13 @@ class GenericSession(BaseDecentrAIObject):
     self.sdk_main_loop_thread = Thread(target=self.__main_loop, daemon=True)
     self.__formatter_plugins_locations = formatter_plugins_locations
 
-    self.__bc_engine = bc_engine
     self.__blockchain_config = blockchain_config
+
+    # TODO: needs refactoring - suboptimal design
+    self.__bc_engine : DefaultBlockEngine = bc_engine
+    self.bc_engine : DefaultBlockEngine = None 
+    # END TODO
+    
 
     self.__open_transactions: list[Transaction] = []
     self.__open_transactions_lock = Lock()
@@ -1052,7 +1057,7 @@ class GenericSession(BaseDecentrAIObject):
         node = next((key for key, value in self._dct_node_addr_name.items() if value == node), node)
       return node
 
-    def _send_command_to_box(self, command, worker, payload, show_command=False, session_id=None, **kwargs):
+    def _send_command_to_box(self, command, worker, payload, show_command=True, session_id=None, **kwargs):
       """
       Send a command to a node.
 
@@ -1104,10 +1109,11 @@ class GenericSession(BaseDecentrAIObject):
       }
       self.bc_engine.sign(msg_to_send, use_digest=True)
       if show_command:
-        self.P("Sending command '{}' to '{}':\n{}".format(command, worker, json.dumps(msg_to_send, indent=2)),
-               color='y',
-               verbosity=1
-               )
+        self.P(
+          "Sending command '{}' to '{}':\n{}".format(command, worker, json.dumps(msg_to_send, indent=2)),
+          color='y',
+          verbosity=1
+        )
       self._send_payload(worker, msg_to_send)
       return
 
