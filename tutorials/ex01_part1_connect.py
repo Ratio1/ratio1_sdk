@@ -18,7 +18,7 @@ IMPORTANT: Session will WAIT until network map is clarified.
 """
 import json
 
-from naeural_client import Session, Payload, PAYLOAD_DATA
+from naeural_client import Session, Payload, PAYLOAD_DATA, HEARTBEAT_DATA
 
 
 class MessageHandler:  
@@ -43,11 +43,10 @@ class MessageHandler:
     heartbeat : dict
         The heartbeat received from the edge node.        
     """
-    session.P("{} ({}) has a {}".format(
-      heartbeat[PAYLOAD_DATA.EE_ID], 
-      self.shorten_address(node_addr), 
-      heartbeat["CPU"])
-    )
+    node_alias = heartbeat[PAYLOAD_DATA.EE_ID]
+    short_addr = self.shorten_address(node_addr)
+    cpu = heartbeat[HEARTBEAT_DATA.CPU]
+    session.P(f"{node_alias} <{short_addr}> has a {cpu}", color='magenta')
     return
 
 
@@ -62,17 +61,13 @@ if __name__ == '__main__':
       on_heartbeat=filterer.on_heartbeat,
   )
 
-  session.P("Client address is: {}".format(session.get_client_address()), color='g')
+  session.P("Client address is: {}".format(session.get_client_address()), color='m')
   
   # lets see top 5 online nodes
   netinfo = session.get_network_known_nodes(online_only=True)
   session.P(f"Online nodes reported by {netinfo.reporter}:\n{netinfo.report}")
 
-  # Observation:
-  #   next code is not mandatory - it is used to keep the session open and cleanup the resources
-  #   in production, you would not need this code as the script can close after the pipeline will be sent
-  session.run(
-    wait=30, # wait for the user to stop the execution or a given time
-    close_pipelines=True # when the user stops the execution, the remote edge-node pipelines will be closed
-  )
-  session.P("Main thread exiting...")
+  session.sleep(10) # wait for 10 seconds
+  session.P("Closing session...", color='m')
+  session.close()
+  session.P("Main thread exiting...", color='m')
