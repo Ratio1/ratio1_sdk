@@ -94,6 +94,8 @@ def restart_node(args):
   from naeural_client import Session
   silent = not args.verbose  
   sess = Session(silent=silent)
+  # TODO: currently this is based on node alias, but we should be based on node address
+  #       and maybe even node alias
   sess._send_command_restart_node(node)
   elapsed = time() - t1  
   return
@@ -108,6 +110,7 @@ def shutdown_node(args):
   args : argparse.Namespace
       Arguments passed to the function.
   """
+  
   node = args.node
   log_with_color(f"Attempting to shutdown node <{node}>", color='b')
   
@@ -115,6 +118,8 @@ def shutdown_node(args):
   from naeural_client import Session
   silent = not args.verbose
   sess = Session(silent=silent)
+  # TODO: currently this is based on node alias, but we should be based on node address
+  #       and maybe even node alias
   sess._send_command_stop_node(node)
   elapsed = time() - t1    
   return
