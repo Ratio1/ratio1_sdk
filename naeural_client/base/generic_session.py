@@ -751,7 +751,7 @@ class GenericSession(BaseDecentrAIObject):
       """
       raise NotImplementedError
 
-    def close(self, close_pipelines=False, wait_close=False, **kwargs):
+    def close(self, close_pipelines=False, wait_close=True, **kwargs):
       """
       Close the session, releasing all resources and closing all threads
       Resources are released in the main loop thread, so this method will block until the main loop thread exits.
@@ -762,7 +762,7 @@ class GenericSession(BaseDecentrAIObject):
       close_pipelines : bool, optional
           close all the pipelines created by or attached to this session (basically calling `.close_own_pipelines()` for you), by default False
       wait_close : bool, optional
-          If `True`, will wait for the main loop thread to exit. Defaults to `False`
+          If `True`, will wait for the main loop thread to exit. Defaults to `True`
       """
 
       if close_pipelines:
