@@ -179,7 +179,7 @@ class GenericSession(BaseDecentrAIObject):
     self._dct_online_nodes_pipelines: dict[str, Pipeline] = {}
     self._dct_online_nodes_last_heartbeat: dict[str, dict] = {}
     self._dct_can_send_to_node: dict[str, bool] = {}
-    self._dct_node_last_seen_time = {}
+    self._dct_node_last_seen_time = {} # key is node address
     self._dct_node_addr_name = {}
     self.online_timeout = 60
     self.filter_workers = filter_workers
@@ -209,8 +209,13 @@ class GenericSession(BaseDecentrAIObject):
     self.sdk_main_loop_thread = Thread(target=self.__main_loop, daemon=True)
     self.__formatter_plugins_locations = formatter_plugins_locations
 
-    self.__bc_engine = bc_engine
     self.__blockchain_config = blockchain_config
+
+    # TODO: needs refactoring - suboptimal design
+    self.__bc_engine : DefaultBlockEngine = bc_engine
+    self.bc_engine : DefaultBlockEngine = None 
+    # END TODO
+    
 
     self.__open_transactions: list[Transaction] = []
     self.__open_transactions_lock = Lock()
@@ -1033,10 +1038,19 @@ class GenericSession(BaseDecentrAIObject):
         self._config[comm_ct.SECURED] = secured
         
       return
+    
+    def __aliases_to_addresses(self):
+      """
+      Convert the aliases to addresses.
+      """
+      dct_aliases = {v: k for k, v in self._dct_node_addr_name.items()}
+      return dct_aliases
 
     def __get_node_address(self, node):
       """
       Get the address of a node. If node is an address, return it. Else, return the address of the node.
+      This method is used to convert the alias of a node to its address if needed however it is 
+      not recommended to use it as it was created for backward compatibility reasons.
 
       Parameters
       ----------
@@ -1048,11 +1062,19 @@ class GenericSession(BaseDecentrAIObject):
       str
           The address of the node.
       """
-      if node not in self.get_active_nodes():
-        node = next((key for key, value in self._dct_node_addr_name.items() if value == node), node)
-      return node
+      # if node not in self.get_active_nodes():
+      #   node = next((key for key, value in self._dct_node_addr_name.items() if value == node), node)
+      result = None
+      if node in self.get_active_nodes():
+        # node seems to be already an address
+        result = node
+      else:
+        # maybe node is a name
+        aliases = self.__aliases_to_addresses()
+        result = aliases.get(node, None)
+      return result
 
-    def _send_command_to_box(self, command, worker, payload, show_command=False, session_id=None, **kwargs):
+    def _send_command_to_box(self, command, worker, payload, show_command=True, session_id=None, **kwargs):
       """
       Send a command to a node.
 
@@ -1062,10 +1084,16 @@ class GenericSession(BaseDecentrAIObject):
           The command to send.
       worker : str
           The name of the Naeural Edge Protocol edge node that will receive the command.
+          
+          Observation: this approach will be deprecated soon in favor of the direct use of the address that
+          will not require the node to be already "seend" by the session.
+          
       payload : dict
           The payload to send.
       show_command : bool, optional
           If True, will print the complete command that is being sent, by default False
+      
+          
       """
 
       show_command = show_command or self.__show_commands
@@ -1080,10 +1108,17 @@ class GenericSession(BaseDecentrAIObject):
 
       # This part is duplicated with the creation of payloads
       encrypt_payload = self.encrypt_comms
-      if encrypt_payload and worker is not None:
-        # TODO: use safe_json_dumps
+      if encrypt_payload and worker is not None:        
         str_data = json.dumps(critical_data)
-        str_enc_data = self.bc_engine.encrypt(str_data, worker)
+        
+        # Initial code `str_enc_data = self.bc_engine.encrypt(str_data, worker)` could not work under any
+        # circumstances due to the fact that encrypt requires the public key of the receiver not the alias
+        # of the receiver. The code below is a workaround to encrypt the message
+        # TODO: furthermore the code will be migrated to the use of the address of the worker
+        worker_addr = self.get_addr_by_name(worker)
+        assert worker_addr is not None, f"Unknown worker address: {worker} - {worker_addr}"
+        
+        str_enc_data = self.bc_engine.encrypt(str_data, worker_addr)
         critical_data = {
           comm_ct.COMM_SEND_MESSAGE.K_EE_IS_ENCRYPTED: True,
           comm_ct.COMM_SEND_MESSAGE.K_EE_ENCRYPTED_DATA: str_enc_data,
@@ -1104,10 +1139,11 @@ class GenericSession(BaseDecentrAIObject):
       }
       self.bc_engine.sign(msg_to_send, use_digest=True)
       if show_command:
-        self.P("Sending command '{}' to '{}':\n{}".format(command, worker, json.dumps(msg_to_send, indent=2)),
-               color='y',
-               verbosity=1
-               )
+        self.P(
+          "Sending command '{}' to '{}':\n{}".format(command, worker, json.dumps(msg_to_send, indent=2)),
+          color='y',
+          verbosity=1
+        )
       self._send_payload(worker, msg_to_send)
       return
 
@@ -1357,6 +1393,25 @@ class GenericSession(BaseDecentrAIObject):
       )
       self.own_pipelines.append(pipeline)
       return pipeline
+    
+    def get_addr_by_name(self, name):
+      """
+      Get the address of a node by its name.
+      This function should be used with caution and it was created for backward compatibility reasons.
+      
+      Parameters
+      ----------
+      
+      name : str
+          The name of the node.
+          
+      Returns
+      -------
+      str
+          The address of the node.      
+      """
+      return self.__get_node_address(name)      
+      
 
     def get_node_name(self, node_addr):
       """
@@ -1376,12 +1431,13 @@ class GenericSession(BaseDecentrAIObject):
 
     def get_active_nodes(self):
       """
-      Get the list of all Naeural Edge Protocol edge nodes that sent a message since this session was created, and that are considered online
+      Get the list of all Naeural Edge Protocol edge nodes addresses that sent a message since this 
+      session was created, and that are considered online.
 
       Returns
       -------
       list
-          List of names of all the Naeural Edge Protocol edge nodes that are considered online
+          List of addresses of all the Naeural Edge Protocol edge nodes that are considered online
 
       """
       return [k for k, v in self._dct_node_last_seen_time.items() if tm() - v < self.online_timeout]

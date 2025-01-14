@@ -1,11 +1,54 @@
 EE_ID = 'EE_ID'
 SB_ID = 'SB_ID'  # change to SB_ID = EE_ID post mod from sb to ee
 
+
+class BCctbase: 
+  SIGN      = 'EE_SIGN'
+  SENDER    = 'EE_SENDER'
+  HASH      = 'EE_HASH'
+  
+  ETH_SIGN  = 'EE_ETH_SIGN'
+  ETH_SENDER= 'EE_ETH_SENDER'
+    
+
+class BCct:
+  SIGN        = BCctbase.SIGN
+  SENDER      = BCctbase.SENDER
+  HASH        = BCctbase.HASH
+  ETH_SIGN    = BCctbase.ETH_SIGN
+  ETH_SENDER  = BCctbase.ETH_SENDER
+  
+  ADDR_PREFIX_OLD = "aixp_"
+  ADDR_PREFIX   = "0xai_"
+  
+  K_USER_CONFIG_PEM_FILE = 'NAEURAL_PEM_FILE'
+  K_PEM_FILE = 'PEM_FILE'
+  K_PASSWORD = 'PASSWORD'
+  K_PEM_LOCATION = 'PEM_LOCATION'
+  
+  ERR_UNAVL_MSG = "Missing signature/sender data"
+  ERR_UNAVL = 1
+
+  ERR_SIGN_MSG = "Bad hash"
+  ERR_UNAVL = 1000
+
+  ERR_SIGN_MSG = "Bad signature"
+  ERR_UNAVL = 1001
+  
+  AUTHORISED_ADDRS = 'authorized_addrs'
+  
+  DEFAULT_INFO = '0xai handshake data'
+  
+  USER_PEM_FILE = '_naeural.pem'
+  DEFAULT_PEM_FILE = '_pk.pem'
+  DEFAULT_PEM_LOCATION = 'data'
+  
 BLOCKCHAIN_CONFIG = {
-    "PEM_FILE": "_pk_sdk.pem",
+    "PEM_FILE": BCct.DEFAULT_PEM_FILE,
     "PASSWORD": None,
-    "PEM_LOCATION": "data"
+    "PEM_LOCATION": BCct.DEFAULT_PEM_LOCATION
 }
+  
 
 class DCT_TYPES:
   VOID_PIPELINE = 'Void'

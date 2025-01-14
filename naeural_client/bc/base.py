@@ -14,42 +14,7 @@ from cryptography.hazmat.primitives import serialization
 
 from ..utils.config import get_user_folder
 
-class BCctbase: 
-  SIGN      = 'EE_SIGN'
-  SENDER    = 'EE_SENDER'
-  HASH      = 'EE_HASH'
-  
-  ETH_SIGN  = 'EE_ETH_SIGN'
-  ETH_SENDER= 'EE_ETH_SENDER'
-    
-
-class BCct:
-  SIGN        = BCctbase.SIGN
-  SENDER      = BCctbase.SENDER
-  HASH        = BCctbase.HASH
-  ETH_SIGN    = BCctbase.ETH_SIGN
-  ETH_SENDER  = BCctbase.ETH_SENDER
-  
-  ADDR_PREFIX_OLD = "aixp_"
-  ADDR_PREFIX   = "0xai_"
-  
-  K_USER_CONFIG_PEM_FILE = 'NAEURAL_PEM_FILE'
-  K_PEM_FILE = 'PEM_FILE'
-  K_PASSWORD = 'PASSWORD'
-  K_PEM_LOCATION = 'PEM_LOCATION'
-  
-  ERR_UNAVL_MSG = "Missing signature/sender data"
-  ERR_UNAVL = 1
-
-  ERR_SIGN_MSG = "Bad hash"
-  ERR_UNAVL = 1000
-
-  ERR_SIGN_MSG = "Bad signature"
-  ERR_UNAVL = 1001
-  
-  AUTHORISED_ADDRS = 'authorized_addrs'
-  
-  DEFAULT_INFO = '0xai handshake data'
+from ..const.base import BCctbase, BCct
     
   
   
@@ -342,10 +307,10 @@ class BaseBlockEngine:
     
     if user_config:
       user_folder = get_user_folder()
-      pem_fn = str(user_folder / '_naeural.pem')
+      pem_fn = str(user_folder / BCct.USER_PEM_FILE)
     else:
-      pem_name = config.get(BCct.K_PEM_FILE, '_pk.pem')
-      pem_folder = config.get(BCct.K_PEM_LOCATION, 'data')
+      pem_name = config.get(BCct.K_PEM_FILE, BCct.DEFAULT_PEM_FILE)
+      pem_folder = config.get(BCct.K_PEM_LOCATION, BCct.DEFAULT_PEM_LOCATION)
       pem_fn = os.path.join(log.get_target_folder(pem_folder), pem_name)
     #endif pem is defined in ~/.naeural/ or in the data folder of the _local_cache
     self.__pem_file = pem_fn

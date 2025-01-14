@@ -1,6 +1,6 @@
 from time import time
 from naeural_client.utils.config import log_with_color
-from naeural_client.const import SESSION_CT
+from naeural_client.const import SESSION_CT, COMMANDS
 
 
 def _get_netstats(
@@ -9,6 +9,7 @@ def _get_netstats(
   allowed_only=False, 
   supervisor=None,
   supervisors_only=False,
+  return_session=False,
 ):
   t1 = time()
   from naeural_client import Session
@@ -23,7 +24,10 @@ def _get_netstats(
   nr_supers = dct_info[SESSION_CT.NETSTATS_NR_SUPERVISORS]
   _elapsed = dct_info[SESSION_CT.NETSTATS_ELAPSED] # computed on call
   elapsed = time() - t1 # elapsed=_elapsed
+  if return_session:
+    return df, supervisor, super_alias, nr_supers, elapsed, sess  
   return df, supervisor, super_alias, nr_supers, elapsed
+
 
 def get_nodes(args):
   """
@@ -76,6 +80,40 @@ def get_supervisors(args):
     log_with_color(f"{df}")
   return
 
+def _send_command_to_node(args, command):
+  node = args.node
+  silent = not args.verbose   
+  
+  t1 = time()
+  df, _, _, _, _, sess = _get_netstats(
+    silent=silent, online_only=True, return_session=True    
+  )
+  peered = None
+  selection = df.Alias == node
+  found = selection.any()
+  node_addr = None
+  df_found =  df[selection]
+  if found:
+    peered = df_found.Peered.values[0]
+    node_addr = df_found.Address.values[0]   
+    log_with_color(f"{df_found}")
+  if not found:
+    log_with_color(f"Node '{node}' <{node_addr}> not found in network.", color='r')
+    return
+  if not peered:
+    log_with_color(f"Node '{node}' <{node_addr}> does not accept commands from this SDK.", color='r')
+    return
+  # TODO: currently this is based on node alias, but we should be based on node address
+  #       and maybe even node alias
+  if command == COMMANDS.RESTART:
+    sess._send_command_restart_node(node)
+  elif command == COMMANDS.SHUTDOWN:
+    sess._send_command_stop_node(node)
+  else:
+    log_with_color(f"Command '{command}' not supported.", color='r')
+    return
+  elapsed = time() - t1  
+  return  
 
 def restart_node(args):
   """
@@ -86,7 +124,9 @@ def restart_node(args):
   args : argparse.Namespace
       Arguments passed to the function.
   """
-  log_with_color(f"Restarting node {args.node} NOT IMPLEMENTED", color='r')
+  node = args.node
+  log_with_color(f"Attempting to restart node <{node}>", color='b')
+  _send_command_to_node(args, COMMANDS.RESTART)
   return
 
 
@@ -99,5 +139,7 @@ def shutdown_node(args):
   args : argparse.Namespace
       Arguments passed to the function.
   """
-  log_with_color(f"Shutting down node {args.node} NOT IMPLEMENTED", color='r')
+  node = args.node
+  log_with_color(f"Attempting to shutdown node <{node}>", color='b')
+  _send_command_to_node(args, COMMANDS.SHUTDOWN)
   return
