@@ -35,40 +35,26 @@ if __name__ == '__main__' :
 
    
   node = "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6"
+  node_eth = eng1.node_address_to_eth_address(node)
+  l.P("Node: {}\nNode Eth: {}".format(node, node_eth))
   epochs = [245, 246, 247, 248, 249, 250]
   epochs_vals = [124, 37, 30, 6, 19, 4]
+  USE_ETH_ADDR = True
   
-  types = ["string", "uint256[]", "uint256[]"]
-  values = [node, epochs, epochs_vals]
+  if USE_ETH_ADDR:  
+    types = ["address", "uint256[]", "uint256[]"]
+    node_data = node_eth
+  else:
+    types = ["string", "uint256[]", "uint256[]"]
+    node_data = node
+    
+  values = [node_data, epochs, epochs_vals]
   
-  
-  from web3 import Web3
-  from eth_account import Account
-  from eth_account.messages import encode_defunct
-  
-  message_hash = Web3.solidity_keccak(types, values)
-  signable_message = encode_defunct(primitive=message_hash)
-  signed_message = Account.sign_message(signable_message, private_key=private_key)
-  
-  results = {
-    "sender" : eng1.eth_address,
-    "message_hash": message_hash.hex(),
-    "signature": signed_message.signature.hex(),
-    "signed_message": signed_message.message_hash.hex(),
-  }
-  l.P("Signable message: {}".format(signable_message))
-  l.P("Results:\n{}".format(json.dumps(results, indent=2)))
-  
+ 
   s2 = eng1.eth_sign_message(types, values)
   l.P("Results:\n{}".format(json.dumps(s2, indent=2)))
-  l.P("Signature: {}".format(eng1.eth_sign_node_epochs(node, epochs, epochs_vals)))
   
-  
-  
-  
-  
-  
-  
-  
-  
-  
+  res = eng1.eth_sign_node_epochs(node_data, epochs, epochs_vals, signature_only=False, use_evm_node_addr=USE_ETH_ADDR)
+  eth_signature = res["signature"]
+  inputs = res["eth_signed_data"]
+  l.P(f"Results:\n  Signature: {eth_signature}\n  Inputs: {inputs}")
