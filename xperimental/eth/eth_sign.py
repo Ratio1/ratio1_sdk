@@ -53,4 +53,8 @@ if __name__ == '__main__' :
  
   s2 = eng1.eth_sign_message(types, values)
   l.P("Results:\n{}".format(json.dumps(s2, indent=2)))
-  l.P("Signature: {}".format(eng1.eth_sign_node_epochs(node_data, epochs, epochs_vals)))
+  
+  res = eng1.eth_sign_node_epochs(node_data, epochs, epochs_vals, signature_only=False, use_evm_node_addr=USE_ETH_ADDR)
+  eth_signature = res["signature"]
+  inputs = res["eth_signed_data"]
+  l.P(f"Results:\n  Signature: {eth_signature}\n  Inputs: {inputs}")
