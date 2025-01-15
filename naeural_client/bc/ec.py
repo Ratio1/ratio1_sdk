@@ -794,7 +794,7 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     
     
     
-  def eth_sign_node_epochs(self, node, epochs, epochs_vals, signature_only=True):
+  def eth_sign_node_epochs(self, node, epochs, epochs_vals, signature_only=True, use_evm_node_addr=True):
     """
     Signs the node availability
 
@@ -811,13 +811,19 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
         
     signature_only : bool, optional
         Whether to return only the signature. The default is True.
+        
+    use_evm_node_addr : bool, optional
+        Whether to use the Ethereum address of the node. The default is True.
 
     Returns
     -------
     str
         The signature of the message.
     """
-    types = ["string", "uint256[]", "uint256[]"]
+    if use_evm_node_addr:
+      types = ["address", "uint256[]", "uint256[]"]  
+    else:
+      types = ["string", "uint256[]", "uint256[]"]
     values = [node, epochs, epochs_vals]
     result = self.eth_sign_message(types, values)
     if signature_only:
