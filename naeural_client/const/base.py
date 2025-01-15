@@ -2,6 +2,15 @@ EE_ID = 'EE_ID'
 SB_ID = 'SB_ID'  # change to SB_ID = EE_ID post mod from sb to ee
 
 
+DAUTH_URL = 'https://dauth.ratio1.ai/get_auth_data'
+
+class LocalInfo:
+  LOCAL_INFO_FILE = 'local_info.json'
+  K_ADDRESS = 'address'
+  K_ALIAS = 'alias'
+  K_ETH_ADDRESS = 'eth_address'
+
+
 class BCctbase: 
   SIGN      = 'EE_SIGN'
   SENDER    = 'EE_SENDER'
