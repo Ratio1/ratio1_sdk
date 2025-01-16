@@ -4,6 +4,8 @@ import json
 import binascii
 import numpy as np
 import datetime
+import uuid
+import requests
 
 from hashlib import sha256, md5
 from threading import Lock
@@ -14,7 +16,7 @@ from cryptography.hazmat.primitives import serialization
 
 from ..utils.config import get_user_folder
 
-from ..const.base import BCctbase, BCct
+from ..const.base import BCctbase, BCct, DAUTH_SUBKEY, DAUTH_URL
     
   
   
@@ -1212,3 +1214,56 @@ class BaseBlockEngine:
     return self.__eth_account
   
   ### end Ethereum
+
+
+  def dauth_autocomplete(self, dauth_endp=None, add_env=True, debug=False, max_tries=5):
+    dct_env = {}
+    done = False
+    tries = 0
+    in_env = False
+    url = dauth_endp
+    
+    if url is None:
+      if isinstance(DAUTH_URL, str) and len(DAUTH_URL) > 0:
+        url = DAUTH_URL
+      else:
+        url = os.environ.get('DAUTH_URL')
+        in_env = True
+    
+    if isinstance(url, str) and len(url) > 0:
+      if dauth_endp is None:
+        self.P("Found dAuth URL in environment: '{}'".format(url), color='g')
+      
+      while not done:
+        self.P(f"Trying dAuth `{url}` information... (try {tries})")
+        try:
+          nonce_data = {
+            'nonce' : str(uuid.uuid4())[:8]
+          }
+          self.sign(nonce_data)
+          response = requests.post(url, json={'body' : nonce_data})
+          dct_response = response.json()
+          if debug:
+            self.P(f"Response:\n {json.dumps(dct_response, indent=2)}")
+          dct_result = dct_response.get('result', {}).get(DAUTH_SUBKEY, {})
+          error = dct_response.get('error', None)
+          if error is not None:
+            self.P(f"Error in dAuth response: {dct_response}", color='r')
+          dct_env = {k : v for k,v in dct_result.items() if k.startswith('EE_')}
+          self.P("Found {} keys in dAuth response.".format(len(dct_env)), color='g')
+          for k, v in dct_env.items():
+            if k not in os.environ:
+              self.P(f"  Adding key `{k}{'=' + str(v) if debug else ''}` to env.", color='y')
+            else:
+              self.P(f"  Overwrite  `{k}{'=' + str(v) if debug else ''}` in env.", color='y')
+            if add_env:
+              os.environ[k] = v
+          done = True
+        except Exception as exc:
+          self.P(f"Error in dAuth URL request: {exc}", color='r')          
+        #end try
+        tries += 1
+        if tries >= max_tries:
+          done = True    
+      #end while
+    return dct_env

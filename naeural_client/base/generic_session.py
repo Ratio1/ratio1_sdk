@@ -1,3 +1,12 @@
+"""
+
+TODO: 
+  - config precedence when starting a session - env vs manually provided data
+  - add support for remaining commands from EE
+
+
+"""
+
 import json
 import os
 import traceback
@@ -30,7 +39,7 @@ from ..utils.config import (
 
 # from ..default.instance import PLUGIN_TYPES # circular import
 
-# TODO: add support for remaining commands from EE
+
 
 DEBUG_MQTT_SERVER = "r9092118.ala.eu-central-1.emqxsl.com"
 
@@ -87,6 +96,7 @@ class GenericSession(BaseDecentrAIObject):
               local_cache_app_folder='_local_cache',
               use_home_folder=False,
               eth_enabled=True,
+              auto_configuration=True,
               **kwargs
             ) -> None:
     """
@@ -166,6 +176,8 @@ class GenericSession(BaseDecentrAIObject):
             nr_empty = self._config[key]["TOPIC"].count("{}")
             self._config[key]["TOPIC"] = self._config[key]["TOPIC"].format(root_topic, *(["{}"] * (nr_empty - 1)))
     # end if root_topic
+    
+    self.__auto_configuration = auto_configuration
 
     self.log = log
     self.name = name
@@ -188,13 +200,12 @@ class GenericSession(BaseDecentrAIObject):
     # this is used to store data received from net-mon instances
     self.__current_network_statuses = {} 
 
-    pwd = pwd or kwargs.get('password', kwargs.get('pass', None))
-    user = user or kwargs.get('username', None)
-    host = host or kwargs.get('hostname', None)
+    self.__pwd = pwd or kwargs.get('password', kwargs.get('pass', None))
+    self.__user = user or kwargs.get('username', None)
+    self.__host = host or kwargs.get('hostname', None)
+    self.__port = port
+    self.__secured = secured
     
-    ## now we prepare config via ~/.naeural/config or .env
-    self.__fill_config(host, port, user, pwd, secured, dotenv_path)
-    ## end config
 
     self.custom_on_payload = on_payload
     self.custom_on_heartbeat = on_heartbeat
@@ -206,15 +217,15 @@ class GenericSession(BaseDecentrAIObject):
     self.__running_main_loop_thread = False
     self.__closed_everything = False
 
-    self.sdk_main_loop_thread = Thread(target=self.__main_loop, daemon=True)
     self.__formatter_plugins_locations = formatter_plugins_locations
 
     self.__blockchain_config = blockchain_config
-
-    # TODO: needs refactoring - suboptimal design
+    
+    self.__dotenv_path = dotenv_path
+    
     self.__bc_engine : DefaultBlockEngine = bc_engine
     self.bc_engine : DefaultBlockEngine = None 
-    # END TODO
+    
     
 
     self.__open_transactions: list[Transaction] = []
@@ -246,13 +257,37 @@ class GenericSession(BaseDecentrAIObject):
     )
     return
 
-  def startup(self):
+  def startup(self):    
+    ## 1st config step - we prepare config via ~/.naeural/config or .env
+    self.__load_user_config(dotenv_path=self.__dotenv_path)
+
+    # TODO: needs refactoring - suboptimal design
     # start the blockchain engine assuming config is already set
+    
     self.__start_blockchain(
       self.__bc_engine, self.__blockchain_config, 
       user_config=self.__user_config_loaded,
     )
+    
+    # this next call will attempt to complete the dauth process
+    dct_env = self.bc_engine.dauth_autocomplete(
+      dauth_endp=None, # get from consts or env
+      add_env=self.__auto_configuration,
+      debug=False,
+    )
     # end bc_engine
+    # END TODO
+    
+    ## last config step
+    self.__fill_config(
+      host=self.__host, 
+      port=self.__port, 
+      user=self.__port, 
+      pwd=self.__pwd, 
+      secured=self.__secured,
+    )
+    ## end config
+        
     self.formatter_wrapper = IOFormatterWrapper(self.log, plugin_search_locations=self.__formatter_plugins_locations)
 
     msg = f"Connection to {self._config[comm_ct.USER]}:*****@{self._config[comm_ct.HOST]}:{self._config[comm_ct.PORT]} {'<secured>' if self._config[comm_ct.SECURED] else '<UNSECURED>'}"
@@ -895,9 +930,29 @@ class GenericSession(BaseDecentrAIObject):
 
   # Utils
   if True:
-    def __fill_config(self, host, port, user, pwd, secured, dotenv_path):
+    
+    def __load_user_config(self, dotenv_path):
+      # if the ~/.naeural/config file exists, load the credentials from there else try to load them from .env
+      if not load_user_defined_config():        
+        # this method will search for the credentials in the environment variables
+        # the path to env file, if not specified, will be search in the following order:
+        #  1. current working directory
+        #  2-N. directories of the files from the call stack
+        load_dotenv(dotenv_path=dotenv_path, verbose=False)
+        if not self.silent:
+          keys = [k for k in os.environ if k.startswith("EE_")]
+          print("Loaded credentials from environment variables: {keys}", flush=True)
+        self.__user_config_loaded = False
+      else:
+        if not self.silent:
+          keys = [k for k in os.environ if k.startswith("EE_")]
+          print(f"Loaded credentials from `{get_user_config_file()}`: {keys}.", flush=True)
+        self.__user_config_loaded = True
+      # endif config loading from ~ or ./.env      
+    
+    def __fill_config(self, host, port, user, pwd, secured):
       """
-      Fill the configuration dictionary with the credentials provided when creating this instance.
+      Fill the configuration dictionary with the ceredentials provided when creating this instance.
 
 
       Parameters
@@ -925,23 +980,8 @@ class GenericSession(BaseDecentrAIObject):
       ------
       ValueError
           Missing credentials
-      """
+      """      
 
-      # if the ~/.naeural/config file exists, load the credentials from there else try to load them from .env
-      if not load_user_defined_config():        
-        # this method will search for the credentials in the environment variables
-        # the path to env file, if not specified, will be search in the following order:
-        #  1. current working directory
-        #  2-N. directories of the files from the call stack
-        load_dotenv(dotenv_path=dotenv_path, verbose=False)
-        if not self.silent:
-          print("Loaded credentials from environment variables.", flush=True)
-        self.__user_config_loaded = False
-      else:
-        if not self.silent:
-          print(f"Loaded credentials from `{get_user_config_file()}`.", flush=True)
-        self.__user_config_loaded = True
-      # endif config loading from ~ or ./.env
 
       possible_user_values = [
         user,
