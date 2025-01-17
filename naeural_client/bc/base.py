@@ -1218,6 +1218,7 @@ class BaseBlockEngine:
 
   def dauth_autocomplete(self, dauth_endp=None, add_env=True, debug=False, max_tries=5):
     dct_env = {}
+    dct_result = {}
     done = False
     tries = 0
     in_env = False
@@ -1242,25 +1243,33 @@ class BaseBlockEngine:
           }
           self.sign(nonce_data)
           response = requests.post(url, json={'body' : nonce_data})
-          dct_response = response.json()
-          if debug:
-            self.P(f"Response:\n {json.dumps(dct_response, indent=2)}")
-          dct_result = dct_response.get('result', {}).get(DAUTH_SUBKEY, {})
-          error = dct_response.get('error', None)
-          if error is not None:
-            self.P(f"Error in dAuth response: {dct_response}", color='r')
-          dct_env = {k : v for k,v in dct_result.items() if k.startswith('EE_')}
-          self.P("Found {} keys in dAuth response.".format(len(dct_env)), color='g')
-          for k, v in dct_env.items():
-            if k not in os.environ:
-              self.P(f"  Adding key `{k}{'=' + str(v) if debug else ''}` to env.", color='y')
-            else:
-              self.P(f"  Overwrite  `{k}{'=' + str(v) if debug else ''}` in env.", color='y')
-            if add_env:
-              os.environ[k] = v
-          done = True
+          if response.status_code == 200:
+            dct_response = response.json()
+            if debug:
+              self.P(f"Response:\n {json.dumps(dct_response, indent=2)}")
+            dct_result = dct_response.get('result', {}).get(DAUTH_SUBKEY, {})
+            error = dct_response.get('error', None)
+            if error is not None:
+              self.P(f"Error in dAuth response: {dct_response}", color='r')
+            dct_env = {k : v for k,v in dct_result.items() if k.startswith('EE_')}
+            self.P("Found {} keys in dAuth response.".format(len(dct_env)), color='g')
+            for k, v in dct_env.items():
+              try:
+                if not isinstance(v, str):
+                  v = json.dumps(v)
+              except:
+                v = str(v)
+              if k not in os.environ:
+                self.P(f"  Adding key `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` to env.", color='y')
+              else:
+                self.P(f"  Overwrite  `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` in env.", color='y')
+              if add_env:
+                os.environ[k] = v
+            done = True
+          else:
+            self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')
         except Exception as exc:
-          self.P(f"Error in dAuth URL request: {exc}", color='r')          
+          self.P(f"Error in dAuth URL request: {exc}. Received: {dct_result}", color='r')          
         #end try
         tries += 1
         if tries >= max_tries:

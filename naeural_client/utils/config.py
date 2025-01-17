@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 
 from naeural_client.const.base import BCct
+from naeural_client._ver import __VER__ as version
 
 
 CONFIG_FILE = "config"
@@ -70,7 +71,9 @@ def log_with_color(s, color='n'):
       'b': "\033[36m",  # bright cyan
       'w': '\033[97m',  # Light white
       'c': "\033[36m",  # bright cyan
-      'n': '\033[37m',  # Dark white (default)
+      'n': '\033[37m',  # white (default)
+      'd': "\033[90m",  # dark gray
+      
   }
 
   reset_code = '\033[0m'  # Reset color
@@ -90,7 +93,7 @@ def get_user_config_file():
   """
   return get_user_folder() / CONFIG_FILE
 
-def reset_config(*larg, **kwargs):
+def reset_config(*larg, keep_existing=False, **kwargs):
   """
   Resets the configuration by creating a ~/.naeural folder and populating
   ~/.naeural/config with values from a local .env file, if it exists.
@@ -130,7 +133,12 @@ def reset_config(*larg, **kwargs):
     log_with_color(f"Copying local PEM file {local_pem} to {target_pem}", color='y')
     shutil.copy(local_pem, target_pem)
   else:
-    log_with_color(f"No local PEM file found at {local_pem}. A default private key will be generated.", color='r')
+    log_with_color(f"No local PEM file found locally {local_pem}.", color='r')
+    if target_pem.exists():
+      log_with_color(f"Found already existing {target_pem}.", color='y')
+      if not keep_existing:
+        target_pem.unlink()        
+        log_with_color(f"Deleted {target_pem}. A default key will be generated.", color='b')
   return
 
 def show_address(args):
@@ -144,25 +152,29 @@ def show_address(args):
   log_with_color(f"{sess.get_client_address()}", color='b')
   return
 
+def show_version():
+  from naeural_client import Session
+  sess = Session(
+    silent=True
+  )  
+  
+  user_folder = get_user_folder()  
+
+  log_with_color(f"NEP SDK folder: {user_folder}", color='b')
+  log_with_color(f"NEP SDK version: {version}", color='b')
+  log_with_color(f"SDK Client address: {sess.get_client_address()}", color='b')
+  return
+  
 
 def show_config(args):
   """
   Displays the current configuration from ~/.naeural/config.
   """
-  from naeural_client import Session
-  sess = Session(
-    silent=True
-  )
-  
-  user_folder = get_user_folder()
+  show_version()
   config_file = get_user_config_file()
-
-  log_with_color(f"NEP SDK folder: {user_folder}", color='b')
-  log_with_color(f"SDK Client address: {sess.get_client_address()}", color='b')
   if config_file.exists():
-    log_with_color(f"Current configuration ({config_file}):", color='y')
     with config_file.open("r") as file:
-      log_with_color(file.read())
+      log_with_color(f"Current configuration ({config_file}):\n{file.read()}", color='d')
   else:
     log_with_color(f"No configuration found at {config_file}. Please run `reset_config` first.", color="r")
   return
@@ -202,7 +214,7 @@ def maybe_init_config():
   """
   config_file = get_user_config_file()
   if not config_file.exists():
-    log_with_color(f"No configuration file found at {config_file}. Initializing configuration...", color="y") 
-    reset_config()
+    log_with_color(f"No configuration file found at {config_file}. Initializing configuration...", color="y")     
+    reset_config(keep_existing=True)
     return False
   return load_user_defined_config()

@@ -34,7 +34,7 @@ def build_parser():
   """
   global_parser = create_global_parser()  # Add global parameters
   
-  title = f"nepctl v{version} - CLI for Naeural Edge Protocol SDK package"
+  title = f"nepctl for SDK v{version} - CLI for Naeural Edge Protocol SDK package"
   parser = argparse.ArgumentParser(description=title, parents=[global_parser])
   subparsers = parser.add_subparsers(dest="command", help="Available commands")
 

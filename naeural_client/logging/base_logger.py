@@ -335,7 +335,13 @@ class BaseLogger(object):
     return False
   
   @staticmethod
-  def replace_secrets(dct_config, pattern='$EE_'):
+  def replace_secrets(dct_config, pattern='$EE_', allow_missing=True, missing_default=None):
+    """
+    TODO: maybe move to Jinja2 style     
+    "{{ some_variable | default('my_default') }}"
+    
+    
+    """
     matches = []
     missing = []
     stack = [dct_config]
@@ -349,6 +355,8 @@ class BaseLogger(object):
             env_var_name = value[1:] 
             if env_var_name not in os.environ:
               missing.append(env_var_name)
+              if allow_missing:
+                current[key] = missing_default
             else:
               current[key] = os.environ[env_var_name]
           elif isinstance(value, (dict, list)):
@@ -358,9 +366,13 @@ class BaseLogger(object):
           if isinstance(item, (dict, list)):
             stack.append(item)
     if len(missing) > 0:
-      raise ValueError('Required environment configuration for keys {} was not found in current envirnoment. Please setup your docker or bare-metal config to provide this missing key(s)'.format(
+      msg = 'Required environment configuration for keys {} was not found in current envirnoment. Please setup your docker or bare-metal config to provide this missing key(s)'.format(
         ",".join(['"' + x + '"' for x in missing])
-      ))
+      )
+      if allow_missing:
+        BaseLogger.print_color(msg, color='r')
+      else:
+        raise ValueError(msg)
     return matches  
   
   
@@ -1043,8 +1055,14 @@ class BaseLogger(object):
     if dropbox and not "/DATA/" in upper:
       base_folder = self.get_dropbox_drive()
     return base_folder
+  
+  def reload_config(self):
+    self._configure_data_and_dirs(self.config_file, self.config_file_encoding)
+    return
 
   def _configure_data_and_dirs(self, config_file, config_file_encoding=None):
+    self.config_file_encoding = config_file_encoding
+    
     if self.no_folders_no_save:
       return
 
@@ -1070,7 +1088,7 @@ class BaseLogger(object):
       #endif no defaults for base/app folders
 
       if not self.silent:
-        print("Loaded config [{}]".format(config_file), flush=True)
+        BaseLogger.print_color("Loaded config [{}]".format(config_file))
       self.config_file = config_file
     else:
       self.config_data = {
@@ -1078,8 +1096,9 @@ class BaseLogger(object):
         'APP_FOLDER' : self._app_folder
       }
       self.config_file = "default_config.txt"
+      
       if not self.silent:
-        print("No config file provided. Using default config.", flush=True)
+        BaseLogger.print_color("No config file provided. Using default config.")
     #endif have or not config file
     
     self.config_data = {
@@ -1087,28 +1106,27 @@ class BaseLogger(object):
       **self.__init_config_data,
     }
     
-    matches = self.replace_secrets(self.config_data)
+    matches = self.replace_secrets(self.config_data, allow_missing=True)
     if not self.silent:    
       if len(matches) > 0:
-        print("  Config modified with following env vars: {}".format(matches))
+        BaseLogger.print_color("  Config modified with following env vars: {}".format(matches))
       else:
-        print("  No secrets/template found in config")
+        BaseLogger.print_color("  No secrets/template found in config")
 
     self._base_folder = self.expand_tilda(self._base_folder)
     self._base_folder = self._get_cloud_base_folder(self._base_folder)
     self._root_folder = os.path.abspath(self._base_folder)
     self._base_folder = os.path.join(self._base_folder, self._app_folder)
     if not self.silent:
-      print("BASE: {}".format(self._base_folder), flush=True)
+      BaseLogger.print_color("BASE: {}".format(self._base_folder))
 
     self._normalize_path_sep()
 
     if not os.path.isdir(self._base_folder):
-      print("{color_start}WARNING! Invalid app base folder '{base_folder}'! We create it automatically!{color_end}".format(
-        color_start=COLORS['r'],
-        base_folder=self._base_folder,
-        color_end=COLORS['__end__']
-      ), flush=True)
+      BaseLogger.print_color(
+        f"WARNING! Invalid app base folder '{self._base_folder}'! We create it automatically!",
+        color='r'
+      )
     #endif
 
     self._logs_dir = os.path.join(self._base_folder, self.get_logs_dir_name())

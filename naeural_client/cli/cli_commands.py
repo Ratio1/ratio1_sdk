@@ -31,6 +31,11 @@ CLI_COMMANDS = {
         "reset": {
             "func": reset_config, # DONE
             "description": "Reset the configuration to default",
+            # "params": {
+            #   ### use "(flag)" at the end of the description to indicate a boolean flag 
+            #   ### otherwise it will be treated as a str parameter
+            #   "--force": "Force reset (flag)",  # DONE
+            # }
         },
         "addr": {
             "func": show_address, # DONE
