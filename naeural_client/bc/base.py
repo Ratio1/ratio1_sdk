@@ -1251,10 +1251,11 @@ class BaseBlockEngine:
             **kwargs,
             DAUTH_NONCE : str(uuid.uuid4())[:8],
           }
-          nonce_data = {
-            k : v for k, v in to_send.items() if k in DAUTH_VARS
-          }
-          self.sign(nonce_data)          
+          ######
+          if len(kwargs) == 0:
+            to_send['sender_alias'] = 'direct-call'
+          ######
+          self.sign(to_send)          
           response = requests.post(url, json={'body' : to_send})
           if response.status_code == 200:
             dct_response = response.json()

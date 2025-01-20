@@ -168,6 +168,10 @@ class GenericSession(BaseDecentrAIObject):
     root_topic : str, optional
         This is the root of the topics used by the SDK. It is used to create the topics for the communication channels.
         Defaults to "naeural"
+        
+    auto_configuration : bool, optional
+        If True, the SDK will attempt to complete the dauth process automatically.
+        Defaults to True.
     """
     
     self.__at_least_one_node_peered = False
@@ -281,6 +285,7 @@ class GenericSession(BaseDecentrAIObject):
       dauth_endp=None, # get from consts or env
       add_env=self.__auto_configuration,
       debug=False,
+      sender_alias='ratio1-SDK'
     )
     # end bc_engine
     # END TODO
