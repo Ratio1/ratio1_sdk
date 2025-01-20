@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives import serialization
 
 from ..utils.config import get_user_folder
 
-from ..const.base import BCctbase, BCct, DAUTH_SUBKEY, DAUTH_URL
+from ..const.base import BCctbase, BCct, DAUTH_SUBKEY, DAUTH_URL, DAUTH_ENV_KEY
     
   
   
@@ -1217,6 +1217,7 @@ class BaseBlockEngine:
 
 
   def dauth_autocomplete(self, dauth_endp=None, add_env=True, debug=False, max_tries=5):
+    MIN_LEN = 10
     dct_env = {}
     dct_result = {}
     done = False
@@ -1224,16 +1225,20 @@ class BaseBlockEngine:
     in_env = False
     url = dauth_endp
     
-    if url is None:
+    if not isinstance(url, str) or len(url) < MIN_LEN:
       if isinstance(DAUTH_URL, str) and len(DAUTH_URL) > 0:
         url = DAUTH_URL
-      else:
-        url = os.environ.get('DAUTH_URL')
+
+      if DAUTH_ENV_KEY in os.environ:
         in_env = True
+        url = os.environ[DAUTH_ENV_KEY]
     
     if isinstance(url, str) and len(url) > 0:
       if dauth_endp is None:
-        self.P("Found dAuth URL in environment: '{}'".format(url), color='g')
+        if in_env:
+          self.P("Found dAuth URL in environment: '{}'".format(url), color='g')
+        else:
+          self.P("Using default dAuth URL: '{}'".format(url), color='g')
       
       while not done:
         self.P(f"Trying dAuth `{url}` information... (try {tries})")
@@ -1275,4 +1280,7 @@ class BaseBlockEngine:
         if tries >= max_tries:
           done = True    
       #end while
+    else:
+      self.P(f"dAuth URL is not invalid: {url}", color='r')
+    #end if url is valid
     return dct_env

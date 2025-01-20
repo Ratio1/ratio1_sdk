@@ -50,6 +50,10 @@ class GenericSession(BaseDecentrAIObject):
   A Session manages `Pipelines` and handles all messages received from the communication server.
   The Session handles all callbacks that are user-defined and passed as arguments in the API calls.
   """
+  
+  START_TIMEOUT = 30
+  
+  
   default_config = {
       "CONFIG_CHANNEL": {
           "TOPIC": "{}/{}/config"
@@ -165,6 +169,9 @@ class GenericSession(BaseDecentrAIObject):
         This is the root of the topics used by the SDK. It is used to create the topics for the communication channels.
         Defaults to "naeural"
     """
+    
+    self.__at_least_one_node_peered = False
+    self.__at_least_a_netmon_received = False
 
     # TODO: maybe read config from file?
     self._config = {**self.default_config, **config}
@@ -466,21 +473,59 @@ class GenericSession(BaseDecentrAIObject):
       self._dct_node_addr_name[node_addr] = node_id
       return
 
-    def __track_allowed_node(self, node_addr, dict_msg):
+    def __track_allowed_node_by_hb(self, node_addr, dict_msg):
       """
-      Track if this session is allowed to send messages to node.
+      Track if this session is allowed to send messages to node using hb data
 
       Parameters
       ----------
       node_addr : str
           The address of the Naeural Edge Protocol edge node that sent the message.
+
       dict_msg : dict
-          The message received from the communication server.
+          The message received from the communication server as a heartbeat of the object from netconfig
       """
       node_whitelist = dict_msg.get(HB.EE_WHITELIST, [])
       node_secured = dict_msg.get(HB.SECURED, False)
+      
+      client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
 
-      self._dct_can_send_to_node[node_addr] = not node_secured or self.bc_engine.address_no_prefix in node_whitelist or self.bc_engine.address == node_addr
+      self._dct_can_send_to_node[node_addr] = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
+      return
+
+    def __track_allowed_node_by_netmon(self, node_addr, dict_msg):
+      """
+      Track if this session is allowed to send messages to node using net-mon data
+
+      Parameters
+      ----------
+      node_addr : str
+          The address of the Naeural Edge Protocol edge node that sent the message.
+
+      dict_msg : dict
+          The message received from the communication server as a heartbeat of the object from netconfig
+      """
+      node_whitelist = dict_msg.get(PAYLOAD_DATA.NETMON_WHITELIST, [])
+      node_secured = dict_msg.get(PAYLOAD_DATA.NETMON_NODE_SECURED, False)
+      
+      client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
+
+      self._dct_can_send_to_node[node_addr] = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
+      return
+    
+    
+    def __process_node_pipelines(self, node_addr, pipelines):
+      """
+      Given a list of pipeline configurations, create or update the pipelines for a node.      
+      """
+      for config in pipelines:
+        pipeline_name = config[PAYLOAD_DATA.NAME]
+        pipeline: Pipeline = self._dct_online_nodes_pipelines[node_addr].get(pipeline_name, None)
+        if pipeline is not None:
+          pipeline._sync_configuration_with_remote({k.upper(): v for k, v in config.items()})
+        else:
+          self._dct_online_nodes_pipelines[node_addr][pipeline_name] = self.__create_pipeline_from_config(
+            node_addr, config)
       return
 
     def __on_heartbeat(self, dict_msg: dict, msg_node_addr, msg_pipeline, msg_signature, msg_instance):
@@ -516,19 +561,20 @@ class GenericSession(BaseDecentrAIObject):
 
       msg_active_configs = dict_msg.get(HB.CONFIG_STREAMS)
       if msg_active_configs is None:
-        return
+        msg_active_configs = []      
+      # at this point we dont return if no active configs are present
+      # as the protocol should NOT send a heartbeat with active configs to
+      # the entire network, only to the interested parties via net-config
 
       # default action
       if msg_node_addr not in self._dct_online_nodes_pipelines:
+        # this is ok here although we dont get the pipelines from the heartbeat
         self._dct_online_nodes_pipelines[msg_node_addr] = {}
-      for config in msg_active_configs:
-        pipeline_name = config[PAYLOAD_DATA.NAME]
-        pipeline: Pipeline = self._dct_online_nodes_pipelines[msg_node_addr].get(pipeline_name, None)
-        if pipeline is not None:
-          pipeline._sync_configuration_with_remote({k.upper(): v for k, v in config.items()})
-        else:
-          self._dct_online_nodes_pipelines[msg_node_addr][pipeline_name] = self.__create_pipeline_from_config(
-            msg_node_addr, config)
+        
+      if len(msg_active_configs) > 0:
+        # this is for legacy and custom implementation where heartbeats still contain
+        # the pipeline configuration.
+        self.__process_node_pipelines(msg_node_addr, msg_active_configs)
 
       # TODO: move this call in `__on_message_default_callback`
       if self.__maybe_ignore_message(msg_node_addr):
@@ -543,7 +589,7 @@ class GenericSession(BaseDecentrAIObject):
 
       self.D("Received hb from: {}".format(msg_node_addr), verbosity=2)
 
-      self.__track_allowed_node(msg_node_addr, dict_msg)
+      self.__track_allowed_node_by_hb(msg_node_addr, dict_msg)
 
       # call the custom callback, if defined
       if self.custom_on_heartbeat is not None:
@@ -613,7 +659,8 @@ class GenericSession(BaseDecentrAIObject):
       self, 
       dict_msg: dict,  
       msg_pipeline : str, 
-      msg_signature : str
+      msg_signature : str,
+      sender_addr: str,
     ):
       REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
       REQUIRED_SIGNATURE = PLUGIN_SIGNATURES.NET_MON_01
@@ -624,6 +671,7 @@ class GenericSession(BaseDecentrAIObject):
         ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
         current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})        
         if current_network:
+          self.__at_least_a_netmon_received = True
           all_addresses = [
             x[PAYLOAD_DATA.NETMON_ADDRESS] for x in current_network.values()
           ]
@@ -633,8 +681,28 @@ class GenericSession(BaseDecentrAIObject):
           ] 
           self.P(f"Net config from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
           self.__current_network_statuses[sender_addr] = current_network
+
+          for _ , node_data in current_network.items():
+            node_addr = node_data.get("address", None)    
+            if node_addr is not None:
+              self.__track_allowed_node_by_netmon(node_addr, node_data)
+              nr_peers = sum([v for k, v in self._dct_can_send_to_node.items()])
+              if nr_peers > 0 and not self.__at_least_one_node_peered:                
+                self.__at_least_one_node_peered = True
+                self.P(f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", color='g')
+          # end for each node in network map
         # end if current_network is valid
       # end if NET_MON_01
+      return
+      
+      
+    def __maybe_process_net_config(
+      self, 
+      dict_msg: dict,  
+      msg_pipeline : str, 
+      msg_signature : str,
+      sender_addr: str,
+    ):
       return
       
 
@@ -656,12 +724,16 @@ class GenericSession(BaseDecentrAIObject):
       ----------
       dict_msg : dict
           The message received from the communication server
+          
       msg_node_addr : str
           The address of the Naeural Edge Protocol edge node that sent the message.
+          
       msg_pipeline : str
           The name of the pipeline that sent the message.
+          
       msg_signature : str
           The signature of the plugin that sent the message.
+          
       msg_instance : str
           The name of the instance that sent the message.
       """
@@ -671,7 +743,19 @@ class GenericSession(BaseDecentrAIObject):
       if self.__maybe_ignore_message(msg_node_addr):
         return
       
-      self.__maybe_process_net_mon(dict_msg, msg_pipeline, msg_signature)
+      self.__maybe_process_net_mon(
+        dict_msg=dict_msg, 
+        msg_pipeline=msg_pipeline, 
+        msg_signature=msg_signature, 
+        sender_addr=msg_node_addr
+      )
+      
+      self.__maybe_process_net_config(
+        dict_msg=dict_msg, 
+        msg_pipeline=msg_pipeline, 
+        msg_signature=msg_signature, 
+        sender_addr=msg_node_addr
+      )
 
       # call the pipeline and instance defined callbacks
       for pipeline in self.own_pipelines:
@@ -727,6 +811,8 @@ class GenericSession(BaseDecentrAIObject):
 
       self.__running_main_loop_thread = True
       self._main_loop_thread.start()
+      
+      # we could wait here for `self.__at_least_one_node_peered` but is not a good idea
       return
 
     def __handle_open_transactions(self):
@@ -847,10 +933,16 @@ class GenericSession(BaseDecentrAIObject):
       This method runs on a separate thread from the main thread, and it is responsible for handling all messages received from the communication server.
       We use it like this to avoid blocking the main thread, which is used by the user.
       """
+      self.__start_main_loop_time = tm()
       while self.__running_main_loop_thread:
         self.__maybe_reconnect()
         self.__handle_open_transactions()
         sleep(0.1)
+        if not self.__at_least_a_netmon_received:
+          if (tm() - self.__start_main_loop_time) > self.START_TIMEOUT:
+            msg = "Timeout waiting for NET_MON_01 message. Exiting..."
+            self.P(msg, color='r', show=True)
+            break        
       # end while self.running
 
       self.P("Main loop thread exiting...", verbosity=2)
@@ -900,7 +992,7 @@ class GenericSession(BaseDecentrAIObject):
 
       return
 
-    def sleep(self, wait=True):
+    def sleep(self, wait=True, close_session=True, close_pipelines=False):
       """
       Sleep for a given amount of time.
 
@@ -926,7 +1018,37 @@ class GenericSession(BaseDecentrAIObject):
           callable_loop_condition = callable(wait) and wait()
       except KeyboardInterrupt:
         self.P("CTRL+C detected. Stopping loop.", color='r', verbosity=1)
+        
+      if close_session:
+        self.close(close_pipelines, wait_close=True)        
       return
+    
+    def wait(
+      self, 
+      seconds=10, 
+      close_session_on_timeout=True, 
+      close_pipeline_on_timeout=False
+    ):
+      """
+      Wait for a given amount of time.
+
+      Parameters
+      ----------
+      seconds : int, float, optional
+          The amount of time to wait, by default 10
+          
+      close_session_on_timeout : bool, optional
+          If `True`, will close the session when the time is up, by default True
+          
+      close_pipeline_on_timeout : bool, optional
+          If `True`, will close the pipelines when the time is up, by default False
+      """
+      self.run(
+        wait=seconds, 
+        close_session=close_session_on_timeout, 
+        close_pipelines=close_pipeline_on_timeout
+      )
+      return    
 
   # Utils
   if True:
@@ -2352,6 +2474,7 @@ class GenericSession(BaseDecentrAIObject):
       allowed_only=False,
       supervisor=None,
       df_only=False,
+      debug=False,
     ):
       """
       This function will return a Pandas dataframe  known nodes in the network based on
@@ -2475,6 +2598,9 @@ class GenericSession(BaseDecentrAIObject):
         SESSION_CT.NETSTATS_NR_SUPERVISORS : len(self.__current_network_statuses),
         SESSION_CT.NETSTATS_ELAPSED : elapsed,
       })
+      if debug:
+        self.P(f"Peering:\n{json.dumps(self._dct_can_send_to_node, indent=2)}", color='y')
+        self.P(f"Used netmon data from {best_super} ({best_super_alias}):\n{json.dumps(best_info, indent=2)}", color='y')
       if df_only:
         return dct_result[SESSION_CT.NETSTATS_REPORT]
       return dct_result

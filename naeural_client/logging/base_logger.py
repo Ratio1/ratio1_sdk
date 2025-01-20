@@ -91,6 +91,7 @@ class BaseLogger(object):
     if os.name == 'nt':
       os.system('color')
     self.__lib__ = lib_name
+    self.__folder_setup_done = False
     self.append_spaces = append_spaces
     self.show_time = show_time
     self.no_folders_no_save = no_folders_no_save
@@ -1112,35 +1113,41 @@ class BaseLogger(object):
         BaseLogger.print_color("  Config modified with following env vars: {}".format(matches))
       else:
         BaseLogger.print_color("  No secrets/template found in config")
+        
+    if not self.__folder_setup_done:
+      # if not already done lets setup de folders
+      self._base_folder = self.expand_tilda(self._base_folder)
+      self._base_folder = self._get_cloud_base_folder(self._base_folder)
+      self._root_folder = os.path.abspath(self._base_folder)
+      self._base_folder = os.path.join(self._base_folder, self._app_folder)
+    
+      if not self.silent:
+        BaseLogger.print_color("BASE: {}".format(self._base_folder))
 
-    self._base_folder = self.expand_tilda(self._base_folder)
-    self._base_folder = self._get_cloud_base_folder(self._base_folder)
-    self._root_folder = os.path.abspath(self._base_folder)
-    self._base_folder = os.path.join(self._base_folder, self._app_folder)
-    if not self.silent:
-      BaseLogger.print_color("BASE: {}".format(self._base_folder))
+      self._normalize_path_sep()
 
-    self._normalize_path_sep()
+      if not os.path.isdir(self._base_folder):
+        BaseLogger.print_color(
+          f"WARNING! Invalid app base folder '{self._base_folder}'! We create it automatically!",
+          color='r'
+        )
+      #endif
 
-    if not os.path.isdir(self._base_folder):
-      BaseLogger.print_color(
-        f"WARNING! Invalid app base folder '{self._base_folder}'! We create it automatically!",
-        color='r'
-      )
-    #endif
+      self._logs_dir = os.path.join(self._base_folder, self.get_logs_dir_name())
+      self._outp_dir = os.path.join(self._base_folder, self.get_output_dir_name())
+      self._data_dir = os.path.join(self._base_folder, self.get_data_dir_name())
+      self._modl_dir = os.path.join(self._base_folder, self.get_models_dir_name())
 
-    self._logs_dir = os.path.join(self._base_folder, self.get_logs_dir_name())
-    self._outp_dir = os.path.join(self._base_folder, self.get_output_dir_name())
-    self._data_dir = os.path.join(self._base_folder, self.get_data_dir_name())
-    self._modl_dir = os.path.join(self._base_folder, self.get_models_dir_name())
-
-    self._setup_folders([
-      self._outp_dir,
-      self._logs_dir,
-      self._data_dir,
-      self._modl_dir
-    ])
-
+      self._setup_folders([
+        self._outp_dir,
+        self._logs_dir,
+        self._data_dir,
+        self._modl_dir
+      ])
+      self.__folder_setup_done = True
+    else:
+      BaseLogger.print_color("Folders already configured.", color='y')
+    #endif apply only first time
     return
 
   @staticmethod

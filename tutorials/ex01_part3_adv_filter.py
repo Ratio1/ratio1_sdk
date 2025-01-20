@@ -8,7 +8,7 @@ In this example:
 """
 import json
 
-from naeural_client import Session, Payload, PAYLOAD_DATA
+from naeural_client import Session, Payload, PAYLOAD_DATA, HEARTBEAT_DATA
 
 
 class MessageHandler:
@@ -51,9 +51,18 @@ class MessageHandler:
     heartbeat : dict
         The heartbeat received from the edge node.        
     """
+    whitelist = heartbeat.get(HEARTBEAT_DATA.EE_WHITELIST, [])
+    alias = heartbeat.get(HEARTBEAT_DATA.EE_ID)
+    cpu = heartbeat.get(HEARTBEAT_DATA.CPU)
+    # DELETE:
+    allows_me = session.bc_engine.contains_current_address(whitelist)
+    # END DELETE
     session.P(
-      f"{heartbeat['EE_ID']} ({self.shorten_address(node_addr)}) has {heartbeat['CPU']}",
-      color='b',
+      "{} <{}> {} has {} and allows:\n{}".format(
+        alias, self.shorten_address(node_addr), 
+        "allows me" if allows_me else "does NOT allow me",
+        cpu, json.dumps(whitelist, indent=2)),
+      color='b' if allows_me else 'r',
     )
     return
 
@@ -64,7 +73,7 @@ class MessageHandler:
     pipeline_name : str, 
     plugin_signature : str, 
     plugin_instance : str,  
-    data : Payload      
+    payload : Payload      
   ):
     """
     This method is called when a payload is received from an edge node.
@@ -87,7 +96,7 @@ class MessageHandler:
     plugin_instance : str
         The instance of the plugin that sent the payload.
         
-    data : Payload
+    payload : Payload
         The payload received from the edge node.      
     """
     addr = self.shorten_address(node_addr)
@@ -99,20 +108,23 @@ class MessageHandler:
       )
       color = 'dark'
     else:
-      self.last_payload = data # save the full payload for debugging purposes
+      self.last_payload = payload # save the full payload for debugging purposes
       # we can also access the "payload path" that matches 
       # the node-alias, pipeline_name, plugin_signature, and plugin_instance
-      path = data.EE_PAYLOAD_PATH 
+      path = payload.EE_PAYLOAD_PATH 
       # we extract the data from the payload to check for online nodes considering
       # that we are waiting for NET_MON_01 payloads      
       # now we do some low-level processing of the data
-      if PAYLOAD_DATA.NETMON_CURRENT_NETWORK in data.data:
-        all_nodes = list(data.data[PAYLOAD_DATA.NETMON_CURRENT_NETWORK].keys())
-        online_nodes = [
-          n for n in all_nodes 
-          if data.data[PAYLOAD_DATA.NETMON_CURRENT_NETWORK][n][PAYLOAD_DATA.NETMON_STATUS_KEY] == PAYLOAD_DATA.NETMON_STATUS_ONLINE
-        ]
-      message = f"{path[0]} Reports {len(online_nodes)} online nodes of {len(all_nodes)} known overall."
+      network_map = payload.data.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})
+      all_nodes = list(network_map.keys())
+      online_nodes = [
+        n for n in all_nodes 
+        if network_map[n][PAYLOAD_DATA.NETMON_STATUS_KEY] == PAYLOAD_DATA.NETMON_STATUS_ONLINE
+      ]
+      whitelists = {
+        k : v.get(PAYLOAD_DATA.NETMON_WHITELIST, []) for k, v in network_map.items()
+      }
+      message = f"{path[0]} Reports {len(online_nodes)} online nodes of {len(all_nodes)} known nodes. Whitelists:\n{json.dumps(whitelists, indent=2)}"
       color = 'g'
     session.P(message, color=color, show=True)  #, noprefix=True)
     return
@@ -130,13 +142,7 @@ if __name__ == '__main__':
       # silent=True,
   )
 
-  # Observation:
-  #   next code is not mandatory - it is used to keep the session open and cleanup the resources
-  #   in production, you would not need this code as the script can close after the pipeline will be sent
-  session.run(
-    wait=30, # wait for the user to stop the execution or a given time
-    close_pipelines=True # when the user stops the execution, the remote edge-node pipelines will be closed
-  )
+  session.wait(seconds=20) # wait for the user to stop the execution or a given time
   session.P("Main thread exiting...")
   
   netinfo = session.get_network_known_nodes()  
