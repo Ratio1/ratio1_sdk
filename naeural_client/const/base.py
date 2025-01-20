@@ -4,6 +4,7 @@ SB_ID = 'SB_ID'  # change to SB_ID = EE_ID post mod from sb to ee
 
 DAUTH_URL = 'https://dauth.ratio1.ai/get_auth_data'
 DAUTH_SUBKEY = 'auth'
+DAUTH_ENV_KEY = 'DAUTH_URL'
 
 class LocalInfo:
   LOCAL_INFO_FILE = 'local_info.json'
