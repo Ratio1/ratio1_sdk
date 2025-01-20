@@ -512,6 +512,18 @@ class GenericSession(BaseDecentrAIObject):
 
       self._dct_can_send_to_node[node_addr] = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
       return
+    
+    
+    def __process_node_pipelines(self, node_addr, pipelines):
+      for config in pipelines:
+        pipeline_name = config[PAYLOAD_DATA.NAME]
+        pipeline: Pipeline = self._dct_online_nodes_pipelines[node_addr].get(pipeline_name, None)
+        if pipeline is not None:
+          pipeline._sync_configuration_with_remote({k.upper(): v for k, v in config.items()})
+        else:
+          self._dct_online_nodes_pipelines[node_addr][pipeline_name] = self.__create_pipeline_from_config(
+            node_addr, config)
+      return
 
     def __on_heartbeat(self, dict_msg: dict, msg_node_addr, msg_pipeline, msg_signature, msg_instance):
       """
@@ -556,15 +568,10 @@ class GenericSession(BaseDecentrAIObject):
         # this is ok here although we dont get the pipelines from the heartbeat
         self._dct_online_nodes_pipelines[msg_node_addr] = {}
         
-      for config in msg_active_configs:
-        pipeline_name = config[PAYLOAD_DATA.NAME]
-        pipeline: Pipeline = self._dct_online_nodes_pipelines[msg_node_addr].get(pipeline_name, None)
-        if pipeline is not None:
-          pipeline._sync_configuration_with_remote({k.upper(): v for k, v in config.items()})
-        else:
-          self._dct_online_nodes_pipelines[msg_node_addr][pipeline_name] = self.__create_pipeline_from_config(
-            msg_node_addr, config)
-      # end for each pipeline in active configs received BADLY via heartbeat
+      if len(msg_active_configs) > 0:
+        # this is for legacy and custom implementation where heartbeats still contain
+        # the pipeline configuration.
+        self.__process_node_pipelines(msg_node_addr, msg_active_configs)
 
       # TODO: move this call in `__on_message_default_callback`
       if self.__maybe_ignore_message(msg_node_addr):
