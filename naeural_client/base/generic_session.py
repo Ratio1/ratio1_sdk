@@ -2523,10 +2523,11 @@ class GenericSession(BaseDecentrAIObject):
         'Address': PAYLOAD_DATA.NETMON_ADDRESS,
         'Alias'  : PAYLOAD_DATA.NETMON_EEID,
         'Seen ago' : PAYLOAD_DATA.NETMON_LAST_SEEN,
-        'Last state': PAYLOAD_DATA.NETMON_STATUS_KEY,
+        'Version' : PAYLOAD_DATA.NETMON_NODE_VERSION,
+        'State': PAYLOAD_DATA.NETMON_STATUS_KEY,
         'Last probe' : PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME,
         'Zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
-        'Supervisor' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
+        'Oracle' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
         'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
       })
       reverse_mapping = {v: k for k, v in mapping.items()}
@@ -2564,6 +2565,7 @@ class GenericSession(BaseDecentrAIObject):
           # the following will get the whitelist for the current inspected  node
           # without calling self.get_allowed_nodes but instead using the netmon data
           whitelist = node_info.get(PAYLOAD_DATA.NETMON_WHITELIST, [])
+          version = node_info.get(PAYLOAD_DATA.NETMON_NODE_VERSION, '0.0.0')
           client_is_allowed = self.bc_engine.contains_current_address(whitelist)          
           if allowed_only and not client_is_allowed:
             continue
@@ -2587,6 +2589,8 @@ class GenericSession(BaseDecentrAIObject):
               val = self.bc_engine._add_prefix(val)
             elif key == PAYLOAD_DATA.NETMON_WHITELIST:
               val = client_is_allowed
+            elif key in [PAYLOAD_DATA.NETMON_STATUS_KEY, PAYLOAD_DATA.NETMON_NODE_VERSION]:
+              val = val.split(' ')[0]
             res[column].append(val)          
         # end for
       # end if
