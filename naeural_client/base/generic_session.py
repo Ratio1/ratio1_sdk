@@ -676,10 +676,10 @@ class GenericSession(BaseDecentrAIObject):
             node_addr = node_data.get("address", None)    
             if node_addr is not None:
               self.__track_allowed_node_by_netmon(node_addr, node_data)
-              nr_peers = len(self._dct_can_send_to_node)
-              if nr_peers > 0 and not self.__at_least_one_node_peered:
+              nr_peers = sum([v for k, v in self._dct_can_send_to_node.items()])
+              if nr_peers > 0 and not self.__at_least_one_node_peered:                
                 self.__at_least_one_node_peered = True
-                self.P(f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me", color='g')
+                self.P(f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", color='g')
           # end for each node in network map
         # end if current_network is valid
       # end if NET_MON_01
@@ -960,7 +960,7 @@ class GenericSession(BaseDecentrAIObject):
 
       return
 
-    def sleep(self, wait=True):
+    def sleep(self, wait=True, close_session=True, close_pipelines=False):
       """
       Sleep for a given amount of time.
 
@@ -986,9 +986,17 @@ class GenericSession(BaseDecentrAIObject):
           callable_loop_condition = callable(wait) and wait()
       except KeyboardInterrupt:
         self.P("CTRL+C detected. Stopping loop.", color='r', verbosity=1)
+        
+      if close_session:
+        self.close(close_pipelines, wait_close=True)        
       return
     
-    def wait(self, seconds=10, close_session_on_timeout=True, close_pipeline_on_timeout=False):
+    def wait(
+      self, 
+      seconds=10, 
+      close_session_on_timeout=True, 
+      close_pipeline_on_timeout=False
+    ):
       """
       Wait for a given amount of time.
 
@@ -1004,7 +1012,8 @@ class GenericSession(BaseDecentrAIObject):
           If `True`, will close the pipelines when the time is up, by default False
       """
       self.run(
-        wait=seconds, close_session=close_session_on_timeout, 
+        wait=seconds, 
+        close_session=close_session_on_timeout, 
         close_pipelines=close_pipeline_on_timeout
       )
       return    
