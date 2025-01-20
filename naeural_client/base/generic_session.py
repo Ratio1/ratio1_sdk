@@ -695,6 +695,16 @@ class GenericSession(BaseDecentrAIObject):
       # end if NET_MON_01
       return
       
+      
+    def __maybe_process_net_config(
+      self, 
+      dict_msg: dict,  
+      msg_pipeline : str, 
+      msg_signature : str,
+      sender_addr: str,
+    ):
+      return
+      
 
     # TODO: maybe convert dict_msg to Payload object
     #       also maybe strip the dict from useless info for the user of the sdk
@@ -734,6 +744,8 @@ class GenericSession(BaseDecentrAIObject):
         return
       
       self.__maybe_process_net_mon(dict_msg, msg_pipeline, msg_signature, sender_addr=msg_node_addr)
+      
+      self.__maybe_process_net_config(dict_msg, msg_pipeline, msg_signature, sender_addr=msg_node_addr)
 
       # call the pipeline and instance defined callbacks
       for pipeline in self.own_pipelines:
