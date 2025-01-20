@@ -128,7 +128,7 @@ if __name__ == '__main__':
   )
   
   # lets see top 5 online nodes
-  netinfo = session.get_network_known_nodes(online_only=True)
+  netinfo = session.get_network_known_nodes(online_only=True, debug=True)
   session.P(f"Online nodes reported by {netinfo.reporter}:\n{netinfo.report}")
   
 
@@ -136,7 +136,7 @@ if __name__ == '__main__':
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources
   #   in production, you would not need this code as the script can close after the pipeline will be sent
   session.run(
-    wait=30, # wait for the user to stop the execution or a given time
+    wait=15, # wait for the user to stop the execution or a given time
     close_pipelines=True # when the user stops the execution, the remote edge-node pipelines will be closed
   )
   session.P("Main thread exiting...")

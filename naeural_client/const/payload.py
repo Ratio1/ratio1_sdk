@@ -205,6 +205,7 @@ class PAYLOAD_DATA:
   NETMON_LAST_SEEN = 'last_seen_sec'
   NETMON_IS_SUPERVISOR = 'is_supervisor'
   NETMON_WHITELIST = 'whitelist'
+  NETMON_NODE_SECURED = 'secured'
   
   
 class NET_CONFIG:
@@ -213,3 +214,4 @@ class NET_CONFIG:
   NET_CONFIG_DATA = 'NET_CONFIG_DATA'
   OPERATION = 'OP'
   DESTINATION = 'DEST'
+  DATA = 'DATA'
