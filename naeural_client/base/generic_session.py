@@ -743,9 +743,19 @@ class GenericSession(BaseDecentrAIObject):
       if self.__maybe_ignore_message(msg_node_addr):
         return
       
-      self.__maybe_process_net_mon(dict_msg, msg_pipeline, msg_signature, sender_addr=msg_node_addr)
+      self.__maybe_process_net_mon(
+        dict_msg=dict_msg, 
+        msg_pipeline=msg_pipeline, 
+        msg_signature=msg_signature, 
+        sender_addr=msg_node_addr
+      )
       
-      self.__maybe_process_net_config(dict_msg, msg_pipeline, msg_signature, sender_addr=msg_node_addr)
+      self.__maybe_process_net_config(
+        dict_msg=dict_msg, 
+        msg_pipeline=msg_pipeline, 
+        msg_signature=msg_signature, 
+        sender_addr=msg_node_addr
+      )
 
       # call the pipeline and instance defined callbacks
       for pipeline in self.own_pipelines:
