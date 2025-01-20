@@ -515,6 +515,9 @@ class GenericSession(BaseDecentrAIObject):
     
     
     def __process_node_pipelines(self, node_addr, pipelines):
+      """
+      Given a list of pipeline configurations, create or update the pipelines for a node.      
+      """
       for config in pipelines:
         pipeline_name = config[PAYLOAD_DATA.NAME]
         pipeline: Pipeline = self._dct_online_nodes_pipelines[node_addr].get(pipeline_name, None)
