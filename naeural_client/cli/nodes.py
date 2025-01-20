@@ -49,6 +49,9 @@ def get_nodes(args):
     supervisor=supervisor_addr,
   )
   df, supervisor, super_alias, nr_supers, elapsed = res
+  if args.online:
+    FILTERED = ['State']
+    df = df[[c for c in df.columns if c not in FILTERED]]
 
   prefix = "Online n" if (args.online or args.peered) else "N"
   if supervisor == "ERROR":
@@ -72,6 +75,8 @@ def get_supervisors(args):
     supervisors_only=True,
   )
   df, supervisor, super_alias, nr_supers, elapsed = res
+  FILTERED = ['Oracle', 'State']
+  df = df[[c for c in df.columns if c not in FILTERED]]
   
   if supervisor == "ERROR":
     log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')

@@ -206,6 +206,7 @@ class PAYLOAD_DATA:
   NETMON_IS_SUPERVISOR = 'is_supervisor'
   NETMON_WHITELIST = 'whitelist'
   NETMON_NODE_SECURED = 'secured'
+  NETMON_NODE_VERSION = 'version'
   
   
 class NET_CONFIG:

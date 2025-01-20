@@ -1,18 +1,6 @@
 EE_ID = 'EE_ID'
 SB_ID = 'SB_ID'  # change to SB_ID = EE_ID post mod from sb to ee
 
-
-DAUTH_URL = 'https://dauth.ratio1.ai/get_auth_data'
-DAUTH_SUBKEY = 'auth'
-DAUTH_ENV_KEY = 'DAUTH_URL'
-
-class LocalInfo:
-  LOCAL_INFO_FILE = 'local_info.json'
-  K_ADDRESS = 'address'
-  K_ALIAS = 'alias'
-  K_ETH_ADDRESS = 'eth_address'
-
-
 class BCctbase: 
   SIGN      = 'EE_SIGN'
   SENDER    = 'EE_SENDER'
@@ -20,6 +8,20 @@ class BCctbase:
   
   ETH_SIGN  = 'EE_ETH_SIGN'
   ETH_SENDER= 'EE_ETH_SENDER'
+
+
+DAUTH_URL = 'https://dauth.ratio1.ai/get_auth_data'
+DAUTH_SUBKEY = 'auth'
+DAUTH_ENV_KEY = 'DAUTH_URL'
+DAUTH_NONCE = 'nonce'
+DAUTH_VARS = [DAUTH_NONCE, BCctbase.SIGN, BCctbase.SENDER, BCctbase.HASH]
+
+
+class LocalInfo:
+  LOCAL_INFO_FILE = 'local_info.json'
+  K_ADDRESS = 'address'
+  K_ALIAS = 'alias'
+  K_ETH_ADDRESS = 'eth_address'
     
 
 class BCct:

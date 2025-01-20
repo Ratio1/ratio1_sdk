@@ -16,7 +16,11 @@ from cryptography.hazmat.primitives import serialization
 
 from ..utils.config import get_user_folder
 
-from ..const.base import BCctbase, BCct, DAUTH_SUBKEY, DAUTH_URL, DAUTH_ENV_KEY
+from ..const.base import (
+  BCctbase, BCct, 
+  DAUTH_SUBKEY, DAUTH_URL, DAUTH_ENV_KEY,
+  DAUTH_NONCE, DAUTH_VARS,
+)
     
   
   
@@ -1216,7 +1220,7 @@ class BaseBlockEngine:
   ### end Ethereum
 
 
-  def dauth_autocomplete(self, dauth_endp=None, add_env=True, debug=False, max_tries=5):
+  def dauth_autocomplete(self, dauth_endp=None, add_env=True, debug=False, max_tries=5, **kwargs):
     MIN_LEN = 10
     dct_env = {}
     dct_result = {}
@@ -1243,11 +1247,15 @@ class BaseBlockEngine:
       while not done:
         self.P(f"Trying dAuth `{url}` information... (try {tries})")
         try:
-          nonce_data = {
-            'nonce' : str(uuid.uuid4())[:8]
+          to_send = {
+            **kwargs,
+            DAUTH_NONCE : str(uuid.uuid4())[:8],
           }
-          self.sign(nonce_data)
-          response = requests.post(url, json={'body' : nonce_data})
+          nonce_data = {
+            k : v for k, v in to_send.items() if k in DAUTH_VARS
+          }
+          self.sign(nonce_data)          
+          response = requests.post(url, json={'body' : to_send})
           if response.status_code == 200:
             dct_response = response.json()
             if debug:
