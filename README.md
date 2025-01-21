@@ -1,15 +1,15 @@
-# naeural_client SDK
+# Ratio1 SDK (naeural_client SDK)
 
-This is the Python SDK package that allows interactions, development and deployment of jobs in Naeural Edge Protocol network. The SDK enables low-code development and deployment of end-to-end AI (and not only) cooperative application pipelines within the Naeural Edge Protocol Execution Engine processing nodes ecosystem. For further information please see [Naeural Edge Protocol AI OS - Decentralized ubiquitous computing MLOps execution engine](https://arxiv.org/pdf/2306.08708).
+This is the Python SDK package that allows interactions, development and deployment of jobs in Ratio1 ecosystem formely known as Naeural Edge Protocol network. The SDK enables low-code development and deployment of end-to-end AI (and not only) cooperative application pipelines within the Ratio1 Edge Nodes ecosystem. 
 
 ## Dependencies
 
-This packet depends on the following packets: `pika`, `paho-mqtt`, `numpy`, `pyopenssl>=23.0.0`, `cryptography>=39.0.0`, `python-dateutil`, `pyaml`.
+This packet depends and will automatically install the following packets: `pika`, `paho-mqtt`, `numpy`, `pyopenssl>=23.0.0`, `cryptography>=39.0.0`, `python-dateutil`, `pyaml`.
 
 ## Installation
 
 ```shell
-python -m pip install naeural_client
+pip install naeural_client --upgrade
 ```
 
 ### Development installation
@@ -28,49 +28,33 @@ Code examples are located in the `tutorials` folder in the project's repository.
 
 ## Quick start guides
 
-Here you will find a selection of guides and documentation snippets to get
-you started with the `naeural_client` SDK. These are only the most important aspects,
-selected from the documentation and from the code examples. For more
-in-depth information, please consult the examples from the repository
-and the documentation.
+Starting with version 2.6+ the SDK will automatically perform self-configuration using the dAuth - the Ratio1 decentralized self-authentication system.
 
-### Naming conventions & FAQs
+In order to start a local edge node you just need to run:
 
-The following are the same:
+```bash
+docker run -d --name=local_node naeural/edge_node:develop
+```
+after a few seconds the node will be online and you can get the node's address by running:
 
-- `Signature == Plugin's name`
-- `Plugin ~ Instance` (Only in the context of talking about a running plugin (instance); people tend to omit the word `instance`)
-- `Node == Worker` (Unless it is in the context of a distributed job, the 2 words refer to the same thing)
+```bash
+docker exec local_node get_node_info
+```
 
-## Hello world tutorial
+The output will be similar to:
 
-Below is a simple "Hello world!" style application that aims to show how simple and straightforward it is to distribute existing Python code to multiple edge node workers.
+```json
+{
+  "address": "0xai_AtMvIwaEPi5M8cnkdbaZ3tbUhCzKbGKEYuZ1xFtCjT_6",
+  "alias": "6dd74472642e",
+  "eth_address": "0x98FE7c0d8CeC2E97B932D2bDC1bb73B395C9Dfd7"
+}
+```
 
-To execute this code, you can check [tutorials/video_presentation/1. hello_world.ipynb](./tutorials/video_presentation/1.%20hello_world.ipynb)
 
-### 1. Create `.env` file
+## Some Examples
 
-Copy the `tutorials/.example_env` file to your project directory and rename it to `.env`.
-
-Fill in the empty variables with appropriate values.
-
-### 2. Create new / Use test private key
-
-**Disclaimer: You should never publish sensitive information such as private keys.**
-
-To experiment on our test net, you can use the provided private key to communicate with the 3 nodes in the test network.
-
-#### Create new private key
-
-When first connecting to our network, the sdk will search in the current working directory for an existing private key. If not found, the SDK will create one at `$(cwd)/_local_cache/_data/_pk_sdk.pem`.
-
-#### Using an existing private key
-
-To use an existing private key, create in the working directory the directory tree `_local_cache/_data/` and add the `_pk_sdk.pem` file there.
-
-To use our provided key. copy it from `tutorials/_example_pk_sdk.pem` to `local_cache/_data/` and change its name to `_pk_sdk.pem`.
-
-### 3. Local Execution
+### Local Execution
 
 We want to find all $168$ prime numbers in the interval $1$ - $1000$. For this we can run the following code on our local machine.
 
@@ -136,7 +120,7 @@ Because we want to find $168$ unique numbers, we append to the list of found pri
 
 At the end, we want to show a list of all the numbers found.
 
-### 4. Remote Execution
+### Remote Execution
 
 For this example we would like to use multiple edge nodes to find the prime numbers faster.
 

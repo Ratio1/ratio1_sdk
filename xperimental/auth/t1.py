@@ -16,11 +16,12 @@ if __name__ == '__main__' :
       }
   )
   
-  d = eng1.dauth_autocomplete(
-    add_env=False,
-    debug=True,
-    max_tries=1,
-    sender_alias='test1',
-  )
-  
-  l.P(f"Result: {json.dumps(d, indent=2)}", color='b')  
+  for _ in range(4):
+    d = eng1.dauth_autocomplete(
+      add_env=False,
+      debug=True,
+      max_tries=1,
+      sender_alias='test1',
+    )
+    
+    l.P(f"Result: {json.dumps(d, indent=2)}", color='b')  
