@@ -266,7 +266,7 @@ class BaseBlockEngine:
     cls, 
     name, 
     log, 
-    config, 
+    config={}, 
     ensure_ascii_payloads=False, 
     verbosity=1, 
     user_config=False,   
@@ -1259,8 +1259,12 @@ class BaseBlockEngine:
           response = requests.post(url, json={'body' : to_send})
           if response.status_code == 200:
             dct_response = response.json()
+            server_alias = dct_response.get('result', {}).get('server_alias', 'unknown-alias')
+            server_addr = dct_response.get('result', {}).get('EE_SENDER', 'unknown-address')
             if debug:
-              self.P(f"Response:\n {json.dumps(dct_response, indent=2)}")
+              self.P(f"Response received from {server_alias} <{server_addr}>:\n {json.dumps(dct_response, indent=2)}")
+            else:
+              self.P(f"Response received from {server_alias} <{server_addr}>,")
             dct_result = dct_response.get('result', {}).get(DAUTH_SUBKEY, {})
             error = dct_response.get('error', None)
             if error is not None:

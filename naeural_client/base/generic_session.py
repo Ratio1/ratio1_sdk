@@ -285,7 +285,7 @@ class GenericSession(BaseDecentrAIObject):
       dauth_endp=None, # get from consts or env
       add_env=self.__auto_configuration,
       debug=False,
-      sender_alias='ratio1-SDK'
+      sender_alias='SDK'
     )
     # end bc_engine
     # END TODO
