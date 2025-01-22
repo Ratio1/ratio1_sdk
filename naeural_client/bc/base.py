@@ -260,6 +260,7 @@ class BaseBlockEngine:
   
   """
   _lock: Lock = Lock()
+  _whitelist_lock : Lock = Lock()
   __instances = {}
   
   def __new__(
@@ -544,25 +545,42 @@ class BaseBlockEngine:
     
   
   def _load_and_maybe_create_allowed(self):
-    fn = self._get_allowed_file()
-    lst_allowed = []
-    if os.path.isfile(fn):
-      with open(fn, 'rt') as fh:
-        lst_allowed = fh.readlines()
-    else:
-      full_path = os.path.abspath(fn)
-      self.P("WARNING: no `{}` file found. Creating empty one.".format(full_path), verbosity=1)
-      with open(fn, 'wt') as fh:
-        fh.write('\n')
-    lst_allowed = [x.strip() for x in lst_allowed]
-    lst_allowed = [x.split()[0] for x in lst_allowed if x != '']
-    lst_allowed = [self._remove_prefix(x) for x in lst_allowed if x != '']
     lst_final = []
-    for allowed in lst_allowed:
-      if not self.address_is_valid(allowed):
-        self.P("WARNING: address <{}> is not valid. Removing from allowed list.".format(allowed), color='r')
-      else:
-        lst_final.append(allowed)
+    with self._whitelist_lock:
+      try:
+        fn = self._get_allowed_file()
+        lst_allowed = []
+        if os.path.isfile(fn):
+          with open(fn, 'rt') as fh:
+            lst_allowed = fh.readlines()
+        else:
+          full_path = os.path.abspath(fn)
+          self.P("WARNING: no `{}` file found. Creating empty one.".format(full_path), verbosity=1)
+          with open(fn, 'wt') as fh:
+            fh.write('\n')
+        lst_allowed = [x.strip() for x in lst_allowed]
+        lst_allowed = [x for x in lst_allowed if x != '']
+        lst_lines = []
+        errors = False
+        for allowed_tuple in lst_allowed:
+          allowed = allowed_tuple.split()[0]
+          allowed = self._remove_prefix(allowed)
+          if not self.address_is_valid(allowed):
+            self.P("WARNING: address <{}> is not valid. Removing {} from allowed list.".format(
+              allowed, allowed_tuple), color='r'
+            )
+            errors = True
+          else:
+            lst_final.append(allowed)
+            lst_lines.append(allowed_tuple)
+        if errors:
+          with open(fn, 'wt') as fh:
+            for line in lst_lines:
+              fh.write("{}\n".format(line))   
+      except Exception as exc:
+        self.P(f"ERROR: failed to load the allowed list of addresses: {exc}", color='r')
+      #endtry
+    #endwith
     return lst_final
   
         
