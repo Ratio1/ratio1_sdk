@@ -12,9 +12,11 @@ class BCctbase:
 
 DAUTH_URL = 'https://dauth.ratio1.ai/get_auth_data'
 DAUTH_SUBKEY = 'auth'
-DAUTH_ENV_KEY = 'DAUTH_URL'
+DAUTH_ENV_KEY = 'EE_DAUTH_URL'
 DAUTH_NONCE = 'nonce'
 DAUTH_VARS = [DAUTH_NONCE, BCctbase.SIGN, BCctbase.SENDER, BCctbase.HASH]
+
+ETH_ENABLED_ENV_KEY = 'EE_ETH_ENABLED'
 
 
 class LocalInfo:
