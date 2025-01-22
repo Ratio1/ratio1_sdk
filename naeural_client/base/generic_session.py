@@ -699,6 +699,85 @@ class GenericSession(BaseDecentrAIObject):
         # end if current_network is valid
       # end if NET_MON_01
       return
+    
+    def __receive_and_decrypt_payload(self, data, verbose=0):
+      """
+      Method for receiving and decrypting a payload addressed to us.
+      
+      TODO: this has to be moved to BC - careful with the constant imports !!!
+      
+      Parameters
+      ----------
+      data : dict
+          The payload to be decrypted.
+          
+      verbose : int, optional
+          The verbosity level. The default is 0.
+          
+          
+      Returns
+      -------
+      dict
+          The decrypted payload addressed to us.
+      """
+      # Extract the sender, the data and if the data is encrypted.
+      sender = data.get(PAYLOAD_DATA.EE_SENDER, None)
+      is_encrypted = data.get(PAYLOAD_DATA.EE_IS_ENCRYPTED, False)
+      encrypted_data = data.get(PAYLOAD_DATA.EE_ENCRYPTED_DATA, None)
+      # Remove the encrypted data from the payload data if it exists.
+      result = {k: v for k, v in data.items() if k != PAYLOAD_DATA.EE_ENCRYPTED_DATA}
+
+      if is_encrypted and encrypted_data:
+        # Extract the destination and check if the data is addressed to us.
+        dest = data.get(PAYLOAD_DATA.EE_DESTINATION, [])
+        if not isinstance(dest, list):
+          dest = [dest]
+        # now we check if the data is addressed to us
+        if self.bc_engine.contains_current_address(dest):
+          # TODO: maybe still return the encrypted data for logging purposes
+          if verbose > 0:
+            self.P(f"Payload data not addressed to us. Destination: {dest}. Ignoring.")
+          # endif verbose
+          return {}
+        # endif destination check
+
+        try:
+          # This should fail in case the data was not sent to us.
+          str_decrypted_data = self.bc_engine.decrypt_str(
+            str_b64data=encrypted_data, str_sender=sender,
+            # embed_compressed=True, # we expect the data to be compressed
+          )
+          decrypted_data = json.loads(str_decrypted_data)
+        except Exception as exc:
+          self.P(f"Error while decrypting payload data from {sender}:\n{exc}")
+          if verbose > 0:
+            self.P(f"Received data:\n{result}")
+          # endif verbose
+          decrypted_data = None
+        # endtry decryption
+        
+        if decrypted_data is not None:
+          # If the decrypted data is not a dictionary, we embed it in a dictionary.
+          # TODO: maybe review this part
+          if not isinstance(decrypted_data, dict):
+            decrypted_data = {'EE_DECRYPTED_DATA': decrypted_data}
+          # endif not dict
+          if verbose > 0:
+            decrypted_keys = list(decrypted_data.keys())
+            self.P(f"Decrypted data keys: {decrypted_keys}")
+          # endif verbose
+          # Merge the decrypted data with the original data.
+          result = {
+            **result,
+            **decrypted_data
+          }
+        else:
+          if verbose > 0:
+            self.P(f"Decryption failed. Returning original data.")
+          # endif verbose
+        # endif decrypted_data is not None
+      # endif is_encrypted
+      return result    
       
       
     def __maybe_process_net_config(
@@ -708,7 +787,35 @@ class GenericSession(BaseDecentrAIObject):
       msg_signature : str,
       sender_addr: str,
     ):
-      return
+      # TODO: bleo if session is in debug mode then for each net-config show what pipelines have
+      # been received
+      REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
+      REQUIRED_SIGNATURE = PLUGIN_SIGNATURES.NET_CONFIG_MONITOR
+      if msg_pipeline.lower() == REQUIRED_PIPELINE.lower() and msg_signature.upper() == REQUIRED_SIGNATURE.upper():
+        # extract data
+        sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
+        receiver = dict_msg.get(PAYLOAD_DATA.EE_DESTINATION, None)
+        if not isinstance(receiver, list):
+          receiver = [receiver]
+        path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None, None, None, None])
+        ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
+        
+        # check if I am allowed to see this payload
+        if not self.bc_engine.contains_current_address(receiver):
+          self.P(f"Received net-config from <{sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
+          return                
+
+        # decrypt payload
+        is_encrypted = dict_msg.get(PAYLOAD_DATA.EE_IS_ENCRYPTED, False)
+        if not is_encrypted:
+          self.P(f"Received net-config from <{sender_addr}> `{ee_id}` but it is not encrypted", color='r')
+          return
+        decrypted_data = self.__receive_and_decrypt_payload(dict_msg)
+        net_config_data = decrypted_data.get(self.const.NET_CONFIG.NET_CONFIG_DATA, {})
+        received_pipelines = net_config_data.get(self.CT_PIPELINE, [])       
+        self.__process_node_pipelines(sender_addr, received_pipelines)
+        # load with same method as a hb
+      return True
       
 
     # TODO: maybe convert dict_msg to Payload object
@@ -2470,6 +2577,35 @@ class GenericSession(BaseDecentrAIObject):
     def client_address(self):
       return self.get_client_address()
     
+    def __wait_for_supervisors_net_mon_data(
+      self, 
+      supervisor=None, 
+      timeout=10, 
+      min_supervisors=2
+    ):
+      # the following loop will wait for the desired number of supervisors to appear online
+      # for the current session
+      start = tm()      
+      result = False
+      while (tm() - start) < timeout:
+        if supervisor is not None:
+          if supervisor in self.__current_network_statuses:
+            result = True
+            break
+        elif len(self.__current_network_statuses) >= min_supervisors:
+          result = True
+          break
+        sleep(0.1)
+      elapsed = tm() - start      
+      # end while
+      # done waiting for supervisors
+      return result, elapsed
+      
+      
+    def get_all_nodes_pipelines(self):
+      # TODO: Bleo inject this function in __on_hb and maybe_process_net_config and dump result
+      return self._dct_online_nodes_pipelines
+    
     def get_network_known_nodes(
       self, 
       timeout=10, 
@@ -2540,19 +2676,11 @@ class GenericSession(BaseDecentrAIObject):
       for k in mapping:
         res[k] = []
 
-      # the following loop will wait for the desired number of supervisors to appear online
-      # for the current session
-      start = tm()      
-      while (tm() - start) < timeout:
-        if supervisor is not None:
-          if supervisor in self.__current_network_statuses:
-            break
-        elif len(self.__current_network_statuses) >= min_supervisors:
-          break
-        sleep(0.1)
-      elapsed = tm() - start
-      # end while
-      # done waiting for supervisors
+      result, elapsed = self.__wait_for_supervisors_net_mon_data(
+        supervisor=supervisor,
+        timeout=timeout,
+        min_supervisors=min_supervisors,
+      )
       best_super = 'ERROR'
       best_super_alias = 'ERROR'
       
