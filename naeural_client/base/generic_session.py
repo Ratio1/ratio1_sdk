@@ -23,7 +23,7 @@ from ..bc import DefaultBlockEngine, _DotDict
 from ..const import (
   COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, 
   PLUGIN_SIGNATURES, DEFAULT_PIPELINES,
-  BLOCKCHAIN_CONFIG, SESSION_CT
+  BLOCKCHAIN_CONFIG, SESSION_CT, NET_CONFIG
 )
 from ..const import comms as comm_ct
 from ..io_formatter import IOFormatterWrapper
@@ -366,24 +366,33 @@ class GenericSession(BaseDecentrAIObject):
       """
       # check if payload is encrypted
       if dict_msg.get(PAYLOAD_DATA.EE_IS_ENCRYPTED, False):
-        encrypted_data = dict_msg.get(PAYLOAD_DATA.EE_ENCRYPTED_DATA, None)
-        sender_addr = dict_msg.get(comm_ct.COMM_SEND_MESSAGE.K_SENDER_ADDR, None)
+        destination = dict_msg.get(PAYLOAD_DATA.EE_DESTINATION, [])
+        if not isinstance(destination, list):
+          destination = [destination]
+        if self.bc_engine.contains_current_address(destination):
 
-        str_data = self.bc_engine.decrypt(encrypted_data, sender_addr)
+          encrypted_data = dict_msg.get(PAYLOAD_DATA.EE_ENCRYPTED_DATA, None)
+          sender_addr = dict_msg.get(comm_ct.COMM_SEND_MESSAGE.K_SENDER_ADDR, None)
 
-        if str_data is None:
-          self.D("Cannot decrypt message, dropping..\n{}".format(str_data), verbosity=2)
-          return None
+          str_data = self.bc_engine.decrypt(encrypted_data, sender_addr)
 
-        try:
-          dict_data = json.loads(str_data)
-        except Exception as e:
-          self.P("Error while decrypting message: {}".format(e), color='r', verbosity=1)
-          self.D("Message: {}".format(str_data), verbosity=2)
-          return None
+          if str_data is None:
+            self.D("Cannot decrypt message, dropping..\n{}".format(str_data), verbosity=2)
+            return None
 
-        dict_msg = {**dict_data, **dict_msg}
-        dict_msg.pop(PAYLOAD_DATA.EE_ENCRYPTED_DATA, None)
+          try:
+            dict_data = json.loads(str_data)
+          except Exception as e:
+            self.P("Error while decrypting message: {}".format(e), color='r', verbosity=1)
+            self.D("Message: {}".format(str_data), verbosity=2)
+            return None
+
+          dict_msg = {**dict_data, **dict_msg}
+          dict_msg.pop(PAYLOAD_DATA.EE_ENCRYPTED_DATA, None)
+        else:
+          payload_path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, None)
+          self.D(f"Message {payload_path} is encrypted but not for this address.", verbosity=2)
+        # endif message for us
       # end if encrypted
 
       formatter = self.formatter_wrapper \
@@ -498,6 +507,56 @@ class GenericSession(BaseDecentrAIObject):
       self._dct_can_send_to_node[node_addr] = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
       return
 
+    def send_encrypted_payload(self, node_addr, payload, **kwargs):
+      """
+      TODO: move in BlockChainEngine
+      Send an encrypted payload to a node.
+
+      Parameters
+      ----------
+      node_addr : str
+          The address of the edge node that will receive the message.
+      payload : dict
+          The payload dict to be sent.
+      **kwargs : dict
+          Additional data to be sent to __prepare_message.
+      """
+      msg_to_send = self.__prepare_message(
+        msg_data=payload,
+        encrypt_message=True,
+        destination=node_addr,
+        **kwargs
+      )
+      self.bc_engine.sign(msg_to_send)
+      if not self.silent:
+        self.P(f'Sending encrypted payload to <{node_addr}>', color='y')
+      self._send_payload(msg_to_send)
+      return
+
+    def __request_pipelines_from_net_config_monitor(self, node_addr):
+      """
+      Request the pipelines for a node from the net-config monitor plugin instance.
+      Parameters
+      ----------
+      node_addr : str
+          The address of the edge node that sent the message.
+
+      """
+      payload = {
+        NET_CONFIG.NET_CONFIG_DATA: {
+          NET_CONFIG.OPERATION: NET_CONFIG.REQUEST_COMMAND,
+          NET_CONFIG.DESTINATION: node_addr,
+        }
+      }
+      additional_data = {
+        PAYLOAD_DATA.EE_PAYLOAD_PATH: [self.bc_engine.address, DEFAULT_PIPELINES.ADMIN_PIPELINE, PLUGIN_SIGNATURES.NET_CONFIG_MONITOR, None]
+      }
+      self.send_encrypted_payload(
+        node_addr=node_addr, payload=payload,
+        additional_data=additional_data
+      )
+      return
+
     def __track_allowed_node_by_netmon(self, node_addr, dict_msg):
       """
       Track if this session is allowed to send messages to node using net-mon data
@@ -505,7 +564,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       node_addr : str
-          The address of the Naeural Edge Protocol edge node that sent the message.
+          The address of the edge node that sent the message.
 
       dict_msg : dict
           The message received from the communication server as a heartbeat of the object from netconfig
@@ -514,8 +573,12 @@ class GenericSession(BaseDecentrAIObject):
       node_secured = dict_msg.get(PAYLOAD_DATA.NETMON_NODE_SECURED, False)
       
       client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
+      can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
+      if node_addr not in self._dct_can_send_to_node and can_send:
+        self.__request_pipelines_from_net_config_monitor(node_addr)
+      # endif node seen for the first time
 
-      self._dct_can_send_to_node[node_addr] = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
+      self._dct_can_send_to_node[node_addr] = can_send
       return
     
     
@@ -523,6 +586,9 @@ class GenericSession(BaseDecentrAIObject):
       """
       Given a list of pipeline configurations, create or update the pipelines for a node.      
       """
+      new_pipelines = []
+      if node_addr not in self._dct_online_nodes_pipelines:
+        self._dct_online_nodes_pipelines[node_addr] = {}
       for config in pipelines:
         pipeline_name = config[PAYLOAD_DATA.NAME]
         pipeline: Pipeline = self._dct_online_nodes_pipelines[node_addr].get(pipeline_name, None)
@@ -531,7 +597,8 @@ class GenericSession(BaseDecentrAIObject):
         else:
           self._dct_online_nodes_pipelines[node_addr][pipeline_name] = self.__create_pipeline_from_config(
             node_addr, config)
-      return
+          new_pipelines.append(self._dct_online_nodes_pipelines[node_addr][pipeline_name])
+      return new_pipelines
 
     def __on_heartbeat(self, dict_msg: dict, msg_node_addr, msg_pipeline, msg_signature, msg_instance):
       """
@@ -571,14 +638,11 @@ class GenericSession(BaseDecentrAIObject):
       # as the protocol should NOT send a heartbeat with active configs to
       # the entire network, only to the interested parties via net-config
 
-      # default action
-      if msg_node_addr not in self._dct_online_nodes_pipelines:
-        # this is ok here although we dont get the pipelines from the heartbeat
-        self._dct_online_nodes_pipelines[msg_node_addr] = {}
-        
       if len(msg_active_configs) > 0:
         # this is for legacy and custom implementation where heartbeats still contain
         # the pipeline configuration.
+        pipeline_names = [x.get(PAYLOAD_DATA.NAME, None) for x in msg_active_configs]
+        self.D(f'<HB>Received pipelines from <{msg_node_addr}>:{pipeline_names}', color='y')
         self.__process_node_pipelines(msg_node_addr, msg_active_configs)
 
       # TODO: move this call in `__on_message_default_callback`
@@ -699,8 +763,7 @@ class GenericSession(BaseDecentrAIObject):
         # end if current_network is valid
       # end if NET_MON_01
       return
-      
-      
+
     def __maybe_process_net_config(
       self, 
       dict_msg: dict,  
@@ -708,7 +771,39 @@ class GenericSession(BaseDecentrAIObject):
       msg_signature : str,
       sender_addr: str,
     ):
-      return
+      # TODO: bleo if session is in debug mode then for each net-config show what pipelines have
+      # been received
+      REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
+      REQUIRED_SIGNATURE = PLUGIN_SIGNATURES.NET_CONFIG_MONITOR
+      if msg_pipeline.lower() == REQUIRED_PIPELINE.lower() and msg_signature.upper() == REQUIRED_SIGNATURE.upper():
+        # extract data
+        sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
+        receiver = dict_msg.get(PAYLOAD_DATA.EE_DESTINATION, None)
+        if not isinstance(receiver, list):
+          receiver = [receiver]
+        path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None, None, None, None])
+        ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
+        
+        # check if I am allowed to see this payload
+        if not self.bc_engine.contains_current_address(receiver):
+          self.P(f"Received net-config from <{sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
+          return                
+
+        # decrypt payload
+        is_encrypted = dict_msg.get(PAYLOAD_DATA.EE_IS_ENCRYPTED, False)
+        if not is_encrypted:
+          self.P(f"Received net-config from <{sender_addr}> `{ee_id}` but it is not encrypted", color='r')
+          return
+        net_config_data = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {})
+        received_pipelines = net_config_data.get('PIPELINES', [])
+        self.D(f"Received {len(received_pipelines)} pipelines from <{sender_addr}>")
+        new_pipelines = self.__process_node_pipelines(sender_addr, received_pipelines)
+        pipeline_names = [x.name for x in new_pipelines]
+        self.P(f'<NETCFG>Received pipelines from <{sender_addr}>:{pipeline_names}', color='y')
+        self.D(f'[DEBUG][NETCFG]Received pipelines from <{sender_addr}>:\n{new_pipelines}', color='y')
+
+        # load with same method as a hb
+      return True
       
 
     # TODO: maybe convert dict_msg to Payload object
@@ -908,15 +1003,38 @@ class GenericSession(BaseDecentrAIObject):
       """
       raise NotImplementedError
 
-    def _send_payload(self, to, payload):
+    def _send_raw_message(self, to, msg, communicator='default'):
       """
-      Send a payload to a node.
+      Send a message to a node.
 
       Parameters
       ----------
       to : str
-          The name of the Naeural Edge Protocol edge node that will receive the payload.
-      payload : dict
+          The name of the Naeural Edge Protocol edge node that will receive the message.
+      msg : dict or str
+          The message to send.
+      """
+      raise NotImplementedError
+
+    def _send_command(self, to, command):
+      """
+      Send a command to a node.
+
+      Parametersc
+      ----------
+      to : str
+          The name of the Naeural Edge Protocol edge node that will receive the command.
+      command : str or dict
+          The command to send.
+      """
+      raise NotImplementedError
+
+    def _send_payload(self, payload):
+      """
+      Send a payload to a node.
+      Parameters
+      ----------
+      payload : dict or str
           The payload to send.
       """
       raise NotImplementedError
@@ -1241,6 +1359,68 @@ class GenericSession(BaseDecentrAIObject):
         result = aliases.get(node, None)
       return result
 
+    def __prepare_message(
+        self, msg_data, encrypt_message: bool = True,
+        destination: str = None, destination_id: str = None,
+        session_id: str = None, additional_data: dict = None
+    ):
+      """
+      Prepare and maybe encrypt a message for sending.
+      Parameters
+      ----------
+      msg_data : dict
+          The message to send.
+      encrypt_message : bool
+          If True, will encrypt the message.
+      destination : str, optional
+          The destination address, by default None
+      destination_id : str, optional
+          The destination id, by default None
+      additional_data : dict, optional
+          Additional data to send, by default None
+          This has to be dict!
+
+      Returns
+      -------
+      msg_to_send : dict
+          The message to send.
+      """
+      if destination is None and destination_id is not None:
+        # Initial code `str_enc_data = self.bc_engine.encrypt(str_data, destination_id)` could not work under any
+        # circumstances due to the fact that encrypt requires the public key of the receiver not the alias
+        # of the receiver. The code below is a workaround to encrypt the message
+        # TODO: furthermore the code will be migrated to the use of the address of the worker
+        destination = self.get_addr_by_name(destination_id)
+        assert destination is not None, f"Unknown address for id: {destination_id}"
+      # endif only destination_id provided
+
+      # This part is duplicated with the creation of payloads
+      if encrypt_message and destination is not None:
+        str_data = json.dumps(msg_data)
+        str_enc_data = self.bc_engine.encrypt(str_data, destination)
+        msg_data = {
+          comm_ct.COMM_SEND_MESSAGE.K_EE_IS_ENCRYPTED: True,
+          comm_ct.COMM_SEND_MESSAGE.K_EE_ENCRYPTED_DATA: str_enc_data,
+        }
+      else:
+        msg_data[comm_ct.COMM_SEND_MESSAGE.K_EE_IS_ENCRYPTED] = False
+        if encrypt_message:
+          msg_data[comm_ct.COMM_SEND_MESSAGE.K_EE_ENCRYPTED_DATA] = "Error! No receiver address found!"
+      # endif encrypt_message and destination available
+      msg_to_send = {
+        **msg_data,
+        PAYLOAD_DATA.EE_DESTINATION: destination,
+        comm_ct.COMM_SEND_MESSAGE.K_EE_ID: destination_id,
+        comm_ct.COMM_SEND_MESSAGE.K_SESSION_ID: session_id or self.name,
+        comm_ct.COMM_SEND_MESSAGE.K_INITIATOR_ID: self.name,
+        comm_ct.COMM_SEND_MESSAGE.K_SENDER_ADDR: self.bc_engine.address,
+        comm_ct.COMM_SEND_MESSAGE.K_TIME: dt.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+      }
+      if additional_data is not None and isinstance(additional_data, dict):
+        msg_to_send.update(additional_data)
+      # endif additional_data provided
+      return msg_to_send
+
     def _send_command_to_box(self, command, worker, payload, show_command=True, session_id=None, **kwargs):
       """
       Send a command to a node.
@@ -1273,37 +1453,12 @@ class GenericSession(BaseDecentrAIObject):
         comm_ct.COMM_SEND_MESSAGE.K_PAYLOAD: payload,
       }
 
-      # This part is duplicated with the creation of payloads
-      encrypt_payload = self.encrypt_comms
-      if encrypt_payload and worker is not None:        
-        str_data = json.dumps(critical_data)
-        
-        # Initial code `str_enc_data = self.bc_engine.encrypt(str_data, worker)` could not work under any
-        # circumstances due to the fact that encrypt requires the public key of the receiver not the alias
-        # of the receiver. The code below is a workaround to encrypt the message
-        # TODO: furthermore the code will be migrated to the use of the address of the worker
-        worker_addr = self.get_addr_by_name(worker)
-        assert worker_addr is not None, f"Unknown worker address: {worker} - {worker_addr}"
-        
-        str_enc_data = self.bc_engine.encrypt(str_data, worker_addr)
-        critical_data = {
-          comm_ct.COMM_SEND_MESSAGE.K_EE_IS_ENCRYPTED: True,
-          comm_ct.COMM_SEND_MESSAGE.K_EE_ENCRYPTED_DATA: str_enc_data,
-        }
-      else:
-        critical_data[comm_ct.COMM_SEND_MESSAGE.K_EE_IS_ENCRYPTED] = False
-        if encrypt_payload:
-          critical_data[comm_ct.COMM_SEND_MESSAGE.K_EE_ENCRYPTED_DATA] = "Error! No receiver address found!"
-
-      # endif
-      msg_to_send = {
-          **critical_data,
-          comm_ct.COMM_SEND_MESSAGE.K_EE_ID: worker,
-          comm_ct.COMM_SEND_MESSAGE.K_SESSION_ID: session_id or self.name,
-          comm_ct.COMM_SEND_MESSAGE.K_INITIATOR_ID: self.name,
-          comm_ct.COMM_SEND_MESSAGE.K_SENDER_ADDR: self.bc_engine.address,
-          comm_ct.COMM_SEND_MESSAGE.K_TIME: dt.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
-      }
+      msg_to_send = self.__prepare_message(
+        msg_data=critical_data,
+        encrypt_message=self.encrypt_comms,
+        destination_id=worker,
+        session_id=session_id,
+      )
       self.bc_engine.sign(msg_to_send, use_digest=True)
       if show_command:
         self.P(
@@ -1311,7 +1466,7 @@ class GenericSession(BaseDecentrAIObject):
           color='y',
           verbosity=1
         )
-      self._send_payload(worker, msg_to_send)
+      self._send_command(worker, msg_to_send)
       return
 
     def _send_command_create_pipeline(self, worker, pipeline_config, **kwargs):
@@ -2470,6 +2625,35 @@ class GenericSession(BaseDecentrAIObject):
     def client_address(self):
       return self.get_client_address()
     
+    def __wait_for_supervisors_net_mon_data(
+      self, 
+      supervisor=None, 
+      timeout=10, 
+      min_supervisors=2
+    ):
+      # the following loop will wait for the desired number of supervisors to appear online
+      # for the current session
+      start = tm()      
+      result = False
+      while (tm() - start) < timeout:
+        if supervisor is not None:
+          if supervisor in self.__current_network_statuses:
+            result = True
+            break
+        elif len(self.__current_network_statuses) >= min_supervisors:
+          result = True
+          break
+        sleep(0.1)
+      elapsed = tm() - start      
+      # end while
+      # done waiting for supervisors
+      return result, elapsed
+      
+      
+    def get_all_nodes_pipelines(self):
+      # TODO: Bleo inject this function in __on_hb and maybe_process_net_config and dump result
+      return self._dct_online_nodes_pipelines
+    
     def get_network_known_nodes(
       self, 
       timeout=10, 
@@ -2540,19 +2724,11 @@ class GenericSession(BaseDecentrAIObject):
       for k in mapping:
         res[k] = []
 
-      # the following loop will wait for the desired number of supervisors to appear online
-      # for the current session
-      start = tm()      
-      while (tm() - start) < timeout:
-        if supervisor is not None:
-          if supervisor in self.__current_network_statuses:
-            break
-        elif len(self.__current_network_statuses) >= min_supervisors:
-          break
-        sleep(0.1)
-      elapsed = tm() - start
-      # end while
-      # done waiting for supervisors
+      result, elapsed = self.__wait_for_supervisors_net_mon_data(
+        supervisor=supervisor,
+        timeout=timeout,
+        min_supervisors=min_supervisors,
+      )
       best_super = 'ERROR'
       best_super_alias = 'ERROR'
       

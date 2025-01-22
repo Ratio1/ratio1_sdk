@@ -10,7 +10,7 @@ class MqttSession(GenericSession):
     self._default_communicator = MQTTWrapper(
         log=self.log,
         config=self._config,
-        send_channel_name=comm_ct.COMMUNICATION_CONFIG_CHANNEL,
+        send_channel_name=comm_ct.COMMUNICATION_PAYLOADS_CHANNEL,
         recv_channel_name=comm_ct.COMMUNICATION_PAYLOADS_CHANNEL,
         comm_type=comm_ct.COMMUNICATION_DEFAULT,
         recv_buff=self._payload_messages,
@@ -21,6 +21,7 @@ class MqttSession(GenericSession):
     self._heartbeats_communicator = MQTTWrapper(
         log=self.log,
         config=self._config,
+        send_channel_name=comm_ct.COMMUNICATION_CONFIG_CHANNEL,
         recv_channel_name=comm_ct.COMMUNICATION_CTRL_CHANNEL,
         comm_type=comm_ct.COMMUNICATION_HEARTBEATS,
         recv_buff=self._hb_messages,
@@ -37,6 +38,11 @@ class MqttSession(GenericSession):
         connection_name=self.name,
         verbosity=self._verbosity,
     )
+    self.__communicators = {
+      'default': self._default_communicator,
+      'heartbeats': self._heartbeats_communicator,
+      'notifications': self._notifications_communicator,
+    }
     return super(MqttSession, self).startup()
 
   @property
@@ -64,9 +70,18 @@ class MqttSession(GenericSession):
     self._notifications_communicator.release()
     return
 
-  def _send_payload(self, to, msg):
+  def _send_raw_message(self, to, msg, communicator='default'):
     payload = json.dumps(msg)
+    communicator_obj = self.__communicators.get(communicator, self._default_communicator)
+    communicator_obj._send_to = to
+    communicator_obj.send(payload)
+    return
 
-    self._default_communicator._send_to = to
-    self._default_communicator.send(payload)
+  def _send_payload(self, payload):
+    # `to` parameter will be added after migrating to segregated payloads.
+    self._send_raw_message(to=None, msg=payload, communicator='default')
+    return
+
+  def _send_command(self, to, command):
+    self._send_raw_message(to, command, communicator='heartbeats')
     return
