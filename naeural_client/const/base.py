@@ -22,6 +22,9 @@ class LocalInfo:
   K_ADDRESS = 'address'
   K_ALIAS = 'alias'
   K_ETH_ADDRESS = 'eth_address'
+  K_VER_LONG = 'version_long'
+  K_VER_SHORT = 'version_short'
+  K_INFO = 'info'
     
 
 class BCct:
