@@ -16,7 +16,8 @@ CLI_COMMANDS = {
               "--all": "Get all known nodes including those that have been gone missing (flag)",  # DONE
               "--online" : "Get only online nodes as seen by a active supervisor (flag)", # DONE
               "--peered": "Get only peered nodes - ie nodes that can be used by current client address (flag)",  # DONE
-              "--supervisor" : "Use a specific supervisor node"
+              "--supervisor" : "Use a specific supervisor node",
+              "--eth": "Use a specific node (flag)",              
             }
         },
         "supervisors": {

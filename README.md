@@ -1,335 +1,299 @@
-# Ratio1 SDK (naeural_client SDK)
+# Ratio1 SDK
 
-This is the Python SDK package that allows interactions, development and deployment of jobs in Ratio1 ecosystem formely known as Naeural Edge Protocol network. The SDK enables low-code development and deployment of end-to-end AI (and not only) cooperative application pipelines within the Ratio1 Edge Nodes ecosystem. 
+Welcome to the **Ratio1 SDK** repository, formerly known as the **naeural_client SDK**. The Ratio1 SDK is a crucial component of the Ratio1 ecosystem, designed to facilitate interactions, development, and deployment of jobs within the Ratio1 network. By enabling low-code development, the SDK allows developers to build and deploy end-to-end AI (and beyond) cooperative application pipelines seamlessly within the Ratio1 Edge Nodes ecosystem.
+
+## Overview
+
+The **Ratio1 SDK** is engineered to enhance the Ratio1 protocol and ecosystem, aiming to improve the functionality and performance of the Ratio1 Edge Node through dedicated research and community contributions. This SDK serves as an essential tool for developers looking to integrate their applications with the Ratio1 network, enabling them to leverage the decentralized, secure, and privacy-preserving capabilities of Ratio1 Edge Nodes.
+
+Key functionalities of the Ratio1 SDK include:
+
+- **Job Interactions**: Facilitate the development and management of computation tasks within the Ratio1 network.
+- **Development Tools**: Provide low-code solutions for creating and deploying AI-driven application pipelines.
+- **Ecosystem Integration**: Seamlessly integrate with Ratio1 Edge Nodes to utilize their computational resources effectively.
+- **Collaboration and Deployment**: Enable cooperative application development and deployment across multiple edge nodes within the Ratio1 ecosystem.
+
+Unlike the Ratio1 Core Packages, which are intended solely for protocol and ecosystem enhancements and are not meant for standalone installation, the Ratio1 SDK is designed for both client-side development and sending workloads to Ratio1 Edge Nodes, making it an indispensable tool for developers within the ecosystem.
 
 ## Dependencies
 
-This packet depends and will automatically install the following packets: `pika`, `paho-mqtt`, `numpy`, `pyopenssl>=23.0.0`, `cryptography>=39.0.0`, `python-dateutil`, `pyaml`.
+The Ratio1 SDK relies on several key packages to function effectively. These dependencies are automatically managed when installing the SDK via pip:
+
+- `pika`
+- `paho-mqtt`
+- `numpy`
+- `pyopenssl>=23.0.0`
+- `cryptography>=39.0.0`
+- `python-dateutil`
+- `pyaml`
 
 ## Installation
 
+Installing the Ratio1 SDK is straightforward and is intended for development and integration into your projects. Use the following pip commands to install the SDK:
+
+### Standard Installation
+
+To install the Ratio1 SDK, run:
+
 ```shell
-pip install naeural_client --upgrade
+pip install ratio1_sdk --upgrade
 ```
 
-### Development installation
+### Development Installation
+
+For development purposes, you can clone the repository and set up the SDK in an editable mode:
 
 ```shell
-git clone https://github.com/NaeuralEdgeProtocol/naeural_client
+git clone https://github.com/Ratio1/ratio1_sdk
+cd ratio1_sdk
 pip install -e .
 ```
 
+This allows you to make modifications to the SDK and have them reflected immediately without reinstalling.
+
 ## Documentation
 
-Minimal documentation will be presented here. The complete documentation is
-Work in Progress.
+Comprehensive documentation for the Ratio1 SDK is currently a work in progress. Minimal documentation is available here, with detailed code examples located in the `tutorials` folder within the project's repository. We encourage developers to explore these examples to understand the SDK's capabilities and integration methods.
 
-Code examples are located in the `tutorials` folder in the project's repository.
+## Quick Start Guides
 
-## Quick start guides
+Starting with version 2.6+, the Ratio1 SDK automatically performs self-configuration using **dAuth**—the Ratio1 decentralized self-authentication system. To begin integrating with the Ratio1 network, follow these steps:
 
-Starting with version 2.6+ the SDK will automatically perform self-configuration using the dAuth - the Ratio1 decentralized self-authentication system.
+### 1. Start a Local Edge Node
 
-In order to start a local edge node you just need to run:
-
-```bash
-docker run -d --name=local_node naeural/edge_node:develop
-```
-after a few seconds the node will be online and you can get the node's address by running:
+Launch a local Ratio1 Edge Node using Docker:
 
 ```bash
-docker exec local_node get_node_info
+docker run -d --name=r1node naeural/edge_node:develop
 ```
 
-The output will be similar to:
+if you want to have a persistent volume for the node, you can use the following command:
+
+```bash
+docker run -d --name=r1node --rm --pull=always -v r1vol:/edge_node/_local_cache naeural/edge_node:develop
+```
+This way the node will store its data in the `r1vol` volume, and you can stop and start the node without losing data you might have stored in the node via deployed jobs from your SDK. We also added the `--pull=always` flag to ensure that the latest version of the node is always pulled from the Docker Hub.
+
+After a few seconds, the node will be online. Retrieve the node's address by running:
+
+```bash
+docker exec r1node get_node_info
+```
+
+The output will resemble:
 
 ```json
 {
-  "address": "0xai_AtMvIwaEPi5M8cnkdbaZ3tbUhCzKbGKEYuZ1xFtCjT_6",
-  "alias": "6dd74472642e",
-  "eth_address": "0x98FE7c0d8CeC2E97B932D2bDC1bb73B395C9Dfd7"
+  "address": "0xai_A2pPf0lxZSZkGONzLOmhzndncc1VvDBHfF-YLWlsrG9m",
+  "alias": "5ac5438a2775",
+  "eth_address": "0xc440cdD0BBdDb5a271de07d3378E31Cb8D9727A5",
+  "version_long": "v2.5.36 | core v7.4.23 | SDK 2.6.15",
+  "version_short": "v2.5.36",
+  "info": {
+    "whitelist": []
+  }
+}
+```
+
+As you can see, the node is online and NOT ready to accept workloads due to the fact that it has no whitelisted clients. To whitelist your client, you need to use the `add_allowed` command:
+
+```bash
+docker exec r1node add_allowed <address> [<alias>]
+```
+
+where `<address>` is the address of your client and `<alias>` is an optional alias for your client.
+A example of whitelisting a client is:
+
+```bash
+docker exec r1node add_allowed 0xai_AthDPWc_k3BKJLLYTQMw--Rjhe3B6_7w76jlRpT6nDeX some-node-alias
+```
+
+You will then receive a response similar to:
+
+```json
+{
+  "address": "0xai_A2pPf0lxZSZkGONzLOmhzndncc1VvDBHfF-YLWlsrG9m",
+  "alias": "5ac5438a2775",
+  "eth_address": "0xc440cdD0BBdDb5a271de07d3378E31Cb8D9727A5",
+  "version_long": "v2.5.36 | core v7.4.23 | SDK 2.6.15",
+  "version_short": "v2.5.36",
+  "info": {
+    "whitelist": [
+      "0xai_AthDPWc_k3BKJLLYTQMw--Rjhe3B6_7w76jlRpT6nDeX"
+    ]
+  }
 }
 ```
 
 
-## Some Examples
+### 2. Develop and Deploy Jobs
+
+Use the SDK to develop and send workloads to the Edge Nodes. Below are examples of both local and remote execution.
+
+## Examples
 
 ### Local Execution
 
-We want to find all $168$ prime numbers in the interval $1$ - $1000$. For this we can run the following code on our local machine.
-
-This code has segments running on multiple threads using a ThreadPool.
+This example demonstrates how to find all 168 prime numbers in the interval 1 - 1000 using local execution. The code leverages multiple threads to perform prime number generation efficiently.
 
 ```python
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
-
 def local_brute_force_prime_number_generator():
-  def is_prime(n):
-    if n <= 1:
-      return False
-    for i in range(2, int(np.sqrt(n)) + 1):
-      if n % i == 0:
-        return False
-    return True
+    def is_prime(n):
+        if n <= 1:
+            return False
+        for i in range(2, int(np.sqrt(n)) + 1):
+            if n % i == 0:
+                return False
+        return True
 
-  random_numbers = np.random.randint(1, 1000, 20)
+    random_numbers = np.random.randint(1, 1000, 20)
 
-  thread_pool = ThreadPoolExecutor(max_workers=4)
-  are_primes = list(thread_pool.map(is_prime, random_numbers))
+    thread_pool = ThreadPoolExecutor(max_workers=4)
+    are_primes = list(thread_pool.map(is_prime, random_numbers))
 
-  prime_numbers = []
-  for i in range(len(random_numbers)):
-    if are_primes[i]:
-      prime_numbers.append(random_numbers[i])
+    prime_numbers = []
+    for i in range(len(random_numbers)):
+        if are_primes[i]:
+            prime_numbers.append(random_numbers[i])
 
-  return prime_numbers
-
+    return prime_numbers
 
 if __name__ == "__main__":
-  found_so_far = []
+    found_so_far = []
+    print_step = 0
 
-  print_step = 0
+    while len(found_so_far) < 168:
+        # Compute a batch of prime numbers
+        prime_numbers = local_brute_force_prime_number_generator()
 
-  while len(found_so_far) < 168:
-    # compute a batch of prime numbers
-    prime_numbers = local_brute_force_prime_number_generator()
+        # Keep only the new prime numbers
+        for prime_number in prime_numbers:
+            if prime_number not in found_so_far:
+                found_so_far.append(prime_number)
 
-    # keep only the new prime numbers
-    for prime_number in prime_numbers:
-      if prime_number not in found_so_far:
-        found_so_far.append(prime_number)
-    # end for
+        # Show progress
+        if print_step % 50 == 0:
+            print("Found so far: {}:  {}\n".format(len(found_so_far), sorted(found_so_far)))
 
-    # show progress
-    if print_step % 50 == 0:
-      print("Found so far: {}:  {}\n".format(len(found_so_far), sorted(found_so_far)))
+        print_step += 1
 
-    print_step += 1
-  # end while
-
-  # show final result
-  print("Found so far: {}:  {}\n".format(len(found_so_far), sorted(found_so_far)))
+    # Show final result
+    print("Found so far: {}:  {}\n".format(len(found_so_far), sorted(found_so_far)))
 ```
-
-We can see that we have a `local_brute_force_prime_number_generator` method which will generate a random sample of $20$ numbers that will be checked if they are prime or not.
-
-The rest of the code handles how the numbers generated with this method are kept.
-Because we want to find $168$ unique numbers, we append to the list of found primes only the numbers that are not present yet.
-
-At the end, we want to show a list of all the numbers found.
 
 ### Remote Execution
 
-For this example we would like to use multiple edge nodes to find the prime numbers faster.
+To accelerate prime number discovery, this example demonstrates deploying the task across multiple edge nodes within the Ratio1 network. Minimal code changes are required to transition from local to remote execution.
 
-To execute this code on our network, a series of changes must be made to the `local_brute_force_prime_number_generator` method.
-These changes are the only ones a developer has to do to deploy his own custom code on the network.
-
-For this, we will create a new method, `remote_brute_force_prime_number_generator`, which will use the exposed edge node API methods.
+#### 1. Modify the Prime Number Generator
 
 ```python
-from naeural_client import CustomPluginTemplate
+from ratio1_sdk import CustomPluginTemplate
 
-# through the `plugin` object we get access to the edge node API
-# the CustomPluginTemplate class acts as a documentation for all the available methods and attributes
-# since we do not allow imports in the custom code due to security reasons, the `plugin` object
-#   exposes common modules to the user
 def remote_brute_force_prime_number_generator(plugin: CustomPluginTemplate):
-  def is_prime(n):
-    if n <= 1:
-      return False
-    # we use the `plugin.np` instead of the `np` module
-    for i in range(2, int(plugin.np.sqrt(n)) + 1):
-      if n % i == 0:
-        return False
-    return True
+    def is_prime(n):
+        if n <= 1:
+            return False
+        for i in range(2, int(plugin.np.sqrt(n)) + 1):
+            if n % i == 0:
+                return False
+        return True
 
-  # we use the `plugin.np` instead of the `np` module
-  random_numbers = plugin.np.random.randint(1, 1000, 20)
+    random_numbers = plugin.np.random.randint(1, 1000, 20)
+    are_primes = plugin.threadapi_map(is_prime, random_numbers, n_threads=4)
 
-  # we use the `plugin.threadapi_map` instead of the `ThreadPoolExecutor.map`
-  are_primes = plugin.threadapi_map(is_prime, random_numbers, n_threads=4)
+    prime_numbers = []
+    for i in range(len(random_numbers)):
+        if are_primes[i]:
+            prime_numbers.append(random_numbers[i])
 
-  prime_numbers = []
-  for i in range(len(random_numbers)):
-    if are_primes[i]:
-      prime_numbers.append(random_numbers[i])
-
-  return prime_numbers
+    return prime_numbers
 ```
 
-This are all the changes we have to do to deploy this code in the network.
-
-Now lets connect to the network and see what nodes are online.
-We will use the `on_heartbeat` callback to print the nodes.
+#### 2. Connect to the Network and Select a Node
 
 ```python
-from naeural_client import Session
+from ratio1_sdk import Session
 from time import sleep
 
 def on_heartbeat(session: Session, node: str, heartbeat: dict):
-  # the `.P` method is used to print messages in the console and store them in the log file
-  session.P("{} is online".format(node))
-  return
-
+    session.P("{} is online".format(node))
+    return
 
 if __name__ == '__main__':
-  # create a session
-  # the network credentials are read from the .env file automatically
-  session = Session(
-      on_heartbeat=on_heartbeat
-  )
+    session = Session(
+        on_heartbeat=on_heartbeat
+    )
 
-  # run the program for 15 seconds to show all the nodes that are online
-  sleep(15)
+    # Run the program for 15 seconds to detect online nodes
+    sleep(15)
 
+    # Retrieve and select an online node
+    node = "0xai_A8SY7lEqBtf5XaGyB6ipdk5C30vSf3HK4xELp3iplwLe"  # naeural-1
 ```
 
-Next we will select an online node. This node will be our entrypoint in the network.
-
-The available nodes in our test net are:
-
-```
-0xai_A8SY7lEqBtf5XaGyB6ipdk5C30vSf3HK4xELp3iplwLe naeural-1
-0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6 naeural-2
-0xai_ApltAljEgWk3g8x2QcSa0sS3hT1P4dyCchd04zFSMy5e naeural-3
-```
-
-We will send a task to this node. Since we want to distribute the task of finding prime numbers to multiple nodes, this selected node will handle distribution of tasks and collection of the results.
+#### 3. Deploy the Distributed Job
 
 ```python
-node = "0xai_A8SY7lEqBtf5XaGyB6ipdk5C30vSf3HK4xELp3iplwLe" # naeural-1
-
-# we usually wait for the node to be online before sending the task
-# but in this case we are sure that the node is online because we
-# have received heartbeats from it during the sleep period
-
-# session.wait_for_node(node)
-```
-
-Our selected node will periodically output partial results with the prime numbers found so far by the worker nodes. We want to consume these results.
-
-Thus, we need to implement a callback method that will handle this.
-
-```python
-from naeural_client import Pipeline
-
-# a flag used to close the session when the task is finished
-finished = False
-
-def locally_process_partial_results(pipeline: Pipeline, full_payload):
-  global finished
-  found_so_far = full_payload.get("DATA")
-
-  if found_so_far:
-    pipeline.P("Found so far: {}:  {}\n\n".format(len(found_so_far), sorted(found_so_far)))
-
-  progress = full_payload.get("PROGRESS")
-  if progress == 100:
-    pipeline.P("FINISHED\n\n")
-    finished = True
-
-  return
-```
-
-Now we are ready to deploy our job to the network.
-
-```python
-from naeural_client import DistributedCustomCodePresets as Presets
+from ratio1_sdk import DistributedCustomCodePresets as Presets
 
 _, _ = session.create_chain_dist_custom_job(
-    # this is the main node, our entrypoint
     node=node,
-
-    # this function is executed on the main node
-    # this handles what we want to do with primes found by a worker node after an iteration
-    # we want to store only the unique prime numbers
-    # we cam either write a custom code to pass here or we can use a preset
     main_node_process_real_time_collected_data=Presets.PROCESS_REAL_TIME_COLLECTED_DATA__KEEP_UNIQUES_IN_AGGREGATED_COLLECTED_DATA,
-
-    # this function is executed on the main node
-    # this handles the finish condition of our distributed job
-    # we want to finish when we have found 168 prime numbers
-    # so more than 167 prime numbers
-    # we cam either write a custom code to pass here or we can use a preset
     main_node_finish_condition=Presets.FINISH_CONDITION___AGGREGATED_DATA_MORE_THAN_X,
-    main_node_finish_condition_kwargs={
-        "X": 167
-    },
-
-    # this function is executed on the main node
-    # this handles the final processing of the results
-    # this function prepares data for the final result of the distributed job
-    # we want to aggregate all the prime numbers found by the worker nodes in a single list
-    # we cam either write a custom code to pass here or we can use a preset
+    main_node_finish_condition_kwargs={"X": 167},
     main_node_aggregate_collected_data=Presets.AGGREGATE_COLLECTED_DATA___AGGREGATE_COLLECTED_DATA,
-
-    # how many worker nodes we want to use for this task
     nr_remote_worker_nodes=2,
-
-    # this is the function that will be executed on the worker nodes
-    # this function generates prime numbers using brute force
-    # we simply pass the function reference
     worker_node_code=remote_brute_force_prime_number_generator,
-
-    # this is the function that will be executed on the client
-    # this is the callback function that processes the partial results
-    # in our case we want to print the partial results
     on_data=locally_process_partial_results,
-
-    # we want to deploy the job immediately
     deploy=True
 )
 ```
 
-Last but not least, we want to close the session when the distributed job finished.
+#### 4. Close the Session Upon Completion
 
 ```python
-# we wait until the finished flag is set to True
-# we want to release the resources allocated on the selected node when the job is finished
+# Wait until the finished flag is set to True
 session.run(wait=lambda: not finished, close_pipelines=True)
 ```
 
+## Project Financing Disclaimer
 
-# Project Financing Disclaimer
+This project incorporates open-source components developed with the support of financing grants **SMIS 143488** and **SMIS 156084**, provided by the Romanian Competitiveness Operational Programme. We extend our sincere gratitude for this support, which has been instrumental in advancing our work and enabling us to share these resources with the community.
 
-This project includes open-source components that have been developed with the support of financing grants SMIS 143488 and SMIS 156084, provided by the Romanian Competitiveness Operational Programme. We are grateful for this support, which has enabled us to advance our work and share these resources with the community.
+The content and information within this repository are solely the responsibility of the authors and do not necessarily reflect the views of the funding agencies. The grants have specifically supported certain aspects of this open-source project, facilitating broader dissemination and collaborative development.
 
-The content and information provided within this repository are solely the responsibility of the authors and do not necessarily reflect the views of the funding agencies. The funding received under these grants has been instrumental in supporting specific parts of this open source project, allowing for broader dissemination and collaborative development.
+For any inquiries regarding the funding and its impact on this project, please contact the authors directly.
 
-For any inquiries related to the funding and its impact on this project, please contact the authors directly.
+## License
 
+This project is licensed under the **Apache 2.0 License**. For more details, please refer to the [LICENSE](LICENSE) file.
 
-# Citation
+## Contact
+
+For more information, visit our website at [https://ratio1.ai](https://ratio1.ai) or reach out to us via email at [support@ratio1.ai](mailto:support@ratio1.ai).
+
+## Citation
+
+If you use the Ratio1 SDK in your research or projects, please cite it as follows:
 
 ```bibtex
-@misc{naeural_client,
-  author = {Stefan Saraev, Andrei Damian},
-  title = {naeural_client: Python SDK for Naeural Edge Protocol Edge Protocol},
-  year = {2024},
-  howpublished = {\url{https://github.com/Naeural Edge ProtocolEdgeProtocol/naeural_client}},
+@misc{Ratio1SDK,
+  author       = {Ratio1.AI},
+  title        = {Ratio1 SDK},
+  year         = {2024-2025},
+  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/naeural_client}},
 }
 ```
 
 ```bibtex
-@misc{project_funding_acknowledgment1,
-  author       = {Damian, Bleotiu, Saraev, Constantinescu},
-  title        = {SOLIS – Sistem Omogen multi-Locație cu funcționalități Inteligente și Sustenabile”
-SMIS 143488},
-  howpublished = {\url{https://github.com/Naeural Edge ProtocolEdgeProtocol/}},
-  note         = {This project includes open-source components developed with support from the Romanian Competitiveness Operational Programme under grants SMIS 143488. The content is solely the responsibility of the authors and does not necessarily reflect the views of the funding agencies.},
-  year         = {2021-2022}
-}
-```
-
-```bibtex
-@misc{project_funding_acknowledgment2,
-  author       = {Damian, Bleotiu, Saraev, Constantinescu, Milik, Lupaescu},
-  title        = {ReDeN – Rețea Descentralizată Neurală SMIS 156084},
-  howpublished = {\url{https://github.com/Naeural Edge ProtocolEdgeProtocol/}},
-  note         = {This project includes open-source components developed with support from the Romanian Competitiveness Operational Programme under grants SMIS 143488. The content is solely the responsibility of the authors and does not necessarily reflect the views of the funding agencies.},
-  year         = {2023-2024}
+@misc{Ratio1EdgeNode,
+  author = {Ratio1.AI},
+  title = {Ratio1: Edge Node},
+  year = {2024-2025},
+  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/edge_node}},
 }
 ```

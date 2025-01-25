@@ -10,6 +10,7 @@ def _get_netstats(
   supervisor=None,
   supervisors_only=False,
   return_session=False,
+  eth=False,
 ):
   t1 = time()
   from naeural_client import Session
@@ -17,6 +18,7 @@ def _get_netstats(
   dct_info = sess.get_network_known_nodes(
     online_only=online_only, allowed_only=allowed_only, supervisor=supervisor,
     supervisors_only=supervisors_only,
+    eth=eth,
   )
   df = dct_info[SESSION_CT.NETSTATS_REPORT]
   supervisor = dct_info[SESSION_CT.NETSTATS_REPORTER]
@@ -47,6 +49,7 @@ def get_nodes(args):
     online_only=args.online or args.peered,
     allowed_only=args.peered,
     supervisor=supervisor_addr,
+    eth=args.eth,
   )
   df, supervisor, super_alias, nr_supers, elapsed = res
   if args.online:

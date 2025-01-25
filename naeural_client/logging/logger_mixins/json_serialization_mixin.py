@@ -347,7 +347,9 @@ class _JSONSerializationMixin(object):
                      fname, 
                      subfolder_path=None, 
                      verbose=True, 
-                     locking=True):
+                     locking=True,
+                     indent=True,
+                     ):
     save_dir = self._data_dir
     if subfolder_path is not None:
       save_dir = os.path.join(save_dir, subfolder_path.lstrip('/'))
@@ -356,7 +358,10 @@ class _JSONSerializationMixin(object):
     datafile = os.path.join(save_dir, fname)
     if verbose:
       self.verbose_log('Saving data json: {}'.format(datafile))
-    self.thread_safe_save(datafile=datafile, data_json=data_json, locking=locking)
+    self.thread_safe_save(
+      datafile=datafile, data_json=data_json, locking=locking,
+      indent=indent,
+    )
     return datafile
 
   def load_output_json(self, fname, **kwargs):
@@ -409,8 +414,10 @@ class _JSONSerializationMixin(object):
   def save_json(self, dct, fname, locking=True):
     return self.thread_safe_save(datafile=fname, data_json=dct, locking=locking)
   
-  def save_json_to_data(self, dct, fname, subfolder_path=None, locking=True):
-    return self.save_data_json(data_json=dct, fname=fname, subfolder_path=subfolder_path, locking=locking)
+  def save_json_to_data(self, dct, fname, subfolder_path=None, locking=True, indent=True):
+    return self.save_data_json(
+      data_json=dct, fname=fname, subfolder_path=subfolder_path, locking=locking, indent=indent,
+    )
 
   def load_dict_from_data(self, fn):
     return self.load_data_json(fn)

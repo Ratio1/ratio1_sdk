@@ -6,11 +6,50 @@ import pickle
 import hashlib
 import numpy as np
 import traceback
+import random
 from queue import Queue
 
 from collections import OrderedDict, deque, defaultdict
 
 from io import BytesIO, TextIOWrapper
+
+
+adjectives = [
+  'able', 'arco', 'arty', 'awed', 'awny', 'bald', 'base', 'bass', 'bent', 'best', 'boxy', 
+  'buff', 'cold', 'curt', 'cyan', 'deep', 'done', 'dopy', 'dour', 'down', 'dozy', 'drab', 
+  'dual', 'east', 'easy', 'eery', 'fain', 'fast', 'faux', 'fine', 'firm', 'flat', 'flip', 
+  'fond', 'free', 'full', 'glad', 'gone', 'good', 'grim', 'hard', 'hazy', 'hewn', 'hick', 
+  'high', 'hoar', 'holy', 'iffy', 'iron', 'jain', 'just', 'keen', 'kept', 'lame', 'last', 
+  'late', 'less', 'long', 'lost', 'many', 'meek', 'mild', 'mini', 'moot', 'more', 'most', 
+  'mown', 'much', 'near', 'next', 'nine', 'only', 'open', 'oval', 'paid', 'past', 'port', 
+  'posh', 'rash', 'real', 'ropy', 'rose', 'rosy', 'ruby', 'rude', 'ruly', 'rush', 'rust', 
+  'safe', 'sage', 'said', 'salt', 'same', 'sane', 'sent', 'sere', 'shod', 'shut', 'skew', 
+  'sold', 'sole', 'solo', 'some', 'sore', 'sour', 'sown', 'spic', 'spry', 'star', 'such', 
+  'surd', 'sure', 'tame', 'tart', 'teal', 'thai', 'tied', 'trig', 'true', 'vain', 'vast', 
+  'very', 'void', 'wary', 'waxy', 'well', 'west', 'wide', 'wild', 'wily', 'winy', 'wiry', 
+  'wise', 'worn', 'zero'
+]
+
+nouns = [
+  'area', 'aria', 'army', 'arts', 'arui', 'baas', 'baby', 'back', 'band', 'bars', 'bash', 
+  'bead', 'beam', 'beck', 'bill', 'boat', 'bock', 'body', 'bore', 'bota', 'boys', 'brig', 
+  'bris', 'buff', 'call', 'carl', 'carp', 'cars', 'case', 'cert', 'punk', 'chat', 'chew', 
+  'city', 'club', 'code', 'cold', 'cook', 'corn', 'dada', 'days', 'dean', 'demo', 'desk', 
+  'doge', 'doll', 'door', 'drib', 'duct', 'dupe', 'dust', 'duty', 'ears', 'edge', 'eyes', 
+  'face', 'fact', 'feed', 'feet', 'file', 'flow', 'food', 'full', 'fund', 'funk', 'gain', 
+  'gary', 'gate', 'giro', 'goal', 'hair', 'hale', 'hall', 'hals', 'hand', 'hang', 'head', 
+  'heat', 'help', 'hero', 'high', 'hill', 'hole', 'home', 'hope', 'hour', 'howe', 'iron', 
+  'item', 'jews', 'jobs', 'john', 'july', 'jury', 'kate', 'kean', 'kerb', 'kino', 'kota', 
+  'lace', 'lady', 'lake', 'land', 'left', 'life', 'limo', 'line', 'lips', 'lisp', 'look', 
+  'lots', 'maja', 'marc', 'mass', 'mile', 'mind', 'mold', 'mood', 'moon', 'name', 'nard', 
+  'nest', 'nose', 'ohio', 'ones', 'opec', 'opus', 'page', 'papa', 'part', 'pass', 'past', 
+  'paul', 'peel', 'peso', 'pike', 'pitt', 'port', 'pull', 'quat', 'rain', 'real', 'rest', 
+  'rhus', 'ring', 'rise', 'rock', 'roof', 'room', 'rule', 'runs', 'sack', 'safe', 'sake', 
+  'sars', 'seat', 'seed', 'sets', 'ship', 'shop', 'shot', 'sian', 'side', 'sign', 'silt', 
+  'site', 'size', 'solo', 'spot', 'step', 'talk', 'tape', 'task', 'thor', 'tied', 'time', 
+  'tone', 'tool', 'tour', 'tree', 'ulex', 'vela', 'vice', 'wage', 'wall', 'week', 'weld', 
+  'word', 'work', 'wyat', 'year', 'york'
+]
 
 
 class _UtilsMixin(object):
@@ -633,7 +672,16 @@ class _UtilsMixin(object):
     str_id = str(uuid4())
     str_id = str_id.replace('-','')
     return str_id[:size]
-    
+  
+  @staticmethod
+  def get_random_name(size=2):
+    """
+    Generates a random name using adjectives and nouns
+    """
+    adj = random.choice(adjectives)
+    noun = random.choice(nouns)
+    uuid = _UtilsMixin.get_uid(size=size)
+    return f"{adj}-{noun}-{uuid}"
 
 
   @staticmethod
@@ -673,3 +721,6 @@ class _UtilsMixin(object):
     return _UtilsMixin.name_abbreviation(s)
     
   
+if __name__ == '__main__':
+  for _ in range(10):
+    print(_UtilsMixin.get_random_name())

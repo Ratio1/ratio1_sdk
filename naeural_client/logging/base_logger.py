@@ -1656,6 +1656,12 @@ class BaseLogger(object):
     """
     if elapsed is None:
       elapsed = tm() - self.start_timestamp
+
+    if elapsed < 0:
+      sign = -1
+      elapsed = abs(elapsed)
+    else:
+      sign = 1
     
     hours, rem = divmod(elapsed, 3600)
     minutes, seconds = divmod(rem, 60)
@@ -1663,6 +1669,7 @@ class BaseLogger(object):
       s = str(timedelta(seconds=int(elapsed)))
     else:
       s = "{:0>2}:{:0>2}:{:0>2}".format(int(hours),int(minutes),int(seconds))
+    s = "-" + s if sign == -1 else s
     return s
 
 

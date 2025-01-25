@@ -2664,6 +2664,7 @@ class GenericSession(BaseDecentrAIObject):
       supervisor=None,
       df_only=False,
       debug=False,
+      eth=False,
     ):
       """
       This function will return a Pandas dataframe  known nodes in the network based on
@@ -2693,6 +2694,10 @@ class GenericSession(BaseDecentrAIObject):
           
       df_only : bool, optional
           If True, will return only the Pandas dataframe. Defaults to False.
+          
+          
+      eth: bool, optional
+          If True, will use the nodes eth addresses instead of internal. Defaults to False.
           
       Returns
       -------
@@ -2768,6 +2773,8 @@ class GenericSession(BaseDecentrAIObject):
                 # again self.get_node_name(best_super) might not work if using the hb data
                 best_super_alias = node_info.get(PAYLOAD_DATA.NETMON_EEID, None)
               val = self.bc_engine._add_prefix(val)
+              if eth:
+                val = self.bc_engine.node_address_to_eth_address(val)
             elif key == PAYLOAD_DATA.NETMON_WHITELIST:
               val = client_is_allowed
             elif key in [PAYLOAD_DATA.NETMON_STATUS_KEY, PAYLOAD_DATA.NETMON_NODE_VERSION]:
