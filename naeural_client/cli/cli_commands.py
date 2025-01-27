@@ -18,7 +18,8 @@ CLI_COMMANDS = {
               "--online" : "Get only online nodes as seen by a active supervisor (flag)", # DONE
               "--peered": "Get only peered nodes - ie nodes that can be used by current client address (flag)",  # DONE
               "--supervisor" : "Use a specific supervisor node",
-              "--eth": "Use a specific node (flag)",              
+              "--eth" : "Use a specific node (flag)",
+              "--wide" : "Display all available information (flag)",
             }
         },
         "supervisors": {
