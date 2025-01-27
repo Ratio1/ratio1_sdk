@@ -2272,10 +2272,9 @@ class GenericSession(BaseDecentrAIObject):
       
       """
 
-      ngrok_use_api = True
+      ngrok_use_api = kwargs.pop('ngrok_use_api', True)
       use_ngrok = True
       kwargs.pop('use_ngrok', None)
-      kwargs.pop('ngrok_use_api', None)
       
       if ngrok_edge_label is None:
         raise ValueError("The `ngrok_edge_label` parameter is mandatory when creating a balanced web app, in order for all instances to respond to the same URL.")
