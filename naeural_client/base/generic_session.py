@@ -2664,6 +2664,7 @@ class GenericSession(BaseDecentrAIObject):
       df_only=False,
       debug=False,
       eth=False,
+      all_info=False,
     ):
       """
       This function will return a Pandas dataframe  known nodes in the network based on
@@ -2698,6 +2699,9 @@ class GenericSession(BaseDecentrAIObject):
       eth: bool, optional
           If True, will use the nodes eth addresses instead of internal. Defaults to False.
           
+      all_info: bool, optional
+          If True, will return all the information. Defaults to False.
+          
       Returns
       -------
       
@@ -2723,10 +2727,18 @@ class GenericSession(BaseDecentrAIObject):
         'Oracle' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
         'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
       })
-      reverse_mapping = {v: k for k, v in mapping.items()}
+      if all_info:
+        mapping = OrderedDict({
+          # we assign dummy integer values to the computed columns 
+          # and we will fillter them 
+          'ETH Address': 1,
+          **mapping
+        })
       res = OrderedDict()
       for k in mapping:
         res[k] = []
+
+      reverse_mapping = {v: k for k, v in mapping.items()}
 
       result, elapsed = self.__wait_for_supervisors_net_mon_data(
         supervisor=supervisor,
@@ -2759,6 +2771,8 @@ class GenericSession(BaseDecentrAIObject):
           if supervisors_only and not is_supervisor:
             continue
           for key, column in reverse_mapping.items():
+            if isinstance(key, int):
+              continue
             val = node_info.get(key, None)
             if key == PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME:
               # val hols a string '2024-12-23 23:50:16.462155' and must be converted to a datetime
@@ -2772,7 +2786,10 @@ class GenericSession(BaseDecentrAIObject):
                 # again self.get_node_name(best_super) might not work if using the hb data
                 best_super_alias = node_info.get(PAYLOAD_DATA.NETMON_EEID, None)
               val = self.bc_engine._add_prefix(val)
-              if eth:
+              if all_info:
+                val_eth = self.bc_engine.node_address_to_eth_address(val)
+                res['ETH Address'].append(val_eth)
+              elif eth:
                 val = self.bc_engine.node_address_to_eth_address(val)
             elif key == PAYLOAD_DATA.NETMON_WHITELIST:
               val = client_is_allowed
