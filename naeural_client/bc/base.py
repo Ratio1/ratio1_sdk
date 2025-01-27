@@ -621,6 +621,7 @@ class BaseBlockEngine:
     address = self._remove_prefix(address)
     address = BCct.ADDR_PREFIX + address  
     return address
+  
 
   
   def _pk_to_address(self, public_key):
@@ -915,6 +916,23 @@ class BaseBlockEngine:
       the address without the prefix.
     """
     return self._remove_prefix(address)  
+  
+
+  def maybe_add_prefix(self, address):
+    """
+    Adds the prefix to the address
+
+    Parameters
+    ----------
+    address : str
+      the text address.
+
+    Returns
+    -------
+    address : str
+      the address with the prefix.
+    """
+    return self._add_prefix(address)
     
   
   def dict_digest(self, dct_data, return_str=True):
