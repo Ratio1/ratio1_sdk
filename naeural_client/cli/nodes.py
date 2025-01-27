@@ -20,7 +20,7 @@ def _get_netstats(
     online_only=online_only, allowed_only=allowed_only, supervisor=supervisor,
     supervisors_only=supervisors_only,
     eth=eth,
-    # all_info=all_info,
+    # all_info=all_info, # TODO: if all-info the add extra column
   )
   df = dct_info[SESSION_CT.NETSTATS_REPORT]
   supervisor = dct_info[SESSION_CT.NETSTATS_REPORTER]
