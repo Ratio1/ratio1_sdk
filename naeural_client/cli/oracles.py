@@ -89,7 +89,16 @@ TODO: (future)
 import requests
 
 from naeural_client.utils.config import log_with_color
+from naeural_client import Logger
+from naeural_client.bc import DefaultBlockEngine
 
+
+def _check_response(data):
+  res = True
+  log = Logger("NEPCTL", base_folder=".", app_folder="_local_cache", silent=True)
+  bc = DefaultBlockEngine(name='test', log=log)
+  print(bc.address)
+  return res
 
 def _oracle_get_current_epoch():
   # TODO: implement this
@@ -97,6 +106,11 @@ def _oracle_get_current_epoch():
 
 def _oracle_get_availability(node, start, end):
   res = None
+  if not _check_response(res):
+    log_with_color("Oracle returned invalid signature", color='r')
+    res = None
+  else:
+    pass
   return res
 
 def get_availability(args):
@@ -108,6 +122,7 @@ def get_availability(args):
   args : argparse.Namespace
       Arguments passed to the function.
   """
+  
   node = args.node
   start = args.start or 1
   end = args.end
