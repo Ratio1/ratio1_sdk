@@ -1,7 +1,8 @@
 from naeural_client.cli.nodes import (
   get_nodes, get_supervisors, 
-  restart_node, shutdown_node
+  restart_node, shutdown_node,
 )
+from naeural_client.cli.oracles import get_availability
 from naeural_client.utils.config import show_config, reset_config, show_address
 
 
@@ -23,6 +24,18 @@ CLI_COMMANDS = {
         "supervisors": {
             "func": get_supervisors, # DONE
         },
+        "avail": {    
+          "func": get_availability,
+          "params": {      
+            ### use "(flag)" at the end of the description to indicate a boolean flag
+            ### otherwise it will be treated as a str parameter      
+            "node": "The eth address of the node to be checked via the oracle network.",
+            "--start": "The start epoch number to check the availability from",      
+            "--end": "The end epoch number to check the availability to",
+            "--full": "Enable full oracle network output display (flag)",
+            "--rounds": "The number of rounds to check the availability for testing purposes (default=1)",
+            }
+          }
     },
     "config": {
         "show": {

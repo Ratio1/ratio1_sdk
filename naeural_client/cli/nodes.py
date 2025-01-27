@@ -31,6 +31,7 @@ def _get_netstats(
   return df, supervisor, super_alias, nr_supers, elapsed
 
 
+
 def get_nodes(args):
   """
   This function is used to get the information about the nodes and it will perform the following:
@@ -151,3 +152,4 @@ def shutdown_node(args):
   log_with_color(f"Attempting to shutdown node <{node}>", color='b')
   _send_command_to_node(args, COMMANDS.SHUTDOWN)
   return
+
