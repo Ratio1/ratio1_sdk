@@ -1,3 +1,8 @@
+"""
+TODO: add signature check for the oracle data
+
+"""
+
 import requests
 import time
 import json
