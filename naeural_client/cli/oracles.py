@@ -35,7 +35,7 @@ Availability of node <0x693369781001bAC65F653856d0C00fA62129F407> from epoch 4 t
 >nepctl get avail 0x693369781001bAC65F653856d0C00fA62129F407 --start 4 --end 6 --rounds 8
 
 Availability of node <0x693369781001bAC65F653856d0C00fA62129F407> from epoch 4 to epoch 6 on 8 rounds:
-  Oracle #1:www
+  Oracle #1:
     Address:   0xai_AleLPKqUHV-iPc-76-rUvDkRWW4dFMIGKW1xFVcy65nH
     ETH Addr:  0xE486F0d594e9F26931fC10c29E6409AEBb7b5144
     Alias:     nen-aid01
@@ -91,6 +91,13 @@ import requests
 from naeural_client.utils.config import log_with_color
 from naeural_client import Logger
 from naeural_client.bc import DefaultBlockEngine
+from naeural_client.utils.oracle_sync.multiple_requests import oracle_tester_init, handle_command_results
+
+"""
+TODOs:
+  - test NEPCTL command in CLI too
+  - check ETH signature of the oracle data
+"""
 
 
 def _check_response(data):
@@ -98,19 +105,6 @@ def _check_response(data):
   log = Logger("NEPCTL", base_folder=".", app_folder="_local_cache", silent=True)
   bc = DefaultBlockEngine(name='test', log=log)
   print(bc.address)
-  return res
-
-def _oracle_get_current_epoch():
-  # TODO: implement this
-  return 20
-
-def _oracle_get_availability(node, start, end):
-  res = None
-  if not _check_response(res):
-    log_with_color("Oracle returned invalid signature", color='r')
-    res = None
-  else:
-    pass
   return res
 
 def get_availability(args):
@@ -128,21 +122,32 @@ def get_availability(args):
   end = args.end
   full = args.full
   rounds = args.rounds or 1
+  if isinstance(rounds, str) and rounds.isnumeric():
+    rounds = int(rounds)
+  else:
+    log_with_color("Rounds must be a number.", color='r')
+    return
+
   if rounds > 10:
-    log_with_color("Rounds cannot be more than 10.", color='r')
-    rounds = min(int(rounds), 10)
-  if end is None:
-    end = _oracle_get_current_epoch() - 1
-  log_with_color("Checking {}availability of node <{}> from {} to {}".format(
-    "(DEBUG MODE) " if rounds > 1 else "", node, start, end), color='b'
-)
-  res = _oracle_get_availability(node, start, end)
+    log_with_color("Rounds exceed the maximum limit of 10. Setting rounds to 10.", color='r')
+    rounds = min(rounds, 10)
+
   if full:
     if rounds > 1:
       log_with_color("Cannot show full oracle network output in rounds mode.", color='r')
-    log_with_color(f"Availability of node <{node}> from {start} to {end}:\n {res}", color='w')
-  else:
-    # if non full and rounds > 1 then show summary for each oracle
-    avail = 10 #res["something"]
-    log_with_color(f"Availability of node <{node}> from {start} to {end}: {avail}", color='w')
+      full = False
+  # endif full
+
+  tester = oracle_tester_init()
+  log_with_color("Checking {}availability of node <{}> from {} to {}".format(
+    "(DEBUG MODE) " if rounds > 1 else "", node, start, end), color='b'
+  )
+  res = tester.execute_command(
+    node_eth_addr=node,
+    start_epoch=start,
+    end_epoch=end,
+    rounds=rounds,
+    debug=full
+  )
+  handle_command_results(res)
   return
