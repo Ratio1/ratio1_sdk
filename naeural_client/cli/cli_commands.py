@@ -30,7 +30,7 @@ CLI_COMMANDS = {
           "params": {      
             ### use "(flag)" at the end of the description to indicate a boolean flag
             ### otherwise it will be treated as a str parameter      
-            "node": "The eth address of the node to be checked via the oracle network.",
+            "node": "The ETH address of the node to be checked via the oracle network.",
             "--start": "The start epoch number to check the availability from",      
             "--end": "The end epoch number to check the availability to",
             "--full": "Enable full oracle network output display (flag)",

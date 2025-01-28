@@ -345,9 +345,16 @@ class OracleTester:
       if not valid:
         return msg
 
-      msg = f'Availability for <{node_eth_addr}> from epoch {start} to epoch {end}:\n'
+      msg = f'Availability for <{node_eth_addr}> from epoch {start} to epoch {end}:\n'      
       sender_addr = list(oracle_data.keys())[0]
       sender_data = oracle_data[sender_addr]
+      oracle_addr = sender_data.get("addr", None)
+      oracle_addr_eth = sender_data.get("eth_addr", None)
+      oracle_alias = sender_data.get("alias", None)
+      msg += f'  Oracle address:  {oracle_addr}\n'
+      msg += f'  Oracle ETH addr: {oracle_addr_eth}\n'
+      msg += f'  Oracle alias:    {oracle_alias}\n'
+      msg += f'  Oracle responses:\n'
       epochs = sender_data.get("epochs", None)
       avails = sender_data.get("avails", None)
       certs = sender_data.get("certs", None)
@@ -355,7 +362,7 @@ class OracleTester:
         msg = f"No data available for {node_eth_addr}. Please check the address or contact support."
       else:
         for epoch, avail, cert in zip(epochs, avails, certs):
-          msg += f"\t- Epoch #{epoch}: {avail} ({cert * 100:.1f}%)\n"
+          msg += f"   - Epoch {f'#{epoch}':>4}: {avail:3} ({cert * 100:5.1f}%)\n"
       # endif data available
       return msg
 
@@ -386,13 +393,16 @@ class OracleTester:
           # endif uncertainty
         # endif errors
         color = None if is_valid else 'r'
-        curr_msg += f'\t\t Address: {sender_data["addr"]}\n'
-        curr_msg += f'\t\t ETH Address: {sender_data["eth_addr"]}\n'
-        curr_msg += f'\t\t Alias: {sender_data["alias"]}\n'
+        str_epochs = '  '.join([f'{epoch:4}' for epoch in sender_data["epochs"]])
+        str_avails = '  '.join([f'{avail:4}' for avail in sender_data["avails"]])
+        str_certs  = '  '.join([f'{cert:4.2f}' for cert in sender_data["certs"]])
+        curr_msg += f'\t\t Address:   {sender_data["addr"]}\n'
+        curr_msg += f'\t\t ETH Addr:  {sender_data["eth_addr"]}\n'
+        curr_msg += f'\t\t Alias:     {sender_data["alias"]}\n'
         curr_msg += f'\t\t Responses: {frequencies.get(sender, 0)}\n'
-        curr_msg += f'\t\t Epochs: {sender_data["epochs"]}\n'
-        curr_msg += f'\t\t Avails: {sender_data["avails"]}\n'
-        curr_msg += f'\t\t Certainty: {sender_data["certs"]}\n'
+        curr_msg += f'\t\t Epochs:    {str_epochs}\n'
+        curr_msg += f'\t\t Avails:    {str_avails}\n'
+        curr_msg += f'\t\t Certainty: {str_certs}\n'
         msg_list.append((curr_msg, color))
         it += 1
       # endfor oracles
@@ -485,7 +495,7 @@ def oracle_tester_init(silent=True, **kwargs):
   return tester
 
 def test_commands():
-  tester = tester_init()
+  tester = oracle_tester_init()
   start = 78
   end = 85
   node_eth_addr = "<node_eth_address>"
@@ -511,7 +521,7 @@ def oracle_test(N=10):
 
   random.seed(42)
 
-  tester = tester_init(
+  tester = oracle_tester_init(
     silent=True,
     interval_seconds=0.2,
   )

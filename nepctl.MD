@@ -49,6 +49,7 @@ Retrieve information about network nodes.
 - `--online`: Get only online nodes.
 - `--peered`: Get only peered nodes - ie the nodes that allow the current client to connect to them and give them workloads
 - `--supervisor="addr"`: Query nodes using a specific supervisor address.
+- `--eth`: Use ETH addresses instead of the default Ratio1 addresses.
 
 **Examples**:
 ```bash
@@ -58,6 +59,17 @@ nepctl get nodes --all
 # Get online nodes using a specific supervisor:
 nepctl get nodes --online --supervisor="Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6"
 ```
+
+#### Using ETH addresses
+
+Due to the fact that oracles use the ETH version of the node and SDK addresses we need to use the ETH version of the addresses when querying the oracles. T
+
+**Examples**:
+```bash
+# Get all known nodes using ETH addresses:
+nepctl get nodes --online --eth
+```
+
 
 #### `get supervisors`
 Retrieve information about supervisors in the network.

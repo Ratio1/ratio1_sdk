@@ -15,6 +15,12 @@ Key functionalities of the Ratio1 SDK include:
 
 Unlike the Ratio1 Core Packages, which are intended solely for protocol and ecosystem enhancements and are not meant for standalone installation, the Ratio1 SDK is designed for both client-side development and sending workloads to Ratio1 Edge Nodes, making it an indispensable tool for developers within the ecosystem.
 
+## The `nepctl` CLI Tool
+
+Our SDK has a CLI tool called `nepctl` that allows you to interact with the Ratio1 network. You can use it to query nodes, configure the client, and manage nodes directly from the terminal. The `nepctl` tool is a powerful utility that simplifies network interactions and provides a seamless experience for developers.
+
+For more information on the `nepctl` CLI tool, please refer to the [nepctl](nepctl.md) documentation.
+
 ## Dependencies
 
 The Ratio1 SDK relies on several key packages to function effectively. These dependencies are automatically managed when installing the SDK via pip:
