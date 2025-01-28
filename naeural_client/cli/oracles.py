@@ -129,7 +129,7 @@ def get_availability(args):
   node = args.node
   start = args.start or 1
   end = args.end
-  full = args.full
+  full = args.json
   rounds = args.rounds or 1
   if isinstance(rounds, str) and rounds.isnumeric():
     rounds = int(rounds)
@@ -140,7 +140,7 @@ def get_availability(args):
 
   if full:
     if rounds > 1:
-      log_with_color("Cannot show full oracle network output in rounds mode.", color='r')
+      log_with_color("Cannot generate full JSON oracle network output in 'rounds' mode.", color='r')
       full = False
   # endif full
 

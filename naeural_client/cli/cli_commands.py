@@ -33,7 +33,7 @@ CLI_COMMANDS = {
             "node": "The ETH address of the node to be checked via the oracle network.",
             "--start": "The start epoch number to check the availability from",      
             "--end": "The end epoch number to check the availability to",
-            "--full": "Enable full oracle network output display (flag)",
+            "--json": "Enable full JSON oracle network output (flag)",
             "--rounds": "The number of rounds to check the availability for testing purposes (default=1)",
             }
           }
