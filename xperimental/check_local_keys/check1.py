@@ -25,7 +25,7 @@ if __name__ == '__main__':
           }
       )
       local_addresses.append(eng.address)
-      results.append("{} - {}".format(eng.address, pem))
+      results.append("{} - {} - {}".format(eng.address, eng.eth_address, pem))
     l.P("Local addresses:\n{}".format("\n".join(results)), color='g')
   else:
     l.P("No PEM files found.", color='r')

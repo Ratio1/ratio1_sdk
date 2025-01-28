@@ -1,7 +1,8 @@
 from naeural_client.cli.nodes import (
   get_nodes, get_supervisors, 
-  restart_node, shutdown_node
+  restart_node, shutdown_node,
 )
+from naeural_client.cli.oracles import get_availability
 from naeural_client.utils.config import show_config, reset_config, show_address
 
 
@@ -17,12 +18,25 @@ CLI_COMMANDS = {
               "--online" : "Get only online nodes as seen by a active supervisor (flag)", # DONE
               "--peered": "Get only peered nodes - ie nodes that can be used by current client address (flag)",  # DONE
               "--supervisor" : "Use a specific supervisor node",
-              "--eth": "Use a specific node (flag)",              
+              "--eth" : "Use a specific node (flag)",
+              "--wide" : "Display all available information (flag)",
             }
         },
         "supervisors": {
             "func": get_supervisors, # DONE
         },
+        "avail": {    
+          "func": get_availability,
+          "params": {      
+            ### use "(flag)" at the end of the description to indicate a boolean flag
+            ### otherwise it will be treated as a str parameter      
+            "node": "The ETH address of the node to be checked via the oracle network.",
+            "--start": "The start epoch number to check the availability from",      
+            "--end": "The end epoch number to check the availability to",
+            "--json": "Enable full JSON oracle network output (flag)",
+            "--rounds": "The number of rounds to check the availability for testing purposes (default=1)",
+            }
+          }
     },
     "config": {
         "show": {

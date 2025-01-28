@@ -49,6 +49,7 @@ Retrieve information about network nodes.
 - `--online`: Get only online nodes.
 - `--peered`: Get only peered nodes - ie the nodes that allow the current client to connect to them and give them workloads
 - `--supervisor="addr"`: Query nodes using a specific supervisor address.
+- `--eth`: Use ETH addresses instead of the default Ratio1 addresses.
 
 **Examples**:
 ```bash
@@ -59,13 +60,48 @@ nepctl get nodes --all
 nepctl get nodes --online --supervisor="Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6"
 ```
 
+#### Using ETH addresses
+
+Due to the fact that oracles use the ETH version of the node and SDK addresses we need to use the ETH version of the addresses when querying the oracles. T
+
+**Examples**:
+```bash
+# Get all known nodes using ETH addresses:
+nepctl get nodes --online --eth
+```
+
+
 #### `get supervisors`
 Retrieve information about supervisors in the network.
 
 **Examples**:
 ```bash
 # Get all supervisors:
-nepctl get supervisors
+nepctl get avail <node_eth_address>
+```
+
+#### `get avail <node_eth_address>`
+Retrieve availability of the node throughout a range of epochs from the network oracles.
+
+**Options**:
+- `--start`: The epoch to start from(default=1).
+- `--end`: The epoch to end at (if not provided the last finished epoch will be used).
+- `--rounds`: How many requests to make to the network oracles (default=1).
+- `--json`: Get the raw json output from the request to the network oracles(default=false). In case of multiple rounds this will be disabled.
+
+**Examples**:
+```bash
+# Get availabilities for all the finished epochs:
+nepctl get avail <node_eth_address>
+
+# Get availabilities for the first 10 epochs:
+nepctl get avail <node_eth_address> --end=10
+
+# Get availabilities for epochs 20 to 25 for 5 rounds:
+nepctl get avail <node_eth_address> --start=20 --end=25 --rounds=5
+
+# Get full json output for epochs 12 to 15:
+nepctl get avail <node_eth_address> --start=12 --end=15 --json
 ```
 
 ### `config`

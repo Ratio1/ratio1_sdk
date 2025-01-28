@@ -11,6 +11,7 @@ def _get_netstats(
   supervisors_only=False,
   return_session=False,
   eth=False,
+  all_info=False
 ):
   t1 = time()
   from naeural_client import Session
@@ -19,6 +20,7 @@ def _get_netstats(
     online_only=online_only, allowed_only=allowed_only, supervisor=supervisor,
     supervisors_only=supervisors_only,
     eth=eth,
+    all_info=all_info, 
   )
   df = dct_info[SESSION_CT.NETSTATS_REPORT]
   supervisor = dct_info[SESSION_CT.NETSTATS_REPORTER]
@@ -31,6 +33,7 @@ def _get_netstats(
   return df, supervisor, super_alias, nr_supers, elapsed
 
 
+
 def get_nodes(args):
   """
   This function is used to get the information about the nodes and it will perform the following:
@@ -40,7 +43,8 @@ def get_nodes(args):
   3. Wait for the second net mon message via Session and show progress.  
   4. Get the active nodes union via Session and display the nodes marking those peered vs non-peered.
   """
-  supervisor_addr = args.supervisor  
+  supervisor_addr = args.supervisor
+  wide = args.wide
   if args.verbose:
     log_with_color(f"Getting nodes from supervisor <{supervisor_addr}>...", color='b')
 
@@ -50,6 +54,7 @@ def get_nodes(args):
     allowed_only=args.peered,
     supervisor=supervisor_addr,
     eth=args.eth,
+    all_info=wide,
   )
   df, supervisor, super_alias, nr_supers, elapsed = res
   if args.online:
@@ -151,3 +156,4 @@ def shutdown_node(args):
   log_with_color(f"Attempting to shutdown node <{node}>", color='b')
   _send_command_to_node(args, COMMANDS.SHUTDOWN)
   return
+
