@@ -77,7 +77,31 @@ Retrieve information about supervisors in the network.
 **Examples**:
 ```bash
 # Get all supervisors:
-nepctl get supervisors
+nepctl get avail <node_eth_address>
+```
+
+#### `get avail <node_eth_address>`
+Retrieve availability of the node throughout a range of epochs from the network oracles.
+
+**Options**:
+- `--start`: The epoch to start from(default=1).
+- `--end`: The epoch to end at (if not provided the last finished epoch will be used).
+- `--rounds`: How many requests to make to the network oracles (default=1).
+- `--json`: Get the raw json output from the request to the network oracles(default=false). In case of multiple rounds this will be disabled.
+
+**Examples**:
+```bash
+# Get availabilities for all the finished epochs:
+nepctl get avail <node_eth_address>
+
+# Get availabilities for the first 10 epochs:
+nepctl get avail <node_eth_address> --end=10
+
+# Get availabilities for epochs 20 to 25 for 5 rounds:
+nepctl get avail <node_eth_address> --start=20 --end=25 --rounds=5
+
+# Get full json output for epochs 12 to 15:
+nepctl get avail <node_eth_address> --start=12 --end=15 --json
 ```
 
 ### `config`

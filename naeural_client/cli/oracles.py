@@ -131,8 +131,12 @@ def get_availability(args):
   end = args.end
   full = args.json
   rounds = args.rounds or 1
-  if isinstance(rounds, str) and rounds.isnumeric():
+  if str(rounds).isnumeric() and int(rounds) > 0:
     rounds = int(rounds)
+  else:
+    log_with_color("`rounds` must be a positive integer. Setting rounds to 1.", color='r')
+    rounds = 1
+  # endif rounds
 
   if isinstance(rounds, int) and rounds > 10:
     log_with_color("Rounds exceed the maximum limit of 10. Setting rounds to 10.", color='r')
