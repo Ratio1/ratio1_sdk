@@ -1253,6 +1253,52 @@ class BaseBlockEngine:
   def eth_account(self):
     return self.__eth_account
   
+  @staticmethod
+  def is_valid_evm_address(address: str) -> bool:
+    """
+    Check if the input string is a valid Ethereum (EVM) address using basic heuristics.
+
+    Parameters
+    ----------
+    address : str
+        The address string to verify.
+
+    Returns
+    -------
+    bool
+        True if `address` meets the basic criteria for an EVM address, False otherwise.
+    """
+    # Basic checks:
+    # A) Must start with '0x'
+    # B) Must be exactly 42 characters in total
+    # C) All remaining characters must be valid hexadecimal digits
+    if not address.startswith("0x"):
+      return False
+    if len(address) != 42:
+      return False
+    
+    hex_part = address[2:]
+    # Ensure all characters in the hex part are valid hex digits
+    return all(c in "0123456789abcdefABCDEF" for c in hex_part)
+  
+  @staticmethod
+  def is_valid_eth_address(address: str) -> bool:
+    """
+    Check if the input string is a valid Ethereum (EVM) address using basic heuristics.
+
+    Parameters
+    ----------
+    address : str
+        The address string to verify.
+
+    Returns
+    -------
+    bool
+        True if `address` meets the basic criteria for an EVM address, False otherwise.
+    """
+    return BaseBlockEngine.is_valid_evm_address(address)
+  
+  
   ### end Ethereum
 
 
