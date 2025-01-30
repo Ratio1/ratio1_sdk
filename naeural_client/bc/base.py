@@ -542,10 +542,62 @@ class BaseBlockEngine:
     except:
       result = False
     return result
-    
   
-  def _load_and_maybe_create_allowed(self):
+  
+  def add_address_to_allowed(self, address : any):
+    """
+    Adds a new address or a list of addresses to the allowed list
+    """
+    if isinstance(address, str):
+      address = [address]
+    #endif
+    if isinstance(address, list) and len(address) > 0:
+      self.P(f"Adding addresses to the allowed list:\n{address}", verbosity=1)
+      # now check addresses
+      lst_addresses = []
+      lst_names = []
+      for addr in address:
+        addr = addr.strip()
+        parts = addr.split()
+        if len(parts) == 0:
+          continue
+        addr = parts[0]
+        name = f"  {parts[1]}" if len(parts) > 1 else ""
+        if not self.address_is_valid(addr):
+          self.P("WARNING: address <{}> is not valid. Ignoring.".format(addr), color='r')
+        else:
+          lst_addresses.append(self.maybe_add_prefix(addr))
+          lst_names.append(name)
+        #endif
+      #endfor
+      if len(lst_addresses) > 0:
+        existing_addrs, existing_names = self._load_and_maybe_create_allowed(return_names=True)
+        existing_addrs = [self.maybe_add_prefix(x) for x in existing_addrs]
+        changed = False
+        for addr, name in zip(lst_addresses, lst_names):
+          if addr not in existing_addrs:
+            changed = True
+            existing_addrs.append(addr)
+            existing_names.append(name)
+          #endif new address
+        #endfor
+        if changed:
+          with self._whitelist_lock:
+            fn = self._get_allowed_file()
+            with open(fn, 'wt') as fh:
+              for addr, name in zip(existing_addrs, existing_names):
+                fh.write("{}{}\n".format(addr, name))
+              #endfor each address in modified whitelist
+            #endwith open file
+          #endwith lock
+        #endif changed
+      #endif addresses received ok
+    return existing_addrs
+
+
+  def _load_and_maybe_create_allowed(self, return_names=False):
     lst_final = []
+    lst_names = []
     with self._whitelist_lock:
       try:
         fn = self._get_allowed_file()
@@ -563,8 +615,12 @@ class BaseBlockEngine:
         lst_lines = []
         errors = False
         for allowed_tuple in lst_allowed:
-          allowed = allowed_tuple.split()[0]
+          parts = allowed_tuple.split()
+          if len(parts) == 0:
+            continue
+          allowed = parts[0]
           allowed = self._remove_prefix(allowed)
+          name = f"  {parts[1]}" if len(parts) > 1 else ""
           if not self.address_is_valid(allowed):
             self.P("WARNING: address <{}> is not valid. Removing {} from allowed list.".format(
               allowed, allowed_tuple), color='r'
@@ -573,6 +629,7 @@ class BaseBlockEngine:
           else:
             lst_final.append(allowed)
             lst_lines.append(allowed_tuple)
+            lst_names.append(name)
         if errors:
           with open(fn, 'wt') as fh:
             for line in lst_lines:
@@ -581,6 +638,8 @@ class BaseBlockEngine:
         self.P(f"ERROR: failed to load the allowed list of addresses: {exc}", color='r')
       #endtry
     #endwith
+    if return_names:
+      return lst_final, lst_names
     return lst_final
   
         
