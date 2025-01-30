@@ -553,7 +553,7 @@ class BaseBlockEngine:
       address = [address]
     #endif
     if isinstance(address, list) and len(address) > 0:
-      self.P(f"Adding addresses to the allowed list:\n{address}", verbosity=1)
+      # self.P(f"Adding addresses to the allowed list:\n{address}", verbosity=1)
       # now check addresses
       lst_addresses = []
       lst_names = []
@@ -563,7 +563,7 @@ class BaseBlockEngine:
         if len(parts) == 0:
           continue
         addr = parts[0]
-        name = f"  {parts[1]}" if len(parts) > 1 else ""
+        name = parts[1] if len(parts) > 1 else ""
         if not self.address_is_valid(addr):
           self.P("WARNING: address <{}> is not valid. Ignoring.".format(addr), color='r')
         else:
@@ -579,6 +579,7 @@ class BaseBlockEngine:
             changed = True
             existing_addrs.append(addr)
             existing_names.append(name)
+            self.P("Address <{}{}> added to the allowed list.".format(addr, name), color='g')
           #endif new address
         #endfor
         if changed:
@@ -586,7 +587,7 @@ class BaseBlockEngine:
             fn = self._get_allowed_file()
             with open(fn, 'wt') as fh:
               for addr, name in zip(existing_addrs, existing_names):
-                fh.write("{}{}\n".format(addr, name))
+                fh.write("{}{}\n".format(addr, ("  " + name) if len(name)>0 else ""))
               #endfor each address in modified whitelist
             #endwith open file
           #endwith lock
@@ -620,7 +621,7 @@ class BaseBlockEngine:
             continue
           allowed = parts[0]
           allowed = self._remove_prefix(allowed)
-          name = f"  {parts[1]}" if len(parts) > 1 else ""
+          name = parts[1] if len(parts) > 1 else ""
           if not self.address_is_valid(allowed):
             self.P("WARNING: address <{}> is not valid. Removing {} from allowed list.".format(
               allowed, allowed_tuple), color='r'

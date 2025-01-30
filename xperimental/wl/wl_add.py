@@ -13,7 +13,9 @@ if __name__ == '__main__':
     log=l, 
     name="default",
   )
-  l.P("Whitelist:\n{}".format("\n".join([a+b for a,b in zip(*eng.whitelist_with_names)])))
+  l.P("Whitelist:\n{}".format("\n".join([
+    a + (("  " + b) if len(b)>0 else "") for a,b in zip(*eng.whitelist_with_names)
+  ])))
   
   to_add = [
     "0xai_A-Bn9grkqH1GUMTZUqHNzpX5DA6PqducH9_JKAlBx6YL         nen-aid02",
@@ -28,4 +30,7 @@ if __name__ == '__main__':
   eng.add_address_to_allowed(to_add)
   
   
+  l.P("Whitelist:\n{}".format("\n".join([
+    a + (("  " + b) if len(b)>0 else "") for a,b in zip(*eng.whitelist_with_names)
+  ])))
   
