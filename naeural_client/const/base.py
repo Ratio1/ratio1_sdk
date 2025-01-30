@@ -16,6 +16,27 @@ DAUTH_ENV_KEY = 'EE_DAUTH_URL'
 DAUTH_NONCE = 'nonce'
 DAUTH_VARS = [DAUTH_NONCE, BCctbase.SIGN, BCctbase.SENDER, BCctbase.HASH]
 
+class dAuth:
+  DAUTH_SENDER_ALIAS = 'sender_alias'
+  DAUTH_SENDER_ALIAS_DEFAULT = 'direct-call'
+  DAUTH_SENDER_CORE_VER = 'sender_core_ver'
+  DAUTH_SENDER_SDK_VER = 'sender_sdk_ver'
+  DAUTH_SENDER_APP_VER = 'sender_app_ver'
+  
+  DAUTH_ENV_KEYS_PREFIX = 'EE_'
+  
+  DAUTH_ALIAS_UNK = 'unknown-alias'
+  DAUTH_ADDR_UNK =  'unknown-address'
+  
+  DAUTH_SERVER_ALIAS = 'server_alias'
+  
+  DAUTH_WHITELIST = 'whitelist'
+  
+  DAUTH_URL = DAUTH_URL
+  DAUTH_SUBKEY = DAUTH_SUBKEY
+  DAUTH_NONCE = DAUTH_NONCE
+  DAUTH_VARS = DAUTH_VARS
+
 ETH_ENABLED_ENV_KEY = 'EE_ETH_ENABLED'
 
 EE_EPOCH_INTERVALS_KEY = 'EE_EPOCH_INTERVALS'

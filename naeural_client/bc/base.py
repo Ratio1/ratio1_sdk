@@ -19,8 +19,9 @@ from ..utils.config import get_user_folder
 from ..const.base import (
   BCctbase, BCct, 
   DAUTH_SUBKEY, DAUTH_URL, DAUTH_ENV_KEY,
-  DAUTH_NONCE, DAUTH_VARS,
+  DAUTH_NONCE, DAUTH_VARS, dAuth,
 )
+
     
   
   
@@ -824,8 +825,9 @@ class BaseBlockEngine:
     str_data = json.dumps(dct_safe_data, **dumps_config)
     # we reload the data to ensure 
     dct_reload = json.loads(str_data)
-    # in order to ensure the data is sorted
-    str_data = json.dumps(dct_reload, sort_keys=True) 
+    # in order to ensure the data is sorted we dump it again to a string
+    # IMPORTANT: we need to use the same dumps_config as before !
+    str_data = json.dumps(dct_reload, sort_keys=True, **dumps_config) 
     return str_data
   
   def _create_new_sk(self):
@@ -1376,9 +1378,18 @@ class BaseBlockEngine:
 
 
   def dauth_autocomplete(self, dauth_endp=None, add_env=True, debug=False, max_tries=5, **kwargs):
+    from naeural_client._ver import __VER__ as sdk_version
+    try:
+      from ver import __VER__ as app_version
+    except:
+      app_version = None
+    try:
+      from naeural_core.main.ver import __VER__ as core_version
+    except:
+      core_version = None
+      
     MIN_LEN = 10
     dct_env = {}
-    dct_result = {}
     done = False
     tries = 0
     in_env = False
@@ -1405,26 +1416,52 @@ class BaseBlockEngine:
           to_send = {
             **kwargs,
             DAUTH_NONCE : str(uuid.uuid4())[:8],
+            dAuth.DAUTH_SENDER_APP_VER  : app_version,
+            dAuth.DAUTH_SENDER_SDK_VER  : sdk_version,
+            dAuth.DAUTH_SENDER_CORE_VER : core_version,
           }
           ######
           if len(kwargs) == 0:
-            to_send['sender_alias'] = 'direct-call'
+            to_send[dAuth.DAUTH_SENDER_ALIAS] = dAuth.DAUTH_SENDER_ALIAS_DEFAULT
           ######
           self.sign(to_send)          
           response = requests.post(url, json={'body' : to_send})
           if response.status_code == 200:
             dct_response = response.json()
-            server_alias = dct_response.get('result', {}).get('server_alias', 'unknown-alias')
-            server_addr = dct_response.get('result', {}).get('EE_SENDER', 'unknown-address')
+            server_alias = dct_response.get('result', {}).get(
+              dAuth.DAUTH_SERVER_ALIAS, dAuth.DAUTH_ALIAS_UNK
+            )
+            server_addr = dct_response.get('result', {}).get(
+              BCctbase.SENDER, dAuth.DAUTH_ADDR_UNK
+            )
             if debug:
               self.P(f"Response received from {server_alias} <{server_addr}>:\n {json.dumps(dct_response, indent=2)}")
             else:
               self.P(f"Response received from {server_alias} <{server_addr}>,")
-            dct_result = dct_response.get('result', {}).get(DAUTH_SUBKEY, {})
             error = dct_response.get('error', None)
             if error is not None:
               self.P(f"Error in dAuth response: {dct_response}", color='r')
-            dct_env = {k : v for k,v in dct_result.items() if k.startswith('EE_')}
+            dct_result = dct_response.get('result', {})
+            dct_dauth = dct_result.get(DAUTH_SUBKEY, {})
+            ver_result = self.verify(dct_result)
+            if ver_result.valid:
+              self.P(f"Signature from {server_alias} <{server_addr}> is valid.", color='g')
+            else:
+              self.P(f"Signature from {server_alias} <{server_addr}> is INVALID: {ver_result}", color='r')
+              return              
+
+            # whitelist
+            whitelist = dct_dauth.pop(dAuth.DAUTH_WHITELIST, [])
+            if isinstance(whitelist, (str, list)) and len(whitelist) > 0:
+              if isinstance(whitelist, str):
+                whitelist = [whitelist]
+              self.P(f"Found {len(whitelist)} whitelist addresses in dAuth response.", color='y')
+              self.add_address_to_allowed(whitelist)
+            else:
+              self.P(f"No whitelist addresses found in dAuth response.", color='d')
+            # end whitelist
+
+            dct_env = {k : v for k,v in dct_dauth.items() if k.startswith(dAuth.DAUTH_ENV_KEYS_PREFIX)}
             self.P("Found {} keys in dAuth response.".format(len(dct_env)), color='g')
             for k, v in dct_env.items():
               try:
@@ -1438,11 +1475,13 @@ class BaseBlockEngine:
                 self.P(f"  Overwrite  `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` in env.", color='y')
               if add_env:
                 os.environ[k] = v
+              #endif add to env
+            #endfor each key in dAuth response
             done = True
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')
         except Exception as exc:
-          self.P(f"Error in dAuth URL request: {exc}. Received: {dct_result}", color='r')          
+          self.P(f"Error in dAuth URL request: {exc}. Received: {dct_dauth}", color='r')          
         #end try
         tries += 1
         if tries >= max_tries:

@@ -249,14 +249,18 @@ class _JSONSerializationMixin(object):
         separators=separators, 
         **kwargs
       )
+    #endif replace_nan
     if sort_keys:
       # we dump the data to a string then we reload and sort as there might
       # be some issues with the sorting if we have int keys that will be sorted
       # then recovered as string keys
       return json.dumps(
         json.loads(temp), 
-        sort_keys=True, separators=separators, **kwargs
+        sort_keys=True, separators=separators, 
+        cls=NPJson if replace_nan else SimpleNPJson,
+        **kwargs
       )
+    # else we just return the temp
     return temp
     
 
