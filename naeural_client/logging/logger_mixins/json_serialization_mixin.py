@@ -233,21 +233,31 @@ class _JSONSerializationMixin(object):
       # need to replace directly in the received dict if `inplace=True`
       if inplace:
         data = _JSONSerializationMixin.replace_nan(dct, inplace=inplace)
-      return json.dumps(
+      
+      temp = json.dumps(
         data, 
         cls=NPJson, 
-        sort_keys=sort_keys, 
+        sort_keys=False, 
         separators=separators, 
         **kwargs
       )
     else:      
-      return json.dumps(
+      temp = json.dumps(
         data, 
         cls=SimpleNPJson, 
-        sort_keys=sort_keys, 
+        sort_keys=False, 
         separators=separators, 
         **kwargs
       )
+    if sort_keys:
+      # we dump the data to a string then we reload and sort as there might
+      # be some issues with the sorting if we have int keys that will be sorted
+      # then recovered as string keys
+      return json.dumps(
+        json.loads(temp), 
+        sort_keys=True, separators=separators, **kwargs
+      )
+    return temp
     
 
   @staticmethod

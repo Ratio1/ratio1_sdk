@@ -814,12 +814,18 @@ class BaseBlockEngine:
       dct_safe_data = dct_data
       
     dumps_config = dict(
-      sort_keys=True, 
       cls=_ComplexJsonEncoder, 
       separators=(',',':'),
       ensure_ascii=self.__ensure_ascii_payloads,
     )
+    # we dump the data to a string then we reload and sort as there might
+    # be some issues with the sorting if we have int keys that will be sorted
+    # then recovered as string keys
     str_data = json.dumps(dct_safe_data, **dumps_config)
+    # we reload the data to ensure 
+    dct_reload = json.loads(str_data)
+    # in order to ensure the data is sorted
+    str_data = json.dumps(dct_reload, sort_keys=True) 
     return str_data
   
   def _create_new_sk(self):
