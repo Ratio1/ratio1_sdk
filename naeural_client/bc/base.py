@@ -548,6 +548,7 @@ class BaseBlockEngine:
     """
     Adds a new address or a list of addresses to the allowed list
     """
+    changed = False
     if isinstance(address, str):
       address = [address]
     #endif
@@ -573,7 +574,6 @@ class BaseBlockEngine:
       if len(lst_addresses) > 0:
         existing_addrs, existing_names = self._load_and_maybe_create_allowed(return_names=True)
         existing_addrs = [self.maybe_add_prefix(x) for x in existing_addrs]
-        changed = False
         for addr, name in zip(lst_addresses, lst_names):
           if addr not in existing_addrs:
             changed = True
@@ -592,7 +592,7 @@ class BaseBlockEngine:
           #endwith lock
         #endif changed
       #endif addresses received ok
-    return existing_addrs
+    return changed
 
 
   def _load_and_maybe_create_allowed(self, return_names=False, return_prefix=False):
