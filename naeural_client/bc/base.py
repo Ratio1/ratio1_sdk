@@ -595,7 +595,7 @@ class BaseBlockEngine:
     return existing_addrs
 
 
-  def _load_and_maybe_create_allowed(self, return_names=False):
+  def _load_and_maybe_create_allowed(self, return_names=False, return_prefix=False):
     lst_final = []
     lst_names = []
     with self._whitelist_lock:
@@ -627,7 +627,7 @@ class BaseBlockEngine:
             )
             errors = True
           else:
-            lst_final.append(allowed)
+            lst_final.append(self.maybe_add_prefix(allowed))
             lst_lines.append(allowed_tuple)
             lst_names.append(name)
         if errors:
@@ -959,6 +959,13 @@ class BaseBlockEngine:
     """Returns the allowed command senders for the current node"""
     return self.allowed_list
   
+  @property
+  def whitelist_with_names(self):
+    """
+    Returns a tuple with the allowed list (prefixed) and a list with names
+    """
+    return self._load_and_maybe_create_allowed(return_names=True, return_prefix=True)
+
   
   def maybe_remove_prefix(self, address):
     """
