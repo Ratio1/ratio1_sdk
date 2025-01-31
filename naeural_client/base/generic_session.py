@@ -571,6 +571,11 @@ class GenericSession(BaseDecentrAIObject):
       """
       node_whitelist = dict_msg.get(PAYLOAD_DATA.NETMON_WHITELIST, [])
       node_secured = dict_msg.get(PAYLOAD_DATA.NETMON_NODE_SECURED, False)
+      node_online = dict_msg.get(PAYLOAD_DATA.NETMON_STATUS_KEY) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
+      node_alias = dict_msg.get(PAYLOAD_DATA.NETMON_EEID, None)
+      
+      if node_online:
+        self.__track_online_node(node_addr, node_alias)
       
       client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
       can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
@@ -758,7 +763,10 @@ class GenericSession(BaseDecentrAIObject):
               nr_peers = sum([v for k, v in self._dct_can_send_to_node.items()])
               if nr_peers > 0 and not self.__at_least_one_node_peered:                
                 self.__at_least_one_node_peered = True
-                self.P(f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", color='g')
+                self.P(
+                  f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
+                  color='g'
+                )
           # end for each node in network map
         # end if current_network is valid
       # end if NET_MON_01
@@ -1767,7 +1775,7 @@ class GenericSession(BaseDecentrAIObject):
           List of addresses of all the Naeural Edge Protocol edge nodes that are considered online
 
       """
-      return [k for k, v in self._dct_node_last_seen_time.items() if tm() - v < self.online_timeout]
+      return [k for k, v in self._dct_node_last_seen_time.items() if (tm() - v) < self.online_timeout]
 
     def get_allowed_nodes(self):
       """

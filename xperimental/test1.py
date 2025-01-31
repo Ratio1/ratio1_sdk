@@ -1,4 +1,4 @@
-from naeural_client import Session, CustomPluginTemplate
+from naeural_client import Session, CustomPluginTemplate, PLUGIN_TYPES
 
 
 
@@ -15,6 +15,7 @@ if __name__ == '__main__':
   app, _ = session.create_web_app(
     node=my_node,
     name="ratio1_simple_predict_webapp",
+    signature=PLUGIN_TYPES.CUSTOM_WEBAPI_01,
     endpoints=[
       {
         "function": run_predict,
@@ -22,13 +23,14 @@ if __name__ == '__main__':
       },        
     ]
   )
-  
-  url = app.deploy()
-  
-  print("Webapp deployed at: ", url)
+  try:
+    url = app.deploy()
+    print("Webapp deployed at: ", url)
+  except Exception as e:
+    print("Error deploying webapp: ", e)
   
   session.wait(
     close_pipeline_on_timeout=True,
     close_session_on_timeout=True,
-    timeout=60
+    seconds=60
   )
