@@ -22,6 +22,7 @@ class dAuth:
   DAUTH_SENDER_CORE_VER = 'sender_core_ver'
   DAUTH_SENDER_SDK_VER = 'sender_sdk_ver'
   DAUTH_SENDER_APP_VER = 'sender_app_ver'
+  DAUTH_REQUEST = 'request'
   
   DAUTH_ENV_KEYS_PREFIX = 'EE_'
   
@@ -36,6 +37,13 @@ class dAuth:
   DAUTH_SUBKEY = DAUTH_SUBKEY
   DAUTH_NONCE = DAUTH_NONCE
   DAUTH_VARS = DAUTH_VARS
+  
+  DAUTH_SERVER_INFO = 'server_info'
+  DAUTH_SENDER_TYPE = 'sender_type'
+  DAUTH_SENDER_TYPE_CORE = 'core'
+  DAUTH_SENDER_TYPE_SDK = 'sdk'
+  DAUTH_SENDER_TYPE_NODE = 'node'
+  DAUTH_SENDER_ETH = 'sender_eth_addr'
 
 ETH_ENABLED_ENV_KEY = 'EE_ETH_ENABLED'
 
