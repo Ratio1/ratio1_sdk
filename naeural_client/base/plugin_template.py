@@ -551,6 +551,40 @@ class CustomPluginTemplate:
     """
     raise NotImplementedError
 
+
+  def mlapi_timeseries_fit_predict(self, data, steps : int, **kwargs):
+    """
+    Takes a list of values and directly returns predictions using a basic AR model
+
+
+    Parameters
+    ----------
+    data : list
+      List of float values. Note there is a lower limit of 10 values per series.
+      
+    steps : int
+      Number of prediction steps.
+
+    Returns
+    -------
+    yh : list
+      the `steps` predicted values.
+
+
+    Example
+    -------
+      ```
+      yh = self.mlapi_timeseries_fit_predict(
+        data=[0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89], 
+        steps=3
+      )
+      result = {'preds' : yh}
+      ```
+
+    """
+    raise NotImplementedError
+    
+
   @property
   def bs4(self):
     """
