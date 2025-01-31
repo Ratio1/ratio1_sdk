@@ -573,8 +573,9 @@ class BaseBlockEngine:
         #endif
       #endfor
       if len(lst_addresses) > 0:
-        existing_addrs, existing_names = self._load_and_maybe_create_allowed(return_names=True)
-        existing_addrs = [self.maybe_add_prefix(x) for x in existing_addrs]
+        existing_addrs, existing_names = self._load_and_maybe_create_allowed(
+          return_names=True, return_prefix=True
+        )
         for addr, name in zip(lst_addresses, lst_names):
           if addr not in existing_addrs:
             changed = True
@@ -629,7 +630,9 @@ class BaseBlockEngine:
             )
             errors = True
           else:
-            lst_final.append(self.maybe_add_prefix(allowed))
+            if return_prefix:
+              allowed = self.maybe_add_prefix(allowed)
+            lst_final.append(allowed)
             lst_lines.append(allowed_tuple)
             lst_names.append(name)
         if errors:
@@ -960,8 +963,8 @@ class BaseBlockEngine:
   
   @property
   def allowed_list(self):
-    """Returns the allowed command senders for the current node"""
-    return self._load_and_maybe_create_allowed()
+    """Returns the allowed command senders (non-prefixed) for the current node"""
+    return self._load_and_maybe_create_allowed(return_names=False, return_prefix=False)
   
   @property
   def whitelist(self):
