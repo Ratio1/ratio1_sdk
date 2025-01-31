@@ -109,6 +109,8 @@ class WebappPipeline(Pipeline):
     while self.ngrok_url is None:
       elapsed = time.time() - start
       if elapsed > timeout:
-        raise Exception("Timeout waiting for ngrok url")
+        msg = "Timeout waiting for ngrok url"
+        self.P(msg, color="red")
+        raise Exception(msg)
     # return the ngrok url
     return self.ngrok_url

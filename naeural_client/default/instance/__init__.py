@@ -14,3 +14,8 @@ class PLUGIN_TYPES:
   CUSTOM_WEBAPI_01 = CustomWebapi01
   CHAIN_DIST_CUSTOM_JOB_01 = ChainDistCustomJob01
   TELEGRAM_BASIC_BOT_01 = BasicTelegramBot01
+  
+  
+REVERSE_MAP = {
+  x.signature: x for x in PLUGIN_TYPES.__dict__.values() if hasattr(x, "signature")
+}

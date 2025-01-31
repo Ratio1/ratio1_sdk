@@ -139,6 +139,10 @@ def reset_config(*larg, keep_existing=False, **kwargs):
       if not keep_existing:
         target_pem.unlink()        
         log_with_color(f"Deleted {target_pem}. A default key will be generated.", color='b')
+      #end if
+    #endif pem exists
+  #end if local pem exists
+  show_version()
   return
 
 def show_address(args):

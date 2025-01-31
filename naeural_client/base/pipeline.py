@@ -870,8 +870,11 @@ class Pipeline(BaseCodeChecker):
       Exception
           Plugin instance already exists. 
       """
+      from naeural_client.default.instance import REVERSE_MAP
+      
       if isinstance(signature, str):
         str_signature = signature.upper()
+        signature = REVERSE_MAP.get(str_signature, str_signature)
       else:
         plugin_template = signature
         str_signature = plugin_template.signature.upper()
@@ -1079,7 +1082,8 @@ class Pipeline(BaseCodeChecker):
         self.__apply_staged_config(verbose=verbose)
         self.__apply_staged_instances_config(verbose=verbose)
 
-      self.P("Pipeline <{}> deployed".format(self.name), color="g")
+      # TODO: must add "deployed" message to proper location
+      self.P("Pipeline <{}> deploy initiated...".format(self.name))
 
       if with_confirmation and not wait_confirmation:
         return transactions
@@ -1222,11 +1226,12 @@ class Pipeline(BaseCodeChecker):
       Exception
           The pipeline does not contain the desired instance.
       """
-
+      from naeural_client.default.instance import REVERSE_MAP
       # search for the instance in the list
       plugin_template = None
       if isinstance(signature, str):
         str_signature = signature.upper()
+        signature = REVERSE_MAP.get(str_signature, str_signature)
       else:
         plugin_template = signature
         str_signature = plugin_template.signature.upper()

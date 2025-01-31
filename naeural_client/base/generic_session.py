@@ -571,6 +571,11 @@ class GenericSession(BaseDecentrAIObject):
       """
       node_whitelist = dict_msg.get(PAYLOAD_DATA.NETMON_WHITELIST, [])
       node_secured = dict_msg.get(PAYLOAD_DATA.NETMON_NODE_SECURED, False)
+      node_online = dict_msg.get(PAYLOAD_DATA.NETMON_STATUS_KEY) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
+      node_alias = dict_msg.get(PAYLOAD_DATA.NETMON_EEID, None)
+      
+      if node_online:
+        self.__track_online_node(node_addr, node_alias)
       
       client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
       can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
@@ -758,7 +763,10 @@ class GenericSession(BaseDecentrAIObject):
               nr_peers = sum([v for k, v in self._dct_can_send_to_node.items()])
               if nr_peers > 0 and not self.__at_least_one_node_peered:                
                 self.__at_least_one_node_peered = True
-                self.P(f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", color='g')
+                self.P(
+                  f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
+                  color='g'
+                )
           # end for each node in network map
         # end if current_network is valid
       # end if NET_MON_01
@@ -912,7 +920,15 @@ class GenericSession(BaseDecentrAIObject):
       self.__running_main_loop_thread = True
       self._main_loop_thread.start()
       
-      # we could wait here for `self.__at_least_one_node_peered` but is not a good idea
+      start_wait = tm()
+      while not self.__at_least_a_netmon_received:
+        if (tm() - start_wait) > self.START_TIMEOUT:
+          msg = "Timeout waiting for NET_MON_01 message. No connections. Exiting..."
+          self.P(msg, color='r', show=True)
+          break
+        sleep(0.1)
+      if self.__at_least_a_netmon_received:
+        self.P("Received at least one NET_MON_01 message. Resuming the main thread...", color='g')
       return
 
     def __handle_open_transactions(self):
@@ -1061,11 +1077,6 @@ class GenericSession(BaseDecentrAIObject):
         self.__maybe_reconnect()
         self.__handle_open_transactions()
         sleep(0.1)
-        if not self.__at_least_a_netmon_received:
-          if (tm() - self.__start_main_loop_time) > self.START_TIMEOUT:
-            msg = "Timeout waiting for NET_MON_01 message. Exiting..."
-            self.P(msg, color='r', show=True)
-            break        
       # end while self.running
 
       self.P("Main loop thread exiting...", verbosity=2)
@@ -1107,6 +1118,7 @@ class GenericSession(BaseDecentrAIObject):
           bool_loop_condition = isinstance(wait, bool) and wait
           number_loop_condition = isinstance(wait, (int, float)) and (wait == 0 or (tm() - _start_timer) < wait)
           callable_loop_condition = callable(wait) and wait()
+        self.P("Exiting loop...", verbosity=2)
       except KeyboardInterrupt:
         self.P("CTRL+C detected. Stopping loop.", color='r', verbosity=1)
 
@@ -1139,6 +1151,7 @@ class GenericSession(BaseDecentrAIObject):
           bool_loop_condition = isinstance(wait, bool) and wait
           number_loop_condition = isinstance(wait, (int, float)) and (wait == 0 or (tm() - _start_timer) < wait)
           callable_loop_condition = callable(wait) and wait()
+        self.P("Exiting loop...", verbosity=2)
       except KeyboardInterrupt:
         self.P("CTRL+C detected. Stopping loop.", color='r', verbosity=1)
         
@@ -1762,7 +1775,7 @@ class GenericSession(BaseDecentrAIObject):
           List of addresses of all the Naeural Edge Protocol edge nodes that are considered online
 
       """
-      return [k for k, v in self._dct_node_last_seen_time.items() if tm() - v < self.online_timeout]
+      return [k for k, v in self._dct_node_last_seen_time.items() if (tm() - v) < self.online_timeout]
 
     def get_allowed_nodes(self):
       """
@@ -2171,7 +2184,7 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name,
-      signature,
+      signature=PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01,
       ngrok_edge_label=None,
       endpoints=None,
       use_ngrok=True,
