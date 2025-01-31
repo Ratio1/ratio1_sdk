@@ -944,7 +944,7 @@ class BaseBlockEngine:
       True if the current address is in the list.
 
     """
-    lst = [self._remove_prefix(x) for x in lst_addresses]
+    lst = [self._remove_prefix(x) for x in lst_addresses if x is not None]
     return self.address_no_prefix in lst
   
   @property
