@@ -2183,12 +2183,14 @@ class GenericSession(BaseDecentrAIObject):
       self,
       *,
       node,
-      name,
+      name="Ratio1 Web App",
       signature=PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01,
       ngrok_edge_label=None,
       endpoints=None,
       use_ngrok=True,
       extra_debug=False,
+      summary="Ratio1 WebApp created via SDK",
+      description=None,
       **kwargs
     ):
       """
@@ -2216,10 +2218,12 @@ class GenericSession(BaseDecentrAIObject):
       """
 
       ngrok_use_api = True
+      
+      pipeline_name = name.replace(" ", "_").lower()
 
       pipeline: WebappPipeline = self.create_pipeline(
         node=node,
-        name=name,
+        name=pipeline_name,
         pipeline_type=WebappPipeline,
         extra_debug=extra_debug,
         # default TYPE is "Void"
@@ -2231,6 +2235,9 @@ class GenericSession(BaseDecentrAIObject):
         use_ngrok=use_ngrok,
         ngrok_edge_label=ngrok_edge_label,
         ngrok_use_api=ngrok_use_api,
+        api_title=name,
+        api_summary=summary,
+        api_description=description,
         **kwargs
       )
       
