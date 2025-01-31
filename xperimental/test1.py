@@ -15,7 +15,6 @@ if __name__ == '__main__':
   app, _ = session.create_web_app(
     node=my_node,
     name="ratio1_simple_predict_webapp",
-    signature=PLUGIN_TYPES.CUSTOM_WEBAPI_01,
     endpoints=[
       {
         "function": run_predict,
