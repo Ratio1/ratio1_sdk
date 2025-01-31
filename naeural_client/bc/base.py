@@ -1377,7 +1377,14 @@ class BaseBlockEngine:
   ### end Ethereum
 
 
-  def dauth_autocomplete(self, dauth_endp=None, add_env=True, debug=False, max_tries=5, **kwargs):
+  def dauth_autocomplete(
+    self, 
+    dauth_endp=None, 
+    add_env=True, 
+    debug=False, 
+    max_tries=5, 
+    **kwargs
+  ):
     from naeural_client._ver import __VER__ as sdk_version
     try:
       from ver import __VER__ as app_version
@@ -1394,6 +1401,7 @@ class BaseBlockEngine:
     tries = 0
     in_env = False
     url = dauth_endp
+    dct_response = {}
     
     if not isinstance(url, str) or len(url) < MIN_LEN:
       if isinstance(DAUTH_URL, str) and len(DAUTH_URL) > 0:
@@ -1428,10 +1436,12 @@ class BaseBlockEngine:
           response = requests.post(url, json={'body' : to_send})
           if response.status_code == 200:
             dct_response = response.json()
-            server_alias = dct_response.get('result', {}).get(
+            dct_result = dct_response.get('result', {}) or {}
+            dct_dauth = dct_result.get(DAUTH_SUBKEY, {}) or {}
+            server_alias = dct_result.get(
               dAuth.DAUTH_SERVER_ALIAS, dAuth.DAUTH_ALIAS_UNK
             )
-            server_addr = dct_response.get('result', {}).get(
+            server_addr = dct_result.get(
               BCctbase.SENDER, dAuth.DAUTH_ADDR_UNK
             )
             if debug:
@@ -1441,8 +1451,6 @@ class BaseBlockEngine:
             error = dct_response.get('error', None)
             if error is not None:
               self.P(f"Error in dAuth response: {dct_response}", color='r')
-            dct_result = dct_response.get('result', {})
-            dct_dauth = dct_result.get(DAUTH_SUBKEY, {})
             ver_result = self.verify(dct_result)
             if ver_result.valid:
               self.P(f"Signature from {server_alias} <{server_addr}> is valid.", color='g')
@@ -1481,7 +1489,7 @@ class BaseBlockEngine:
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')
         except Exception as exc:
-          self.P(f"Error in dAuth URL request: {exc}. Received: {dct_dauth}", color='r')          
+          self.P(f"Error in dAuth URL request: {exc}. Received: {dct_response}", color='r')          
         #end try
         tries += 1
         if tries >= max_tries:
