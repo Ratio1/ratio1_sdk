@@ -46,6 +46,8 @@ class MessageHandler:
     node_alias = heartbeat[PAYLOAD_DATA.EE_ID]
     short_addr = self.shorten_address(node_addr)
     cpu = heartbeat[HEARTBEAT_DATA.CPU]
+    if node_alias.startswith("mnoderunner"):
+      self.hb = heartbeat
     session.P(f"{node_alias} <{short_addr}> has a {cpu}", color='magenta')
     return
 
@@ -71,3 +73,4 @@ if __name__ == '__main__':
   session.P("Closing session...", color='m')
   session.close()
   session.P("Main thread exiting...", color='m')
+  print(json.dumps(filterer.hb, indent=2))
