@@ -1299,7 +1299,7 @@ class BaseLogger(object):
         fn = self.get_data_file(f)
         self.P("Found additional config in '{}'".format(fn))
         dct_config = json.load(open(fn), object_pairs_hook=OrderedDict)
-        self.replace_secrets(dct_config)
+        self.replace_secrets(dct_config, allow_missing=True)
         additional_configs.append(dct_config)
 
     if len(additional_configs) > 0:
@@ -1687,8 +1687,11 @@ class BaseLogger(object):
   def now_str_fmt(fmt=None):
     if fmt is None:
       fmt = '%Y-%m-%d %H:%M:%S.%f'
-
     return dt.now().strftime(fmt)
+  
+  @staticmethod
+  def str_to_bool(s):
+    return str(s).lower() in ['true', 't', 'yes', 'y', '1', 'on']
 
   def get_error_info(self, return_err_val=False):
     """

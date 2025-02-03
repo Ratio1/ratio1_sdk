@@ -947,8 +947,29 @@ class BaseBlockEngine:
       True if the current address is in the list.
 
     """
+    return self.address_in_list(self.address, lst_addresses)
+  
+  def address_in_list(self, node_address, lst_addresses):
+    """
+    Checks if the address is in the list of addresses
+
+    Parameters
+    ----------
+    node_address : str
+      the address.
+      
+    lst_addresses : list
+      the list of addresses.
+
+    Returns
+    -------
+    bool
+      True if the address is in the list.
+
+    """
+    node_address = self._remove_prefix(node_address)
     lst = [self._remove_prefix(x) for x in lst_addresses if x is not None]
-    return self.address_no_prefix in lst
+    return node_address in lst
   
   @property
   def address(self):
@@ -977,6 +998,14 @@ class BaseBlockEngine:
     Returns a tuple with the allowed list (prefixed) and a list with names
     """
     return self._load_and_maybe_create_allowed(return_names=True, return_prefix=True)
+  
+  
+  @property
+  def whitelist_with_prefixes(self):
+    """
+    Returns the allowed command senders (prefixed) for the current node
+    """
+    return self._load_and_maybe_create_allowed(return_names=False, return_prefix=True)
 
   
   def maybe_remove_prefix(self, address):

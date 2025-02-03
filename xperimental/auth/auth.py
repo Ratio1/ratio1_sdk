@@ -16,7 +16,7 @@ if __name__ == '__main__' :
       }
   )
   
-  for _ in range(2):
+  for _ in range(4):
     d = eng1.dauth_autocomplete(
       add_env=False,
       debug=True,

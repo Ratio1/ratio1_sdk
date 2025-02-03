@@ -138,7 +138,8 @@ class _JSONSerializationMixin(object):
                 verbose=True, 
                 subfolder_path=None, 
                 locking=True,
-                replace_environment_secrets=None,                
+                replace_environment_secrets=None,     
+                allow_missing_secrets=True,        
                 ):
     assert folder in [None, 'data', 'output', 'models']
     lfld = self.get_target_folder(target=folder)
@@ -174,7 +175,10 @@ class _JSONSerializationMixin(object):
           data = None
       # endwith conditional lock
       if isinstance(replace_environment_secrets, str) and len(replace_environment_secrets) > 0:
-        matches = self.replace_secrets(data)
+        matches = self.replace_secrets(
+          dct_config=data, 
+          pattern=replace_environment_secrets, allow_missing=allow_missing_secrets
+        )
         if matches is not None and len(matches) > 0:
           self.P("  JSON modified with following env vars: {}".format(matches))
       return data

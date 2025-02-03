@@ -5,8 +5,21 @@ def run_predict(plugin: CustomPluginTemplate, inputs: list[int], nr_steps: int) 
   Here we use the Ratio1 build in basic ML internal API
   """
   preds = plugin.basic_ts_fit_predict(inputs, nr_steps)
-  
-  return preds
+  # now we apply some simple heuristic to get the lower and upper bounds
+  lower_bound = []
+  upper_bound = []
+  heuristic_factor = 0.1
+  for pred in preds:
+    lower_bound.append(int(pred - abs(pred * heuristic_factor)))
+    upper_bound.append(int(pred + abs(pred * heuristic_factor)))
+  #endfor
+  result = {
+    "predictions": [round(x,1) for x in preds],
+    "lower_bound": lower_bound,
+    "upper_bound": upper_bound
+  }
+  return result
+
 
 if __name__ == '__main__':
   
@@ -32,5 +45,5 @@ if __name__ == '__main__':
   session.wait(
     close_pipeline_on_timeout=True,
     close_session_on_timeout=True,
-    seconds=180
+    seconds=300
   )
