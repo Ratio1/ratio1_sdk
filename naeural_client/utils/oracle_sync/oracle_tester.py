@@ -575,7 +575,7 @@ def handle_command_results(res):
 def oracle_tester_init(silent=True, **kwargs):
   log = Logger(
     "R1CTL",
-    base_folder=get_user_folder(),
+    base_folder=str(get_user_folder()),
     app_folder="_local_cache",
     silent=silent
   )
