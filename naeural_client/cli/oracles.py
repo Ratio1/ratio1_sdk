@@ -95,26 +95,10 @@ TODO: (future)
   - check ETH signature of the oracle data
 
 """
-import requests
 
 from naeural_client.utils.config import log_with_color
-from naeural_client import Logger
-from naeural_client.bc import DefaultBlockEngine
-from naeural_client.utils.oracle_sync.multiple_requests import oracle_tester_init, handle_command_results
+from naeural_client.utils.oracle_sync.oracle_tester import oracle_tester_init, handle_command_results
 
-"""
-TODOs:
-  - test NEPCTL command in CLI too
-  - check ETH signature of the oracle data
-"""
-
-
-def _check_response(data):
-  res = True
-  log = Logger("NEPCTL", base_folder=".", app_folder="_local_cache", silent=True)
-  bc = DefaultBlockEngine(name='test', log=log)
-  print(bc.address)
-  return res
 
 def get_availability(args):
   """

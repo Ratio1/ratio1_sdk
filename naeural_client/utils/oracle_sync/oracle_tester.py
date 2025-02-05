@@ -10,7 +10,8 @@ from collections import defaultdict
 
 from naeural_client import Logger
 from naeural_client.bc import DefaultBlockEngine
-from naeural_client.utils.config import log_with_color
+from naeural_client.utils.config import log_with_color, get_user_folder
+
 
 
 class OracleTesterConstants:
@@ -23,6 +24,7 @@ class OracleTesterConstants:
   MAX_REQUEST_ROUNDS = 10
   FREQUENCY = "frequency"
   ORACLE_DATA = "oracle_data"
+  DEFAULT_MIN_CERTAINTY_PRC = 0.98
 
 
 ct = OracleTesterConstants
@@ -115,8 +117,10 @@ class OracleTester:
       """
       epoch_ids = result.get("epochs")
       epoch_vals = result.get("epochs_vals")
-      dict_certainty = result.get("oracle", {}).get("manager", {}).get("certainty", {})
-      is_valid = result.get("oracle", {}).get("manager", {}).get("valid", False)
+      manager_data = result.get("oracle", {}).get("manager", {})
+      dict_certainty = manager_data.get("certainty", {})
+      is_valid = manager_data.get("valid", False)
+      min_certainty_prc = manager_data.get("supervisor_min_avail_prc", ct.DEFAULT_MIN_CERTAINTY_PRC)
 
       current_epochs, current_avails, current_cert = [], [], []
       for epoch_id, epoch_val in zip(epoch_ids, epoch_vals):
@@ -124,7 +128,7 @@ class OracleTester:
         current_avails.append(epoch_val)
         current_cert.append(dict_certainty.get(str(epoch_id), 0))
       # endfor epochs
-      return current_epochs, current_avails, current_cert, is_valid
+      return current_epochs, current_avails, current_cert, is_valid, min_certainty_prc
 
     def handle_server_data(
         self, oracle_stats_dict: dict,
@@ -156,11 +160,13 @@ class OracleTester:
         }
       # endif first time for this sender
       current_stats = oracle_stats_dict[sender]
-      current_epochs, current_avails, current_certs, is_valid = self.compute_epochs_availability_and_certainty(result)
+      # TODO: maybe automate this (have only the list of keys to go through).
+      current_epochs, current_avails, current_certs, is_valid, min_certainty_prc = self.compute_epochs_availability_and_certainty(result)
       stats_epochs = current_stats.get("epochs", None)
       stats_avails = current_stats.get("avails", None)
       stats_certs = current_stats.get("certs", None)
       stats_is_valid = current_stats.get("is_valid", None)
+      stats_min_certainty_prc = current_stats.get("min_certainty_prc", None)
       mismatches = []
       if stats_epochs is not None and current_epochs != stats_epochs:
         mismatches.append(f"epochs: {current_epochs} != {stats_epochs}")
@@ -173,6 +179,9 @@ class OracleTester:
       # endif check for mismatch
       if stats_is_valid is not None and is_valid != stats_is_valid:
         mismatches.append(f"validity: {is_valid} != {stats_is_valid}")
+      # endif check for mismatch
+      if stats_min_certainty_prc is not None and min_certainty_prc != stats_min_certainty_prc:
+        mismatches.append(f"min_certainty_prc: {min_certainty_prc} != {stats_min_certainty_prc}")
       # endif check for mismatch
 
       if len(mismatches) > 0:
@@ -187,6 +196,8 @@ class OracleTester:
           current_stats["certs"] = current_certs
         if stats_is_valid is None:
           current_stats["is_valid"] = is_valid
+        if stats_min_certainty_prc is None:
+          current_stats["min_certainty_prc"] = min_certainty_prc
       # endif valid data received
       return
 
@@ -296,6 +307,78 @@ class OracleTester:
       time.sleep(self.interval_seconds)
     # endwhile
     self.P(f'Finished gathering data for {len(nodes)} nodes and {self.max_request_rounds}.')
+    return responses, stats_dict
+
+  def gather_and_compare(self, nodes, request_kwargs=None, debug=False, rounds=None):
+    """
+    Gather data from the oracle server for the given nodes and compare the results between oracles.
+
+    Parameters
+    ----------
+    nodes : list[dict] or list[str]
+        The list of nodes for which to gather data. Each node can be a dictionary containing the
+        address, eth_address, and alias of the node or a string containing the eth_address of the node.
+        Either way, the eth_address is required.
+    request_kwargs : dict
+        The request kwargs to be used for the request. Default None.
+    debug : bool
+        Whether to enable debug mode or not. If enabled the function will exit after one request round.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the responses and the stats dictionary.
+    """
+    responses, stats_dict = self.gather(
+      nodes=nodes,
+      request_kwargs=request_kwargs,
+      debug=debug,
+      rounds=rounds
+    )
+    # Statistics for each node of each epoch
+    epochs_nodes_stats = {}
+    # Statistics for each epoch of each node
+    nodes_epochs_stats = {}
+    for node_eth_addr, node_data in stats_dict.items():
+      oracle_data = node_data.get(ct.ORACLE_DATA, {})
+      errors = oracle_data.get("errors", [])
+      if len(errors) > 0:
+        self.P(f'#######################{node_eth_addr} errors########################')
+        self.P(f"Errors for {node_eth_addr}:\n" + '\n'.join(errors), color='r')
+        self.P(f'#######################{node_eth_addr} errors########################')
+      # endif
+
+      if node_eth_addr not in nodes_epochs_stats:
+        # This check should not be necessary, but just in case
+        nodes_epochs_stats[node_eth_addr] = {}
+      # endif first time for this node
+
+      epochs_stats = nodes_epochs_stats[node_eth_addr]
+      epochs = oracle_data.get("epochs", []),
+      avails = oracle_data.get("avails", []),
+      certs = oracle_data.get("certs", [])
+      min_certainty_prc = oracle_data.get("stats_min_certainty_prc", ct.DEFAULT_MIN_CERTAINTY_PRC)
+      for epoch, avail, cert in zip(epochs, avails, certs):
+        if epoch not in epochs_nodes_stats:
+          epochs_nodes_stats[epoch] = {}
+        # endif epoch not in stats
+        if epoch not in epochs_stats:
+          epochs_stats[epoch] = {}
+        # endif epoch not in stats
+        node_stats = epochs_nodes_stats[epoch]
+
+        if cert >= min_certainty_prc:
+          if avail not in epochs_stats[epoch]:
+            epochs_stats[epoch][avail] = set()
+          if avail not in node_stats:
+            node_stats[avail] = set()
+          # endif first time encountering this availability
+          epochs_stats[epoch][avail].add(node_eth_addr)
+          node_stats[avail].add(node_eth_addr)
+        # endif valid data
+      # endfor each epoch
+
+
     return responses, stats_dict
 
   def get_current_epoch(self):
@@ -490,8 +573,14 @@ def handle_command_results(res):
   return
 
 def oracle_tester_init(silent=True, **kwargs):
-  log = Logger("R1CTL", base_folder=".", app_folder="_local_cache", silent=silent)
+  log = Logger(
+    "R1CTL",
+    base_folder=get_user_folder(),
+    app_folder="_local_cache",
+    silent=silent
+  )
   bc = DefaultBlockEngine(name='R1CTL', log=log)
+
   tester = OracleTester(
     bce=bc,
     log=log,
@@ -519,6 +608,40 @@ def test_commands():
   tester.P(f'Test debug mode: Epochs {start} to {end}', show=True)
   res = tester.execute_command(node_eth_addr=node_eth_addr, start=80, end=85, debug=True)
   handle_command_results(res)
+  return
+
+def oracle_check(N=10):
+  import random
+  random.seed(42)
+
+  tester = oracle_tester_init(
+    silent=True,
+    interval_seconds=0.2,
+  )
+  current_epoch = tester.get_current_epoch()
+  if current_epoch is None:
+    current_epoch = 100
+  nodes = tester.get_active_nodes()
+  rounds = 5
+  max_epochs = 10
+  max_nodes = 5
+
+  nodes = nodes[:max_nodes]
+  for i in range(N):
+    start = random.randint(1, current_epoch - 1)
+    end = random.randint(start, current_epoch - 1)
+    end = min(end, start + max_epochs - 1)
+
+    tester.P(f'Test {i + 1}/{N}: Epochs {start} to {end} with {rounds} rounds:', show=True)
+    tester.gather_and_compare(
+      nodes=nodes,
+      request_kwargs={
+        "start_epoch": start,
+        "end_epoch": end
+      },
+    )
+    tester.P(f'Finished test {i + 1}/{N}', show=True)
+  # endfor each test
   return
 
 def oracle_test(N=10):
