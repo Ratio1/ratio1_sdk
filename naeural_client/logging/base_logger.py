@@ -460,20 +460,37 @@ class BaseLogger(object):
     import platform
     import subprocess
     import re
+    import multiprocessing
     str_system = platform.system()
     if str_system == "Windows":
       self.processor_platform = platform.processor()
+      
     elif str_system == "Darwin":
       os.environ['PATH'] = os.environ['PATH'] + os.pathsep + '/usr/sbin'
       command ="sysctl -n machdep.cpu.brand_string"
       self.processor_platform = subprocess.check_output(command, shell=True).strip().decode('utf-8')
+      
     elif str_system == "Linux":
       command = "cat /proc/cpuinfo"
       all_info = subprocess.check_output(command, shell=True).decode().strip()
+      proc_platform = None
       for line in all_info.split("\n"):
         if "model name" in line:
-          self.processor_platform = re.sub( ".*model name.*:", "", line,1)    
+          proc_platform = re.sub( ".*model name.*:", "", line,1)    
           break
+      if proc_platform is None:
+        cores = multiprocessing.cpu_count()
+        proc_platform = "Unknown"
+        try:
+          lscpu_out = subprocess.check_output("lscpu", shell=True).decode().strip()
+          match_vendor = re.search(r"Vendor ID:\s+(.*)", lscpu_out)
+          if match_vendor:
+            proc_platform = match_vendor.group(1)
+        except:
+          pass          
+        proc_platform = f"{proc_platform} {cores} cores"
+      #endif no model name
+      self.processor_platform = proc_platform
     return
   
   def get_processor_platform(self):
