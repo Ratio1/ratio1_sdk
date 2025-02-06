@@ -20,8 +20,8 @@ from ..utils.config import get_user_folder
 
 from ..const.base import (
   BCctbase, BCct, 
-  DAUTH_SUBKEY, DAUTH_URL, DAUTH_ENV_KEY,
-  DAUTH_NONCE, DAUTH_VARS, dAuth,
+  DAUTH_SUBKEY, DAUTH_ENV_KEY,
+  DAUTH_NONCE, dAuth,
 )
 
     
@@ -1488,7 +1488,8 @@ class BaseBlockEngine:
     dauth_endp=None, 
     add_env=True, 
     debug=False, 
-    max_tries=5, 
+    max_tries=5,
+    network=None,
     **kwargs
   ):
     from naeural_client._ver import __VER__ as sdk_version
@@ -1509,14 +1510,20 @@ class BaseBlockEngine:
     url = dauth_endp
     dct_response = {}
     
+    if network is None:
+      network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+    
     if not isinstance(url, str) or len(url) < MIN_LEN:
-      if isinstance(DAUTH_URL, str) and len(DAUTH_URL) > 0:
-        url = DAUTH_URL
-
       if DAUTH_ENV_KEY in os.environ:
         in_env = True
         url = os.environ[DAUTH_ENV_KEY]
-    
+      else:
+        if network == 'mainnet':
+          url = dAuth.DAUTH_MAINNET_URL
+        else:
+          url = dAuth.DAUTH_TESTNET_URL
+      #endif not in env
+      
     if isinstance(url, str) and len(url) > 0:
       if dauth_endp is None:
         if in_env:

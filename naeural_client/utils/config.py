@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import shutil
 
-from naeural_client.const.base import BCct
+from naeural_client.const.base import BCct, dAuth
 from naeural_client._ver import __VER__ as version
 
 
@@ -14,7 +14,7 @@ ENV_TEMPLATE = """
 # Configuration file for the Ratio1 SDK
 
 EE_EVM_NET=testnet
-TARGET_NODE=
+EE_TARGET_NODE=
 
 """
 
@@ -89,6 +89,33 @@ def get_user_config_file():
   """
   return get_user_folder() / CONFIG_FILE
 
+
+def get_network():
+  return os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+
+def get_set_network(args):
+  net = args.new
+  env_network = get_network()
+  if net is None:
+    log_with_color(f"Current network: {env_network}", color='b')
+  else:
+    config_file = get_user_config_file()
+    # open config_file and update EE_EVM_NET
+    with config_file.open("r") as file:
+      lines = file.readlines()
+    with config_file.open("w") as file:
+      found = False
+      for line in lines:
+        if line.startswith("EE_EVM_NET"):
+          line = f"EE_EVM_NET={net}\n"
+          found = True
+        file.write(line)
+      if not found:
+        file.write(f"EE_EVM_NET={net}\n")
+    log_with_color(f"Network set to {net}", color='b')
+  return
+  
+
 def reset_config(*larg, keep_existing=False, **kwargs):
   """
   Resets the configuration by creating a ~/.naeural folder and populating
@@ -160,8 +187,9 @@ def show_version():
   
   user_folder = get_user_folder()  
 
-  log_with_color(f"NEP SDK folder: {user_folder}", color='b')
-  log_with_color(f"NEP SDK version: {version}", color='b')
+  log_with_color(f"Ratio1 selected network: {get_network()}", color='b')
+  log_with_color(f"SDK folder: {user_folder}", color='b')
+  log_with_color(f"SDK version: {version}", color='b')
   log_with_color(f"SDK Client address: {sess.get_client_address()}", color='b')
   return
   
@@ -177,6 +205,10 @@ def show_config(args):
       log_with_color(f"Current configuration ({config_file}):\n{file.read()}", color='d')
   else:
     log_with_color(f"No configuration found at {config_file}. Please run `reset_config` first.", color="r")
+  log_with_color("Current environment variables:", color='b')
+  for k in os.environ:
+    if k.startswith("EE_"):
+      log_with_color(f"{k}={os.environ[k]}", color='b')
   return
     
 
@@ -186,7 +218,7 @@ def load_user_defined_config(verbose=False):
   """
   config_file = get_user_config_file()
   result = False
-
+  loaded_keys = []
   if config_file.exists():
     with config_file.open("r") as file:
       for line in file:
@@ -198,8 +230,9 @@ def load_user_defined_config(verbose=False):
           if value != "":
             result = True
           os.environ[key.strip()] = value
+          loaded_keys.append(key.strip())
     if verbose:
-      log_with_color(f"Configuration from {config_file} has been loaded into the environment.", color='b')
+      log_with_color(f"{config_file} loaded into the env: {loaded_keys}", color='b')
   else:
     if verbose:
       log_with_color(f"No configuration file found at {config_file}. Please run `reset_config` first.", color="r")
