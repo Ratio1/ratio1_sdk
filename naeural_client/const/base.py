@@ -53,8 +53,11 @@ _DAUTH_ABI_GET_SIGNERS = [{
 
 
 class dAuth:
-  DAUTH_TESTNET_ND_ADDR = '0x9aB4e425c7dFFC7Aa1A7a262727b0b663e047571'
+  DAUTH_TESTNET_ND_ADDR = '0xE20198EE2B76eED916A568a47cdea9681f7c79BF'
   DAUTH_MAINNET_ND_ADDR = ''
+  
+  DAUTH_NET_ENV_KEY = 'EE_EVM_NET'
+  DAUTH_SDK_NET_DEFAULT = 'testnet'
   
   DAUTH_MAINNET_RPC = 'https://base-mainnet.public.blastapi.io'
   DAUTH_TESTNET_RPC = 'https://base-sepolia.public.blastapi.io'

@@ -1409,7 +1409,7 @@ class BaseBlockEngine:
 
   
   @staticmethod
-  def web3_is_node_licensed(address : str, network='mainnet') -> bool:
+  def web3_is_node_licensed(address : str, network=None) -> bool:
     """
     Check if the address is allowed to send commands to the node
 
@@ -1418,6 +1418,9 @@ class BaseBlockEngine:
     address : str
       the address to check.
     """
+    if network is None:
+      network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+
     assert network.lower() in ['mainnet', 'testnet'], f"Invalid network {network}"
     
     assert BaseBlockEngine.is_valid_eth_address(address), "Invalid Ethereum address"
@@ -1439,14 +1442,14 @@ class BaseBlockEngine:
     return result
 
 
-  def web3_get_oracles(self, network='mainnet') -> list:
+  def web3_get_oracles(self, network=None) -> list:
     """
     Get the list of oracles from the contract
 
     Parameters
     ----------
     network : str, optional
-      the network to use. The default is 'mainnet'.
+      the network to use. The default is None.
 
     Returns
     -------
@@ -1454,6 +1457,9 @@ class BaseBlockEngine:
       the list of oracles addresses.
 
     """
+    if network is None:
+      network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+
     assert network.lower() in ['mainnet', 'testnet'], f"Invalid network {network}"
     
     if network.lower() == 'mainnet':
