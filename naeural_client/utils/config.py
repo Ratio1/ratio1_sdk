@@ -11,15 +11,11 @@ SDK_HOME = ".naeural"
 LOCAL_PEM_PATH = "./_local_cache/_data/" + BCct.DEFAULT_PEM_FILE
 
 ENV_TEMPLATE = """
+# Configuration file for the Ratio1 SDK
 
-EE_MQTT_HOST=r9092118.ala.eu-central-1.emqxsl.com
-EE_MQTT_PORT=8883
-EE_MQTT_USER=
-EE_MQTT=
-
-EE_SECURED=true
-
+EE_EVM_NET=testnet
 TARGET_NODE=
+
 """
 
 def seconds_to_short_format(seconds):
