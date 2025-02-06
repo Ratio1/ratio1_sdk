@@ -1,6 +1,7 @@
+import os
 from time import time
 from naeural_client.utils.config import log_with_color
-from naeural_client.const import SESSION_CT, COMMANDS
+from naeural_client.const import SESSION_CT, COMMANDS, BASE_CT
 
 
 def _get_netstats(
@@ -62,10 +63,11 @@ def get_nodes(args):
     df = df[[c for c in df.columns if c not in FILTERED]]
 
   prefix = "Online n" if (args.online or args.peered) else "N"
+  network = os.environ.get(BASE_CT.dAuth.DAUTH_NET_ENV_KEY, BASE_CT.dAuth.DAUTH_SDK_NET_DEFAULT)
   if supervisor == "ERROR":
     log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')
   else:
-    log_with_color(f"{prefix}odes reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s ({nr_supers} supervisors seen):", color='b')
+    log_with_color(f"<{network}> {prefix}odes reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s ({nr_supers} supervisors seen):", color='b')
     log_with_color(f"{df}")    
   return
   

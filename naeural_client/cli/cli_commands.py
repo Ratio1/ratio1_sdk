@@ -3,8 +3,9 @@ from naeural_client.cli.nodes import (
   restart_node, shutdown_node,
 )
 from naeural_client.cli.oracles import get_availability
-from naeural_client.utils.config import show_config, reset_config, show_address
-
+from naeural_client.utils.config import (
+  show_config, reset_config, show_address, get_set_network
+)
 
 # Define the available commands
 CLI_COMMANDS = {
@@ -55,7 +56,15 @@ CLI_COMMANDS = {
         "addr": {
             "func": show_address, # DONE
             "description": "Show the current client address",
-        }
+        },
+        
+        "network": {
+            "func": get_set_network, # DONE
+            "description": "Get/Set network",
+            "params": {
+              "--new": "The network to set either 'mainnet' or 'testnet'",
+            }
+        },
     },
     "restart": {
         "func": restart_node, # TODO

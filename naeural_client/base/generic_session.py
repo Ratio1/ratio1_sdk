@@ -1191,7 +1191,7 @@ class GenericSession(BaseDecentrAIObject):
     
     def __load_user_config(self, dotenv_path):
       # if the ~/.naeural/config file exists, load the credentials from there else try to load them from .env
-      if not load_user_defined_config():        
+      if not load_user_defined_config(verbose=not self.log.silent):        
         # this method will search for the credentials in the environment variables
         # the path to env file, if not specified, will be search in the following order:
         #  1. current working directory

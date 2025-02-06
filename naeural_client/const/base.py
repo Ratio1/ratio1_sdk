@@ -10,7 +10,8 @@ class BCctbase:
   ETH_SENDER= 'EE_ETH_SENDER'
 
 
-DAUTH_URL = 'https://dauth.ratio1.ai/get_auth_data'
+DAUTH_TESTNET_URL = 'https://dauth-test.ratio1.ai/get_auth_data'
+DAUTH_MAINNET_URL = 'https://dauth-main.ratio1.ai/get_auth_data'
 DAUTH_SUBKEY = 'auth'
 DAUTH_ENV_KEY = 'EE_DAUTH_URL'
 DAUTH_NONCE = 'nonce'
@@ -78,7 +79,8 @@ class dAuth:
   
   DAUTH_WHITELIST = 'whitelist'
   
-  DAUTH_URL = DAUTH_URL
+  DAUTH_TESTNET_URL = DAUTH_TESTNET_URL
+  DAUTH_MAINNET_URL = DAUTH_MAINNET_URL
   DAUTH_SUBKEY = DAUTH_SUBKEY
   DAUTH_NONCE = DAUTH_NONCE
   DAUTH_VARS = DAUTH_VARS
