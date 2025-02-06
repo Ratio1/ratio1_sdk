@@ -16,7 +16,49 @@ DAUTH_ENV_KEY = 'EE_DAUTH_URL'
 DAUTH_NONCE = 'nonce'
 DAUTH_VARS = [DAUTH_NONCE, BCctbase.SIGN, BCctbase.SENDER, BCctbase.HASH]
 
+_DAUTH_ABI_IS_NODE_ACTIVE = [{
+  "inputs": [
+    {
+      "internalType": "address",
+      "name": "nodeAddress",
+      "type": "address"
+    }
+  ],
+  "name": "isNodeActive",
+  "outputs": [
+    {
+      "internalType": "bool",
+      "name": "",
+      "type": "bool"
+    }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+}]
+
+_DAUTH_ABI_GET_SIGNERS = [{
+  "inputs": [],
+  "name": "getSigners",
+  "outputs": [
+    {
+      "internalType": "address[]",
+      "name": "",
+      "type": "address[]"
+    }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+}]
+
+
+
 class dAuth:
+  DAUTH_TESTNET_ND_ADDR = '0x9aB4e425c7dFFC7Aa1A7a262727b0b663e047571'
+  DAUTH_MAINNET_ND_ADDR = ''
+  
+  DAUTH_MAINNET_RPC = 'https://base-mainnet.public.blastapi.io'
+  DAUTH_TESTNET_RPC = 'https://base-sepolia.public.blastapi.io'
+  
   DAUTH_SENDER_ALIAS = 'sender_alias'
   DAUTH_SENDER_ALIAS_DEFAULT = 'direct-call'
   DAUTH_SENDER_CORE_VER = 'sender_core_ver'
@@ -44,6 +86,9 @@ class dAuth:
   DAUTH_SENDER_TYPE_SDK = 'sdk'
   DAUTH_SENDER_TYPE_NODE = 'node'
   DAUTH_SENDER_ETH = 'sender_eth_addr'
+  DAUTH_ABI_IS_NODE_ACTIVE = _DAUTH_ABI_IS_NODE_ACTIVE
+  DAUTH_ABI_GET_SIGNERS = _DAUTH_ABI_GET_SIGNERS
+# end class dAuth
 
 ETH_ENABLED_ENV_KEY = 'EE_ETH_ENABLED'
 

@@ -12,12 +12,11 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from web3 import Web3
 from eth_account import Account
 from eth_utils import keccak, to_checksum_address
 from eth_account.messages import encode_defunct
 
-from .base import BaseBlockEngine, VerifyMessage, BCct
+from .base import BaseBlockEngine, VerifyMessage, BCct, Web3
 
 
 
@@ -708,9 +707,29 @@ class BaseBCEllipticCurveEngine(BaseBlockEngine):
     """
     public_key = self._address_to_pk(address)
     return self._get_eth_address(pk=public_key)
-    
-
   
+  def is_node_address_in_eth_addresses(self, node_address: str, lst_eth_addrs) -> bool:
+    """
+    Check if the node address is in the list of Ethereum addresses
+
+    Parameters
+    ----------
+    node_address : str
+      the node address.
+      
+    lst_eth_addrs : list
+      list of Ethereum addresses.
+
+    Returns
+    -------
+    bool
+      True if the node address is in the list of Ethereum addresses.
+
+    """
+    eth_addr = self.node_address_to_eth_address(node_address)
+    return eth_addr in lst_eth_addrs
+
+
   def eth_hash_message(self, types, values, as_hex=False):
     """
     Hashes a message using the keccak256 algorithm.
