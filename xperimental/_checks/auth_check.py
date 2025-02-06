@@ -15,9 +15,18 @@ if __name__ == '__main__' :
         
       }
   )
+
+  eng2 = DefaultBlockEngine(
+    log=l, name="default", 
+    config={
+        "PEM_FILE": "r03.pem",
+      }
+  )
+  
+  to_use = eng2
   
   for _ in range(4):
-    d = eng1.dauth_autocomplete(
+    d = to_use.dauth_autocomplete(
       add_env=False,
       debug=True,
       max_tries=1,
