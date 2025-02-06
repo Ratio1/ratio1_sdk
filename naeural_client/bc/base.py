@@ -7,6 +7,8 @@ import datetime
 import uuid
 import requests
 
+from web3 import Web3
+
 from hashlib import sha256, md5
 from threading import Lock
 from copy import deepcopy
@@ -1404,6 +1406,72 @@ class BaseBlockEngine:
         True if `address` meets the basic criteria for an EVM address, False otherwise.
     """
     return BaseBlockEngine.is_valid_evm_address(address)
+
+  
+  @staticmethod
+  def web3_is_node_licensed(address : str, network='mainnet') -> bool:
+    """
+    Check if the address is allowed to send commands to the node
+
+    Parameters
+    ----------
+    address : str
+      the address to check.
+    """
+    assert network.lower() in ['mainnet', 'testnet'], f"Invalid network {network}"
+    
+    assert BaseBlockEngine.is_valid_eth_address(address), "Invalid Ethereum address"
+    
+    if network.lower() == 'mainnet':
+      contract_address = dAuth.DAUTH_MAINNET_ND_ADDR
+      rpc_url = dAuth.DAUTH_MAINNET_RPC
+    else:
+      contract_address = dAuth.DAUTH_TESTNET_ND_ADDR
+      rpc_url = dAuth.DAUTH_TESTNET_RPC
+    
+    w3 = Web3(Web3.HTTPProvider(rpc_url)) 
+
+    contract_abi = dAuth.DAUTH_ABI_IS_NODE_ACTIVE
+
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+
+    result = contract.functions.isNodeActive(address).call()
+    return result
+
+
+  def web3_get_oracles(self, network='mainnet') -> list:
+    """
+    Get the list of oracles from the contract
+
+    Parameters
+    ----------
+    network : str, optional
+      the network to use. The default is 'mainnet'.
+
+    Returns
+    -------
+    list
+      the list of oracles addresses.
+
+    """
+    assert network.lower() in ['mainnet', 'testnet'], f"Invalid network {network}"
+    
+    if network.lower() == 'mainnet':
+      contract_address = dAuth.DAUTH_MAINNET_ND_ADDR
+      rpc_url = dAuth.DAUTH_MAINNET_RPC
+    else:
+      contract_address = dAuth.DAUTH_TESTNET_ND_ADDR
+      rpc_url = dAuth.DAUTH_TESTNET_RPC
+    
+    w3 = Web3(Web3.HTTPProvider(rpc_url)) 
+
+    contract_abi = dAuth.DAUTH_ABI_GET_SIGNERS
+
+    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+
+    result = contract.functions.getSigners().call()
+    return result
+  
   
   
   ### end Ethereum
