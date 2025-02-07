@@ -62,7 +62,8 @@ CLI_COMMANDS = {
             "func": get_set_network, # DONE
             "description": "Get/Set network",
             "params": {
-              "--new": "The network to set either 'mainnet' or 'testnet'",
+              "--new": "The network to set either 'mainnet' or 'testnet' (same as --set)",
+              "--set": "The network to set either 'mainnet' or 'testnet' (same as --new)",
             }
         },
     },
