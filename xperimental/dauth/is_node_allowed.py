@@ -4,11 +4,15 @@ import json
 
 from naeural_client import Logger, const
 from naeural_client.bc import DefaultBlockEngine
+from naeural_client.utils.config import get_user_folder
 
 
 
 if __name__ == '__main__' :
-  l = Logger("ENC", base_folder=".", app_folder="_local_cache")
+  l = Logger(
+    "ENC", base_folder=str(get_user_folder()), 
+    app_folder="_local_cache"
+  )
   eng = DefaultBlockEngine(
     log=l, name="default", 
     config={
@@ -16,20 +20,11 @@ if __name__ == '__main__' :
       }
   )
   
-  network = 'testnet'
+  network = 'mainnet'
   addresses = [
-    "0x93B04EF1152D81A0847C2272860a8a5C70280E14",
+    "0xe240d9cf8893d6bE9fb3Ac4C9CE1E504343b64a0",
     "0x1Fe3222f6a2844364E2BDc796e0Df547ea26B815",    
-    
-    "0x99Ac885B00a150cFc93EA1A51FcC035C17aCB02c",
-    "0x49943d72CF93B69AE22c7194093804635a99eF2B",
-    "0x64A4C148FDa4a0D900daB9417cd65968993d30b3",
-    "0x4B50d4ac46c3ba0F463603587d41c67213A0a091",
-
-    
-    "0x1351504af17BFdb80491D9223d6Bcb6BB964DCeD",
-    "0x2539fDD57f93b267E58d5f2E6F77063C0230F6F4",
-        
+    "0x7C07758C23DF14c2fF4b016F0ad58F2D4aF329a7",        
   ]
   
   for addr in addresses:
@@ -50,7 +45,7 @@ if __name__ == '__main__' :
   
   supervisors = [
     "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
-    "0xai_AwxGtRVqRlUrUoZNvf827uOswFmCkFXXguRmkpnyJBhQ",
+    "0xai_Aj1FpPQHISEBelp-tQ8cegwk434Dcl6xaHmuhZQT74if",
     "0xai_A4cZdKZZdj9We5W7T-NJPdQuhH2c8-aMI3-r7XlT0jqn",
     "0xai_AvuUcmXyn6U3z8XRagqG8_d2sKCDZ5FIDpkUlpUz3Iuh"
   ]
