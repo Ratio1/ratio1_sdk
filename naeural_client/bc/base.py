@@ -1492,6 +1492,23 @@ class BaseBlockEngine:
     network=None,
     **kwargs
   ):
+    """
+    Autocompletes the environment with the dAuth information.
+    Parameters
+    ----------
+    dauth_endp
+    add_env
+    debug
+    max_tries
+    network
+    kwargs
+
+    Returns
+    -------
+    None if the URL is invalid or the request failed.
+    dict with the dAuth information if the request got status 200(if errors occured, but
+    the status is still 200, an empty dictionary will be returned).
+    """
     from naeural_client._ver import __VER__ as sdk_version
     try:
       from ver import __VER__ as app_version
@@ -1503,16 +1520,21 @@ class BaseBlockEngine:
       core_version = None
       
     MIN_LEN = 10
-    dct_env = {}
+    # Default result in case of invalid URL should be None
+    # An empty dict will mean that the URL is valid, but the node
+    # does not have a license associated with it.
+    dct_env = None
     done = False
     tries = 0
     in_env = False
     url = dauth_endp
     dct_response = {}
-    
+
+    # Network handling
     if network is None:
       network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
-    
+
+    # URL handling
     if not isinstance(url, str) or len(url) < MIN_LEN:
       if DAUTH_ENV_KEY in os.environ:
         in_env = True
@@ -1525,6 +1547,7 @@ class BaseBlockEngine:
       #endif not in env
       
     if isinstance(url, str) and len(url) > 0:
+      # Valid URL
       if dauth_endp is None:
         if in_env:
           self.P("Found dAuth URL in environment: '{}'".format(url), color='g')
@@ -1569,7 +1592,8 @@ class BaseBlockEngine:
               self.P(f"Signature from {server_alias} <{server_addr}> is valid.", color='g')
             else:
               self.P(f"Signature from {server_alias} <{server_addr}> is INVALID: {ver_result}", color='r')
-              return              
+              # Invalid response signature, thus return {}
+              return {}
 
             # whitelist
             whitelist = dct_dauth.pop(dAuth.DAUTH_WHITELIST, [])
@@ -1602,13 +1626,16 @@ class BaseBlockEngine:
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')
         except Exception as exc:
-          self.P(f"Error in dAuth URL request: {exc}. Received: {dct_response}", color='r')          
+          self.P(f"Error in dAuth URL request: {exc}. Received: {dct_response}", color='r')
+          # Request failed somewhere so dct_env will be set again to None.
+          dct_env = None
         #end try
         tries += 1
         if tries >= max_tries:
           done = True    
       #end while
     else:
+      # Invalid URL, thus dct_env will remain None
       self.P(f"dAuth URL is not invalid: {url}", color='r')
     #end if url is valid
     return dct_env
