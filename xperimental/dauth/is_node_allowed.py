@@ -20,11 +20,10 @@ if __name__ == '__main__' :
       }
   )
   
-  network = 'mainnet'
+  network = 'testnet'
   addresses = [
-    "0xe240d9cf8893d6bE9fb3Ac4C9CE1E504343b64a0",
-    "0x1Fe3222f6a2844364E2BDc796e0Df547ea26B815",    
-    "0x7C07758C23DF14c2fF4b016F0ad58F2D4aF329a7",        
+    "0xE486F0d594e9F26931fC10c29E6409AEBb7b5144",
+    "0x93B04EF1152D81A0847C2272860a8a5C70280E14",    
   ]
   
   for addr in addresses:
@@ -44,10 +43,8 @@ if __name__ == '__main__' :
   )
   
   supervisors = [
-    "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
-    "0xai_Aj1FpPQHISEBelp-tQ8cegwk434Dcl6xaHmuhZQT74if",
-    "0xai_A4cZdKZZdj9We5W7T-NJPdQuhH2c8-aMI3-r7XlT0jqn",
-    "0xai_AvuUcmXyn6U3z8XRagqG8_d2sKCDZ5FIDpkUlpUz3Iuh"
+    "0xai_AleLPKqUHV-iPc-76-rUvDkRWW4dFMIGKW1xFVcy65nH",
+    "0xai_A-Bn9grkqH1GUMTZUqHNzpX5DA6PqducH9_JKAlBx6YL",
   ]
   
   for supervisor in supervisors:
