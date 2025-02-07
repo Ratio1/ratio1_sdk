@@ -94,7 +94,7 @@ def get_network():
   return os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
 
 def get_set_network(args):
-  net = args.new
+  net = args.new or args.set
   env_network = get_network()
   if net is None:
     log_with_color(f"Current network: {env_network}", color='b')
