@@ -28,7 +28,7 @@ if __name__ == '__main__' :
   
   for addr in addresses:
     is_active = eng.web3_is_node_licensed(
-      address=addr, network=network
+      address=addr, network=network, debug=True
     )
     l.P("{} {}".format(
         addr,
@@ -37,7 +37,7 @@ if __name__ == '__main__' :
       color='g' if is_active else 'r'
     )
     
-  oracles = eng.web3_get_oracles(network=network)
+  oracles = eng.web3_get_oracles(network=network, debug=True)
   l.P("\nOracles:\n {}".format(json.dumps(oracles, indent=2)), 
     color='b'
   )
