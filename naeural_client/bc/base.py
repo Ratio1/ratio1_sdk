@@ -1406,10 +1406,27 @@ class BaseBlockEngine:
         True if `address` meets the basic criteria for an EVM address, False otherwise.
     """
     return BaseBlockEngine.is_valid_evm_address(address)
-
+  
   
   @staticmethod
-  def web3_is_node_licensed(address : str, network=None) -> bool:
+  def get_evm_network() -> str:
+    """
+    Get the current network
+
+    Returns
+    -------
+    str
+      the network name.
+
+    """
+    return os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+  
+  @property
+  def evm_network(self):
+    return self.get_evm_network()
+
+    
+  def web3_is_node_licensed(self, address : str, network=None, debug=False) -> bool:
     """
     Check if the address is allowed to send commands to the node
 
@@ -1419,11 +1436,12 @@ class BaseBlockEngine:
       the address to check.
     """
     if network is None:
-      network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+      network = self.evm_network
 
     assert network.lower() in ['mainnet', 'testnet'], f"Invalid network {network}"
     
     assert BaseBlockEngine.is_valid_eth_address(address), "Invalid Ethereum address"
+      
     
     if network.lower() == 'mainnet':
       contract_address = dAuth.DAUTH_MAINNET_ND_ADDR
@@ -1431,6 +1449,9 @@ class BaseBlockEngine:
     else:
       contract_address = dAuth.DAUTH_TESTNET_ND_ADDR
       rpc_url = dAuth.DAUTH_TESTNET_RPC
+      
+    if debug:
+      self.P(f"Checking if {address} ({network}) is allowed via {rpc_url}...")
     
     w3 = Web3(Web3.HTTPProvider(rpc_url)) 
 
@@ -1442,7 +1463,7 @@ class BaseBlockEngine:
     return result
 
 
-  def web3_get_oracles(self, network=None) -> list:
+  def web3_get_oracles(self, network=None, debug=False) -> list:
     """
     Get the list of oracles from the contract
 
@@ -1458,7 +1479,7 @@ class BaseBlockEngine:
 
     """
     if network is None:
-      network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+      network = BaseBlockEngine.get_evm_network()
 
     assert network.lower() in ['mainnet', 'testnet'], f"Invalid network {network}"
     
@@ -1468,6 +1489,9 @@ class BaseBlockEngine:
     else:
       contract_address = dAuth.DAUTH_TESTNET_ND_ADDR
       rpc_url = dAuth.DAUTH_TESTNET_RPC
+
+    if debug:
+      self.P(f"Getting oracles for {network} via {rpc_url}...")
     
     w3 = Web3(Web3.HTTPProvider(rpc_url)) 
 
@@ -1532,7 +1556,7 @@ class BaseBlockEngine:
 
     # Network handling
     if network is None:
-      network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+      network = self.evm_network
 
     # URL handling
     if not isinstance(url, str) or len(url) < MIN_LEN:
