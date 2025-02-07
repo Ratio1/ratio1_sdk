@@ -1579,7 +1579,7 @@ class BaseBlockEngine:
           self.P("Using default dAuth URL: '{}'".format(url), color='g')
       eth_short = self.eth_address[:6] + '...' + self.eth_address[-4:]
       while not done:
-        self.P(f"<{eth_short}> dAuth with `{url}`... (try {tries + 1} / {max_tries})")
+        self.P(f"<{eth_short}> ({network}) dAuth with `{url}`... (try {tries + 1} / {max_tries})")
         try:
           to_send = {
             **kwargs,
