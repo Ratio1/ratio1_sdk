@@ -18,6 +18,11 @@ if __name__ == "__main__":
   # this tutorial assumes you have started your own local node for dev-testing purposes
   # you can either supply the node address via env or directly here
   my_node = os.getenv("EE_TARGET_NODE", "0xai_my_own_node_address") 
+
+  # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
+  #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
+  #       the internal node address is easily spoted as starting with 0xai_ and can be found 
+  #       via `docker exec r1node get_node_info` or via the launcher UI
     
   session = Session() 
   session.wait_for_node(my_node) 
@@ -25,11 +30,12 @@ if __name__ == "__main__":
       
   # now we create a telegram bot pipeline & plugin instance and for that we only need the Telegram token
   # we can chose to use the token directly via `telegram_bot_token` parameter
-  # or use the environment key EE_TELEGRAM_BOT_TOKEN
+  # or use the environment key EE_TELEGRAM_BOT_TOKEN 
+  # in this case for this simple example we are going to use the token directly
   pipeline, _ = session.create_telegram_simple_bot(
     node=my_node,
     name="telegram_bot_echo",
-    # telegram_bot_token="your_token_goes_here",  # we use the token directly
+    telegram_bot_token="your_token_goes_here",  # we use the token directly
     message_handler=reply,
   )
   

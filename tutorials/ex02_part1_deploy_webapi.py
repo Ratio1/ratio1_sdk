@@ -24,7 +24,13 @@ def run_predict(plugin: CustomPluginTemplate, inputs: list[int], nr_steps: int) 
 if __name__ == '__main__':
   
   session = Session(silent=True)
+
   my_node = "0xai_ApM1AbzLq1VtsLIidmvzt1Nv4Cyl5Wed0fHNMoZv9u4X"
+
+  # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
+  #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
+  #       the internal node address is easily spoted as starting with 0xai_ and can be found 
+  #       via `docker exec r1node get_node_info` or via the launcher UI
   
   app, _ = session.create_web_app(
     node=my_node,

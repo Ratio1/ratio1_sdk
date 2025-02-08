@@ -2,6 +2,11 @@ import os
 from naeural_client import Session
 
 if __name__ == "__main__":
+  # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
+  #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
+  #       the internal node address is easily spoted as starting with 0xai_ and can be found 
+  #       via `docker exec r1node get_node_info` or via the launcher UI
+
   my_node = os.getenv("EE_TARGET_NODE")  # we specify a node here
   # The node can also be specified directly, without using the environment variable.
   # my_node = "<target_edge_node_identifier>"

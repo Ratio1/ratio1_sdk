@@ -20,6 +20,12 @@ def instance_on_data(pipeline: Pipeline, data: Payload):
 if __name__ == '__main__':
   # create a session
   # the network credentials are read from the .env file automatically
+
+  # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
+  #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
+  #       the internal node address is easily spoted as starting with 0xai_ and can be found 
+  #       via `docker exec r1node get_node_info` or via the launcher UI
+
   session: Session = Session(encrypt_comms=True)
 
   session.wait_for_any_node()
