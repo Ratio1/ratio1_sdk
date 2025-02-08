@@ -44,7 +44,7 @@ def predict(plugin: CustomPluginTemplate, series: list[int], steps: int) -> list
 if __name__ == "__main__":
   session = Session(silent=True)
 
-  node = os.environ.get("TARGET_NODE", "INSERT_YOUR_NODE_ADDRESS_HERE")
+  node = os.environ.get("EE_TARGET_NODE", "INSERT_YOUR_NODE_ADDRESS_HERE")
   session.P(f"Waiting for node {node} to be available for deployment...")
   session.wait_for_node(node)
 

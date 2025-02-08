@@ -2,7 +2,7 @@ import os
 from naeural_client import Session
 
 if __name__ == "__main__":
-  my_node = os.getenv("TARGET_NODE")  # we specify a node here
+  my_node = os.getenv("EE_TARGET_NODE")  # we specify a node here
   # The node can also be specified directly, without using the environment variable.
   # my_node = "<target_edge_node_identifier>"
   

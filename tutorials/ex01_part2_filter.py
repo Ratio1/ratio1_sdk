@@ -134,9 +134,13 @@ if __name__ == '__main__':
 
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources
-  #   in production, you would not need this code as the script can close after the pipeline will be sent
-  session.run(
-    wait=15, # wait for the user to stop the execution or a given time
-    close_pipelines=True # when the user stops the execution, the remote edge-node pipelines will be closed
+  #   due to the fact that this is a example/tutorial and maybe we dont want to keep the pipeline
+  #   active after the session is closed we use close_pipelines=True
+  #   in production, you would not need this code as the script can close 
+  #   after the pipeline will be sent 
+  session.wait(
+    seconds=120,            # we wait the session for 60 seconds
+    close_pipelines=True,   # we close the pipelines after the session
+    close_session=True,     # we close the session after the session
   )
   session.P("Main thread exiting...")

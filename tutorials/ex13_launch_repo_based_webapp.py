@@ -12,8 +12,8 @@ if __name__ == "__main__":
   session = Session()
 
   nodes = [
-    environ.get("TARGET_NODE_1", "INSERT_YOUR_NODE_ADDRESS_HERE"),
-    environ.get("TARGET_NODE_2", "INSERT_YOUR_NODE_ADDRESS_HERE")
+    environ.get("EE_TARGET_NODE_1", "INSERT_YOUR_NODE_ADDRESS_HERE"),
+    environ.get("EE_TARGET_NODE_2", "INSERT_YOUR_NODE_ADDRESS_HERE")
   ]
 
   if isinstance(nodes, str):

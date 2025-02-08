@@ -186,7 +186,7 @@ def reply(plugin, message: str, user: str):
 
 
 if __name__ == "__main__":
-  my_node = os.getenv("TARGET_NODE") # we can specify a node here, if we want to connect to a specific
+  my_node = os.getenv("EE_TARGET_NODE") # we can specify a node here, if we want to connect to a specific
     
   session = Session() # assume .env is available and will be used for the connection and tokens
   session.wait_for_node(my_node) # wait for the node to be active

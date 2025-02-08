@@ -42,8 +42,14 @@ if __name__ == '__main__':
   except Exception as e:
     print("Error deploying webapp: ", e)
   
+  # Observation:
+  #   next code is not mandatory - it is used to keep the session open and cleanup the resources
+  #   due to the fact that this is a example/tutorial and maybe we dont want to keep the pipeline
+  #   active after the session is closed we use close_pipelines=True
+  #   in production, you would not need this code as the script can close 
+  #   after the pipeline will be sent 
   session.wait(
-    close_pipeline_on_timeout=True,
-    close_session_on_timeout=True,
-    seconds=300
+    seconds=120,            # we wait the session for 60 seconds
+    close_pipelines=True,   # we close the pipelines after the session
+    close_session=True,     # we close the session after the session
   )

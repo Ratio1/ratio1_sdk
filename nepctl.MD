@@ -21,7 +21,7 @@ EE_MQTT=
 
 EE_SECURED=true
 
-TARGET_NODE=
+EE_TARGET_NODE=
 ```
 
 
