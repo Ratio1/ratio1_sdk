@@ -2,6 +2,14 @@ import os
 from naeural_client import Session
 
 if __name__ == "__main__":
+  
+  # We define the system prompt
+  SYSTEM_PROMPT = """
+  Hi! I am a simple echo bot. I will repeat everything you say to me.
+  """
+
+  session = Session()  # assume .env is available and will be used for the connection and tokens
+
   # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
   #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
   #       the internal node address is easily spoted as starting with 0xai_ and can be found 
@@ -11,17 +19,8 @@ if __name__ == "__main__":
   # The node can also be specified directly, without using the environment variable.
   # my_node = "<target_edge_node_identifier>"
   
-  if my_node is None:
-    # In case the node is not specified, we exit the script.
-    print("Please specify the node to connect to.")
-    exit(1)
+  assert my_node is not None, "Please provide the target edge node identifier"
 
-  # We define the system prompt
-  SYSTEM_PROMPT = """
-  Hi! I am a simple echo bot. I will repeat everything you say to me.
-  """
-
-  session = Session()  # assume .env is available and will be used for the connection and tokens
   session.wait_for_node(my_node)  # wait for the node to be active
 
   # Now we create a telegram bot pipeline & plugin instance.

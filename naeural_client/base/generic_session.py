@@ -2388,13 +2388,13 @@ class GenericSession(BaseDecentrAIObject):
       if telegram_bot_token is None:
         telegram_bot_token = os.getenv(telegram_bot_token_env_key)
         if telegram_bot_token is None:
-          message = f"Warning! No Telegram bot token provided as via env {ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY} or explicitly as `telegram_bot_token` param."
+          message = f"Warning! No Telegram bot token provided as via env '{telegram_bot_token_env_key}' or explicitly as `telegram_bot_token` param."
           raise ValueError(message)
         
       if telegram_bot_name is None:
-        telegram_bot_name = os.getenv(telegram_bot_name_env_key)
+        telegram_bot_name = os.getenv(telegram_bot_name_env_key, name)
         if telegram_bot_name is None:
-          message = f"Warning! No Telegram bot name provided as via env {ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY} or explicitly as `telegram_bot_name` param."
+          message = f"Warning! No Telegram bot name provided as via env '{telegram_bot_name_env_key}' or explicitly as `telegram_bot_name` param."
           raise ValueError(message)
       
 
