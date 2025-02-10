@@ -48,7 +48,7 @@ if __name__ == "__main__":
   #   in production, you would not need this code as the script can close 
   #   after the pipeline will be sent 
   session.wait(
-    seconds=120,            # we wait the session for 60 seconds
+    seconds=120,            # we wait the session for 120 seconds
     close_pipelines=True,   # we close the pipelines after the session
     close_session=True,     # we close the session after the session
   )
