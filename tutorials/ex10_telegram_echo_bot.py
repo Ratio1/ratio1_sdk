@@ -14,17 +14,20 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   return result
 
 
-if __name__ == "__main__":
-  # this tutorial assumes you have started your own local node for dev-testing purposes
-  # you can either supply the node address via env or directly here
-  my_node = os.getenv("EE_TARGET_NODE", "0xai_my_own_node_address") 
+if __name__ == "__main__":   
+  session = Session() 
 
   # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
   #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
   #       the internal node address is easily spoted as starting with 0xai_ and can be found 
   #       via `docker exec r1node get_node_info` or via the launcher UI
-    
-  session = Session() 
+
+  # this tutorial assumes you have started your own local node for dev-testing purposes
+  # you can either supply the node address via env or directly here
+  # Note: in order to get the environment variable first you have to create the Session
+  #       object that will load the environment variables
+  my_node = os.getenv("EE_TARGET_NODE", "0xai_my_own_node_address") 
+
   session.wait_for_node(my_node) 
     
       
