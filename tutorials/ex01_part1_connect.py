@@ -46,9 +46,22 @@ class MessageHandler:
     node_alias = heartbeat[PAYLOAD_DATA.EE_ID]
     short_addr = self.shorten_address(node_addr)
     cpu = heartbeat[HEARTBEAT_DATA.CPU]
-    if node_alias.startswith("mnoderunner"):
-      self.hb = heartbeat
-    session.P(f"{node_alias} <{short_addr}> has a {cpu}", color='magenta')
+    cpu_load = heartbeat[HEARTBEAT_DATA.CPU_USED]
+    mem = heartbeat[HEARTBEAT_DATA.MACHINE_MEMORY]
+    mem_avail = heartbeat[HEARTBEAT_DATA.AVAILABLE_MEMORY]
+    disk_avail = heartbeat[HEARTBEAT_DATA.AVAILABLE_DISK]
+    disk_total = heartbeat[HEARTBEAT_DATA.TOTAL_DISK]
+    disk_load = (disk_total - disk_avail) / disk_total * 100
+    mem_load = (mem - mem_avail) / mem * 100
+    self.hb = heartbeat # simple storage of the last heartbeat
+    plugins = heartbeat[HEARTBEAT_DATA.ACTIVE_PLUGINS] or []
+    pipelines = heartbeat[HEARTBEAT_DATA.CONFIG_STREAMS] or []
+    session.P(
+      "<{}> {} {} Load: {:.1f}% CPU, {:.1f}% RAM, {:.1f}% Disk, {} plugins, {} pipelines".format(
+        short_addr, node_alias, cpu, cpu_load, mem_load, disk_load, len(plugins), len(pipelines)
+      ),
+      color='magenta'
+    )
     return
 
 
