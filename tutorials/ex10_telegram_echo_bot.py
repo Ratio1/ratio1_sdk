@@ -15,21 +15,27 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
 
 if __name__ == "__main__":
-  # TELEGRAM_BOT_TOKEN_ENV_KEY = "TELEGRAM_BOT_TOKEN"  # this is the default - we can specify a env key here
-  my_node = os.getenv("TARGET_NODE") # we can specify a node here, if we want to connect to a specific
+  # this tutorial assumes you have started your own local node for dev-testing purposes
+  # you can either supply the node address via env or directly here
+  my_node = os.getenv("EE_TARGET_NODE", "0xai_my_own_node_address") 
+
+  # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
+  #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
+  #       the internal node address is easily spoted as starting with 0xai_ and can be found 
+  #       via `docker exec r1node get_node_info` or via the launcher UI
     
-  session = Session() # assume .env is available and will be used for the connection and tokens
-  session.wait_for_node(my_node) # wait for the node to be active
+  session = Session() 
+  session.wait_for_node(my_node) 
     
       
-  # now we create a telegram bot pipeline & plugin instance
-  # we can chose to use the token directly or use the environment key
-  # instance: PLUGIN_TYPES.TELEGRAM_BASIC_BOT_01  
+  # now we create a telegram bot pipeline & plugin instance and for that we only need the Telegram token
+  # we can chose to use the token directly via `telegram_bot_token` parameter
+  # or use the environment key EE_TELEGRAM_BOT_TOKEN 
+  # in this case for this simple example we are going to use the token directly
   pipeline, _ = session.create_telegram_simple_bot(
     node=my_node,
     name="telegram_bot_echo",
-    # telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),  # we use the token directly
-    # telegram_bot_token_env_key=TELEGRAM_BOT_TOKEN_ENV_KEY, # not mandatory - we can use the default
+    telegram_bot_token="your_token_goes_here",  # we use the token directly
     message_handler=reply,
   )
   
@@ -37,9 +43,12 @@ if __name__ == "__main__":
 
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources
-  #   in production, you would not need this code as the script can close after the pipeline will be sent  
-  session.run(
-    wait=120,  # we run the session for 60 seconds
-    close_pipelines=True,  # we close the pipelines after the session
-    close_session=True,  # we close the session after the session
+  #   due to the fact that this is a example/tutorial and maybe we dont want to keep the pipeline
+  #   active after the session is closed we use close_pipelines=True
+  #   in production, you would not need this code as the script can close 
+  #   after the pipeline will be sent 
+  session.wait(
+    seconds=120,            # we wait the session for 60 seconds
+    close_pipelines=True,   # we close the pipelines after the session
+    close_session=True,     # we close the session after the session
   )

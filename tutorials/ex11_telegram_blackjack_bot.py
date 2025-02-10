@@ -186,12 +186,17 @@ def reply(plugin, message: str, user: str):
 
 
 if __name__ == "__main__":
-  my_node = os.getenv("TARGET_NODE") # we can specify a node here, if we want to connect to a specific
+  # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
+  #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
+  #       the internal node address is easily spoted as starting with 0xai_ and can be found 
+  #       via `docker exec r1node get_node_info` or via the launcher UI
+  my_node = os.getenv("EE_TARGET_NODE", "0xai_your_node_address") # we can specify a node here, if we want to connect to a specific
     
   session = Session() # assume .env is available and will be used for the connection and tokens
   session.wait_for_node(my_node) # wait for the node to be active
     
-      
+  # unlike the previous example, we are going to use the token from the environment
+  # and deploy the app on the target node and leave it there
   pipeline, _ = session.create_telegram_simple_bot(
     node=my_node,
     name="telegram_bot_blackjack",

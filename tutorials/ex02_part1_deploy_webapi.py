@@ -24,7 +24,13 @@ def run_predict(plugin: CustomPluginTemplate, inputs: list[int], nr_steps: int) 
 if __name__ == '__main__':
   
   session = Session(silent=True)
+
   my_node = "0xai_ApM1AbzLq1VtsLIidmvzt1Nv4Cyl5Wed0fHNMoZv9u4X"
+
+  # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
+  #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
+  #       the internal node address is easily spoted as starting with 0xai_ and can be found 
+  #       via `docker exec r1node get_node_info` or via the launcher UI
   
   app, _ = session.create_web_app(
     node=my_node,
@@ -42,8 +48,14 @@ if __name__ == '__main__':
   except Exception as e:
     print("Error deploying webapp: ", e)
   
+  # Observation:
+  #   next code is not mandatory - it is used to keep the session open and cleanup the resources
+  #   due to the fact that this is a example/tutorial and maybe we dont want to keep the pipeline
+  #   active after the session is closed we use close_pipelines=True
+  #   in production, you would not need this code as the script can close 
+  #   after the pipeline will be sent 
   session.wait(
-    close_pipeline_on_timeout=True,
-    close_session_on_timeout=True,
-    seconds=300
+    seconds=120,            # we wait the session for 60 seconds
+    close_pipelines=True,   # we close the pipelines after the session
+    close_session=True,     # we close the session after the session
   )

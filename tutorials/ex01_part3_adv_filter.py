@@ -142,7 +142,17 @@ if __name__ == '__main__':
       # silent=True,
   )
 
-  session.wait(seconds=20) # wait for the user to stop the execution or a given time
+  # Observation:
+  #   next code is not mandatory - it is used to keep the session open and cleanup the resources
+  #   due to the fact that this is a example/tutorial and maybe we dont want to keep the pipeline
+  #   active after the session is closed we use close_pipelines=True
+  #   in production, you would not need this code as the script can close 
+  #   after the pipeline will be sent 
+  session.wait(
+    seconds=120,            # we wait the session for 60 seconds
+    close_pipelines=True,   # we close the pipelines after the session
+    close_session=True,     # we close the session after the session
+  )
   session.P("Main thread exiting...")
   
   netinfo = session.get_network_known_nodes()  
