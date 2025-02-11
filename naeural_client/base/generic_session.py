@@ -184,7 +184,7 @@ class GenericSession(BaseDecentrAIObject):
     
     self.__at_least_one_node_peered = False
     self.__at_least_a_netmon_received = False
-
+    
     # TODO: maybe read config from file?
     self._config = {**self.default_config, **config}
 
@@ -212,6 +212,9 @@ class GenericSession(BaseDecentrAIObject):
     self._dct_can_send_to_node: dict[str, bool] = {}
     self._dct_node_last_seen_time = {} # key is node address
     self._dct_node_addr_name = {}
+
+    self._dct_netconfig_pipelines_requests = {}
+    
     self.online_timeout = 60
     self.filter_workers = filter_workers
     self.__show_commands = show_commands
@@ -559,10 +562,12 @@ class GenericSession(BaseDecentrAIObject):
       additional_data = {
         PAYLOAD_DATA.EE_PAYLOAD_PATH: [self.bc_engine.address, DEFAULT_PIPELINES.ADMIN_PIPELINE, PLUGIN_SIGNATURES.NET_CONFIG_MONITOR, None]
       }
+      self.D("Sending net-config request to <{}>".format(node_addr), color='y')
       self.send_encrypted_payload(
         node_addr=node_addr, payload=payload,
         additional_data=additional_data
       )
+      self._dct_netconfig_pipelines_requests[node_addr] = tm()      
       return
 
     def __track_allowed_node_by_netmon(self, node_addr, dict_msg):
@@ -586,9 +591,17 @@ class GenericSession(BaseDecentrAIObject):
         self.__track_online_node(node_addr, node_alias)
       
       client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
-      can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr
+      can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr      
       if node_addr not in self._dct_can_send_to_node and can_send:
-        self.__request_pipelines_from_net_config_monitor(node_addr)
+        if node_online:
+          # only attempt to request pipelines if the node is online and if not recently requested
+          last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
+          if tm() - last_requested_by_netmon > 60:
+            self.__request_pipelines_from_net_config_monitor(node_addr)
+          else:
+            self.D(f"Node <{node_addr}> is online but pipelines were recently requested", color='y')
+        else:
+          self.D(f"Node <{node_addr}> is offline thus NOT sending net-config request", color='y')
       # endif node seen for the first time
 
       self._dct_can_send_to_node[node_addr] = can_send
@@ -655,7 +668,7 @@ class GenericSession(BaseDecentrAIObject):
         # this is for legacy and custom implementation where heartbeats still contain
         # the pipeline configuration.
         pipeline_names = [x.get(PAYLOAD_DATA.NAME, None) for x in msg_active_configs]
-        self.D(f'<HB>Received pipelines from <{msg_node_addr}>:{pipeline_names}', color='y')
+        self.D(f'<HB> Received pipelines from <{msg_node_addr}>:{pipeline_names}', color='y')
         self.__process_node_pipelines(msg_node_addr, msg_active_configs)
 
       # TODO: move this call in `__on_message_default_callback`
@@ -669,7 +682,7 @@ class GenericSession(BaseDecentrAIObject):
       for transaction in open_transactions_copy:
         transaction.handle_heartbeat(dict_msg)
 
-      self.D("Received hb from: {}".format(msg_node_addr), verbosity=2)
+      self.D("<HB> Received hb from: {}".format(msg_node_addr), verbosity=2)
 
       self.__track_allowed_node_by_hb(msg_node_addr, dict_msg)
 
@@ -754,27 +767,33 @@ class GenericSession(BaseDecentrAIObject):
         current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})        
         if current_network:
           self.__at_least_a_netmon_received = True
-          all_addresses = [
-            x[PAYLOAD_DATA.NETMON_ADDRESS] for x in current_network.values()
-          ]
-          online_addresses = [
-            x[PAYLOAD_DATA.NETMON_ADDRESS] for x in current_network.values() 
-            if x[PAYLOAD_DATA.NETMON_STATUS_KEY] == PAYLOAD_DATA.NETMON_STATUS_ONLINE
-          ] 
-          self.P(f"Net config from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
           self.__current_network_statuses[sender_addr] = current_network
-
+          max_peers = 0
+          online_addresses = []
+          all_addresses = []
           for _ , node_data in current_network.items():
-            node_addr = node_data.get("address", None)    
+            node_addr = node_data.get(PAYLOAD_DATA.NETMON_ADDRESS, None)
+            all_addresses.append(node_addr)
+            is_online = node_data.get(PAYLOAD_DATA.NETMON_STATUS_KEY) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
+            node_alias = node_data.get(PAYLOAD_DATA.NETMON_EEID, None)
+            if is_online:
+              # no need to call here __track_online_node as it is already called 
+              # in below in __track_allowed_node_by_netmon
+              online_addresses.append(node_addr)
+            # end if is_online
             if node_addr is not None:
               self.__track_allowed_node_by_netmon(node_addr, node_data)
               nr_peers = sum([v for k, v in self._dct_can_send_to_node.items()])
-              if nr_peers > 0 and not self.__at_least_one_node_peered:                
-                self.__at_least_one_node_peered = True
-                self.P(
-                  f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
-                  color='g'
-                )
+              max_peers = max(max_peers, nr_peers)
+            # end if node_addr
+          # end for each node in network map
+          self.P(f"Net config from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
+          if max_peers > 0 and not self.__at_least_one_node_peered:                
+            self.__at_least_one_node_peered = True
+            self.P(
+              f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
+              color='g'
+            )
           # end for each node in network map
         # end if current_network is valid
       # end if NET_MON_01
@@ -795,6 +814,8 @@ class GenericSession(BaseDecentrAIObject):
         # extract data
         sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
         short_sender_addr = sender_addr[:8] + '...' + sender_addr[-4:]
+        if self.client_address == sender_addr:
+          self.D("<NETCFG> Ignoring message from self", color='d')
         receiver = dict_msg.get(PAYLOAD_DATA.EE_DESTINATION, None)
         if not isinstance(receiver, list):
           receiver = [receiver]
@@ -803,26 +824,26 @@ class GenericSession(BaseDecentrAIObject):
         op = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {}).get(NET_CONFIG.OPERATION, "UNKNOWN")
         # drop any incoming request as we are not a net-config provider just a consumer
         if op == NET_CONFIG.REQUEST_COMMAND:
-          self.P(f"Dropping net-config request from <{short_sender_addr}> `{ee_id}`", color='d')
+          self.P(f"<NETCFG> Dropping request from <{short_sender_addr}> `{ee_id}`", color='d')
           return
         
         # check if I am allowed to see this payload
         if not self.bc_engine.contains_current_address(receiver):
-          self.P(f"Received net-config `{op}` from <{short_sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
+          self.P(f"<NETCFG> Received `{op}` from <{short_sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
           return                
 
-        # decrypt payload
+        # encryption check. By now all should be decrypted
         is_encrypted = dict_msg.get(PAYLOAD_DATA.EE_IS_ENCRYPTED, False)
         if not is_encrypted:
-          self.P(f"Received net-config from <{short_sender_addr}> `{ee_id}` but it is not encrypted", color='r')
+          self.P(f"<NETCFG> Received from <{short_sender_addr}> `{ee_id}` but it is not encrypted", color='r')
           return
         net_config_data = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {})
         received_pipelines = net_config_data.get('PIPELINES', [])
-        self.D(f"Received {len(received_pipelines)} pipelines from <{sender_addr}>")
+        self.D(f"<NETCFG> Received {len(received_pipelines)} pipelines from <{sender_addr}>")
         new_pipelines = self.__process_node_pipelines(sender_addr, received_pipelines)
         pipeline_names = [x.name for x in new_pipelines]
-        self.P(f'<NETCFG>Received pipelines from <{sender_addr}>:{pipeline_names}', color='y')
-        self.D(f'[DEBUG][NETCFG]Received pipelines from <{sender_addr}>:\n{new_pipelines}', color='y')
+        if len(new_pipelines) > 0:
+          self.P(f'<NETCFG>   Received NEW pipelines from <{sender_addr}>:{pipeline_names}', color='y')
       return True
       
 
