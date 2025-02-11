@@ -42,6 +42,7 @@ from ..utils.config import (
 
 
 DEBUG_MQTT_SERVER = "r9092118.ala.eu-central-1.emqxsl.com"
+SDK_NETCONFIG_REQUEST_DELAY = 300
 
 
 class GenericSession(BaseDecentrAIObject):
@@ -539,8 +540,7 @@ class GenericSession(BaseDecentrAIObject):
         **kwargs
       )
       self.bc_engine.sign(msg_to_send)
-      if not self.silent:
-        self.P(f'Sending encrypted payload to <{node_addr}>', color='d')
+      self.P(f'Sending encrypted payload to <{node_addr}>', color='d')
       self._send_payload(msg_to_send)
       return
 
@@ -596,7 +596,7 @@ class GenericSession(BaseDecentrAIObject):
         if node_online:
           # only attempt to request pipelines if the node is online and if not recently requested
           last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
-          if tm() - last_requested_by_netmon > 60:
+          if tm() - last_requested_by_netmon > SDK_NETCONFIG_REQUEST_DELAY:
             self.__request_pipelines_from_net_config_monitor(node_addr)
           else:
             self.D(f"Node <{node_addr}> is online but pipelines were recently requested", color='y')
