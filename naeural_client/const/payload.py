@@ -199,6 +199,7 @@ class PAYLOAD_DATA:
   NETMON_STATUS_KEY = "working"
   NETMON_STATUS_ONLINE = "ONLINE"
   NETMON_ADDRESS = "address"
+  NETMON_ETH_ADDRESS = "eth_address"
   NETMON_EEID = "eeid"
   NETMON_LAST_REMOTE_TIME = 'last_remote_time'
   NETMON_NODE_UTC = 'node_utc'

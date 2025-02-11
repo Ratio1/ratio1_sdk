@@ -594,7 +594,7 @@ class GenericSession(BaseDecentrAIObject):
       node_secured = dict_msg.get(PAYLOAD_DATA.NETMON_NODE_SECURED, False)
       node_online = dict_msg.get(PAYLOAD_DATA.NETMON_STATUS_KEY) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
       node_alias = dict_msg.get(PAYLOAD_DATA.NETMON_EEID, None)
-      node_eth_address = dict_msg.get(PAYLOAD_DATA.EE_ETH_ADDR, None)
+      node_eth_address = dict_msg.get(PAYLOAD_DATA.NETMON_ETH_ADDRESS, None)
       
       if node_online:
         self.__track_online_node(
