@@ -33,10 +33,10 @@ EVM_NET_DATA = {
   
   'devnet' : {
     EvmNetData.DAUTH_URL_KEY                    : "https://dauth-devnet.ratio1.ai/get_auth_data",
-    EvmNetData.DAUTH_ND_ADDR_KEY                : "0xE20198EE2B76eED916A568a47cdea9681f7c79BF",
+    EvmNetData.DAUTH_ND_ADDR_KEY                : "TO_BE_DEFINED",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",
-    EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-02-05 16:00:00",
-    EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
+    EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-01-11 16:00:00",
+    EvmNetData.EE_EPOCH_INTERVALS_KEY           : 1,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.6,
   },
