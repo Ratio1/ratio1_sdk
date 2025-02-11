@@ -1,3 +1,8 @@
+from .evm_net import (
+  _DAUTH_ABI_IS_NODE_ACTIVE, _DAUTH_ABI_GET_SIGNERS,
+  EvmNetData, EVM_NET_DATA
+)
+
 EE_ID = 'EE_ID'
 SB_ID = 'SB_ID'  # change to SB_ID = EE_ID post mod from sb to ee
 
@@ -10,59 +15,22 @@ class BCctbase:
   ETH_SENDER= 'EE_ETH_SENDER'
 
 
-DAUTH_TESTNET_URL = 'https://dauth-test.ratio1.ai/get_auth_data'
-DAUTH_MAINNET_URL = 'https://dauth-main.ratio1.ai/get_auth_data'
 DAUTH_SUBKEY = 'auth'
 DAUTH_ENV_KEY = 'EE_DAUTH_URL'
 DAUTH_NONCE = 'nonce'
 DAUTH_VARS = [DAUTH_NONCE, BCctbase.SIGN, BCctbase.SENDER, BCctbase.HASH]
 
-_DAUTH_ABI_IS_NODE_ACTIVE = [{
-  "inputs": [
-    {
-      "internalType": "address",
-      "name": "nodeAddress",
-      "type": "address"
-    }
-  ],
-  "name": "isNodeActive",
-  "outputs": [
-    {
-      "internalType": "bool",
-      "name": "",
-      "type": "bool"
-    }
-  ],
-  "stateMutability": "view",
-  "type": "function"
-}]
 
-_DAUTH_ABI_GET_SIGNERS = [{
-  "inputs": [],
-  "name": "getSigners",
-  "outputs": [
-    {
-      "internalType": "address[]",
-      "name": "",
-      "type": "address[]"
-    }
-  ],
-  "stateMutability": "view",
-  "type": "function"
-}]
 
 
 
 class dAuth:
-  DAUTH_TESTNET_ND_ADDR = '0xE20198EE2B76eED916A568a47cdea9681f7c79BF'
-  DAUTH_MAINNET_ND_ADDR = '0xE20198EE2B76eED916A568a47cdea9681f7c79BF'
-  
+  EvmNetData = EvmNetData
+  EVM_NET_DATA = EVM_NET_DATA
+    
   DAUTH_NET_ENV_KEY = 'EE_EVM_NET'
   DAUTH_SDK_NET_DEFAULT = 'testnet'
-  
-  DAUTH_MAINNET_RPC = 'https://base-mainnet.public.blastapi.io'
-  DAUTH_TESTNET_RPC = 'https://base-sepolia.public.blastapi.io'
-  
+    
   DAUTH_SENDER_ALIAS = 'sender_alias'
   DAUTH_SENDER_ALIAS_DEFAULT = 'direct-call'
   DAUTH_SENDER_CORE_VER = 'sender_core_ver'
@@ -79,8 +47,6 @@ class dAuth:
   
   DAUTH_WHITELIST = 'whitelist'
   
-  DAUTH_TESTNET_URL = DAUTH_TESTNET_URL
-  DAUTH_MAINNET_URL = DAUTH_MAINNET_URL
   DAUTH_SUBKEY = DAUTH_SUBKEY
   DAUTH_NONCE = DAUTH_NONCE
   DAUTH_VARS = DAUTH_VARS

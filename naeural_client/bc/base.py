@@ -1424,6 +1424,10 @@ class BaseBlockEngine:
   @property
   def evm_network(self):
     return self.get_evm_network()
+  
+  def get_network_data(self, network=None):
+    assert isinstance(network, str) and network.lower() in dAuth.EVM_NET_DATA, f"Invalid network: {network}"
+    return dAuth.EVM_NET_DATA[network.lower()]
 
     
   def web3_is_node_licensed(self, address : str, network=None, debug=False) -> bool:
@@ -1437,19 +1441,14 @@ class BaseBlockEngine:
     """
     if network is None:
       network = self.evm_network
-
-    assert network.lower() in ['mainnet', 'testnet'], f"Invalid network {network}"
     
     assert BaseBlockEngine.is_valid_eth_address(address), "Invalid Ethereum address"
-      
     
-    if network.lower() == 'mainnet':
-      contract_address = dAuth.DAUTH_MAINNET_ND_ADDR
-      rpc_url = dAuth.DAUTH_MAINNET_RPC
-    else:
-      contract_address = dAuth.DAUTH_TESTNET_ND_ADDR
-      rpc_url = dAuth.DAUTH_TESTNET_RPC
-      
+    network_data = self.get_network_data(network)
+    
+    contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
+    rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
+          
     if debug:
       self.P(f"Checking if {address} ({network}) is allowed via {rpc_url}...")
     
@@ -1481,14 +1480,10 @@ class BaseBlockEngine:
     if network is None:
       network = BaseBlockEngine.get_evm_network()
 
-    assert network.lower() in ['mainnet', 'testnet'], f"Invalid network {network}"
+    network_data = self.get_network_data(network)
     
-    if network.lower() == 'mainnet':
-      contract_address = dAuth.DAUTH_MAINNET_ND_ADDR
-      rpc_url = dAuth.DAUTH_MAINNET_RPC
-    else:
-      contract_address = dAuth.DAUTH_TESTNET_ND_ADDR
-      rpc_url = dAuth.DAUTH_TESTNET_RPC
+    contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
+    rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
 
     if debug:
       self.P(f"Getting oracles for {network} via {rpc_url}...")
@@ -1565,10 +1560,8 @@ class BaseBlockEngine:
         in_env = True
         url = os.environ[DAUTH_ENV_KEY]
       else:
-        if network == 'mainnet':
-          url = dAuth.DAUTH_MAINNET_URL
-        else:
-          url = dAuth.DAUTH_TESTNET_URL
+        network_data = self.get_network_data(network)
+        url = network_data[dAuth.EvmNetData.DAUTH_URL_KEY]
       #endif not in env
       
     if isinstance(url, str) and len(url) > 0:
