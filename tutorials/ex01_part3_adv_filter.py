@@ -124,7 +124,7 @@ class MessageHandler:
       whitelists = {
         k : v.get(PAYLOAD_DATA.NETMON_WHITELIST, []) for k, v in network_map.items()
       }
-      message = f"{path[0]} Reports {len(online_nodes)} online nodes of {len(all_nodes)} known nodes. Whitelists:\n{json.dumps(whitelists, indent=2)}"
+      message = f"{path[0]} Reports {len(online_nodes)} online nodes of {len(all_nodes)} known nodes. Whitelists with {len(whitelists)} peers"
       color = 'g'
     session.P(message, color=color, show=True)  #, noprefix=True)
     return
@@ -156,4 +156,6 @@ if __name__ == '__main__':
   session.P("Main thread exiting...")
   
   netinfo = session.get_network_known_nodes()  
+  print(f"Last NET_MON_01 received:\n{json.dumps(filterer.last_payload.data, indent=2)}")
+  print(f"Payload size: {len(json.dumps(filterer.last_payload.data))} bytes")
   print(f"Supervisor <{netinfo.reporter}> '{netinfo.reporter_alias}' ({netinfo.nr_super} supervisors total) reports:\n{netinfo.report}")
