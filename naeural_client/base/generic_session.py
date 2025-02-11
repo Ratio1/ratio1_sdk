@@ -769,7 +769,6 @@ class GenericSession(BaseDecentrAIObject):
         if current_network:
           self.__at_least_a_netmon_received = True
           self.__current_network_statuses[sender_addr] = current_network
-          max_peers = 0
           online_addresses = []
           all_addresses = []
           for _ , node_data in current_network.items():
@@ -784,12 +783,11 @@ class GenericSession(BaseDecentrAIObject):
             # end if is_online
             if node_addr is not None:
               self.__track_allowed_node_by_netmon(node_addr, node_data)
-              nr_peers = sum([v for k, v in self._dct_can_send_to_node.items()])
-              max_peers = max(max_peers, nr_peers)
             # end if node_addr
           # end for each node in network map
+          nr_peers = sum([v for k, v in self._dct_can_send_to_node.items()])
           self.P(f"Net config from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
-          if max_peers > 0 and not self.__at_least_one_node_peered:                
+          if nr_peers > 0 and not self.__at_least_one_node_peered:                
             self.__at_least_one_node_peered = True
             self.P(
               f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
