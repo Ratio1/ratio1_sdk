@@ -644,6 +644,7 @@ class GenericSession(BaseDecentrAIObject):
           The name of the instance that sent the message.
       """
       # extract relevant data from the message
+      self.D("<HB> Received hb from: {}".format(msg_node_addr), verbosity=2)
 
       if dict_msg.get(HB.HEARTBEAT_VERSION) == HB.V2:
         str_data = self.log.decompress_text(dict_msg[HB.ENCODED_DATA])
@@ -668,7 +669,7 @@ class GenericSession(BaseDecentrAIObject):
         # this is for legacy and custom implementation where heartbeats still contain
         # the pipeline configuration.
         pipeline_names = [x.get(PAYLOAD_DATA.NAME, None) for x in msg_active_configs]
-        self.D(f'<HB> Received pipelines from <{msg_node_addr}>:{pipeline_names}', color='y')
+        self.D(f'<HB> Processing pipelines from <{msg_node_addr}>:{pipeline_names}', color='y')
         self.__process_node_pipelines(msg_node_addr, msg_active_configs)
 
       # TODO: move this call in `__on_message_default_callback`
