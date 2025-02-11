@@ -1398,12 +1398,6 @@ class GenericSession(BaseDecentrAIObject):
         
       return
 
-    def __eth_addresses_to_addresses(self):
-      """
-      Convert the eth addresses to addresses.
-      """
-      return {v: k for k, v in self.__dct_node_eth_addr_to_node_addr.items()}
-
     def __aliases_to_addresses(self):
       """
       Convert the aliases to addresses.
@@ -1862,7 +1856,7 @@ class GenericSession(BaseDecentrAIObject):
       str
           The eth address of the node.
       """
-      return self.__eth_addresses_to_addresses().get(node_addr, None)
+      return self.bc_engine.node_address_to_eth_address(node_addr)
 
     def get_active_nodes(self):
       """
