@@ -1514,6 +1514,7 @@ class BaseBlockEngine:
     debug=False, 
     max_tries=5,
     network=None,
+    return_full_data=False,
     **kwargs
   ):
     """
@@ -1662,4 +1663,6 @@ class BaseBlockEngine:
       # Invalid URL, thus dct_env will remain None
       self.P(f"dAuth URL is not invalid: {url}", color='r')
     #end if url is valid
+    if return_full_data:
+      return dct_response
     return dct_env
