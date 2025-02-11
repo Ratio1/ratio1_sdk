@@ -785,7 +785,7 @@ class GenericSession(BaseDecentrAIObject):
               self.__track_allowed_node_by_netmon(node_addr, node_data)
             # end if node_addr
           # end for each node in network map
-          nr_peers = sum([v for k, v in self._dct_can_send_to_node.items()])
+          nr_peers = sum(self._dct_can_send_to_node.values())
           self.P(f"Net config from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
           if nr_peers > 0 and not self.__at_least_one_node_peered:                
             self.__at_least_one_node_peered = True
