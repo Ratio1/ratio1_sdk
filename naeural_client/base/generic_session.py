@@ -212,7 +212,8 @@ class GenericSession(BaseDecentrAIObject):
     self._dct_online_nodes_last_heartbeat: dict[str, dict] = {}
     self._dct_can_send_to_node: dict[str, bool] = {}
     self._dct_node_last_seen_time = {} # key is node address
-    self._dct_node_addr_name = {}
+    self.__dct_node_address_to_alias = {}
+    self.__dct_node_eth_addr_to_node_addr = {}
 
     self._dct_netconfig_pipelines_requests = {}
     
@@ -486,17 +487,24 @@ class GenericSession(BaseDecentrAIObject):
       """
       return self.filter_workers is not None and node_addr not in self.filter_workers
 
-    def __track_online_node(self, node_addr, node_id):
+    def __track_online_node(self, node_addr, node_id, node_eth_address=None):
       """
       Track the last time a node was seen online.
 
       Parameters
       ----------
+      node_id : str
+          The alias of the Ratio1 edge node that sent the message.
       node_addr : str
-          The address of the Naeural Edge Protocol edge node that sent the message.
+          The address of the Ratio1 edge node that sent the message.
+      node_eth_address : str, optional
+          The Ethereum address of the Ratio1 edge node that sent the message, by
       """
       self._dct_node_last_seen_time[node_addr] = tm()
-      self._dct_node_addr_name[node_addr] = node_id
+      self.__dct_node_address_to_alias[node_addr] = node_id
+      if node_eth_address is not None:
+        self.__dct_node_eth_addr_to_node_addr[node_eth_address] = node_addr
+      # endif node_eth address not provided - this is just for safety and it should not happen!
       return
 
     def __track_allowed_node_by_hb(self, node_addr, dict_msg):
@@ -586,9 +594,14 @@ class GenericSession(BaseDecentrAIObject):
       node_secured = dict_msg.get(PAYLOAD_DATA.NETMON_NODE_SECURED, False)
       node_online = dict_msg.get(PAYLOAD_DATA.NETMON_STATUS_KEY) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
       node_alias = dict_msg.get(PAYLOAD_DATA.NETMON_EEID, None)
+      node_eth_address = dict_msg.get(PAYLOAD_DATA.NETMON_ETH_ADDRESS, None)
       
       if node_online:
-        self.__track_online_node(node_addr, node_alias)
+        self.__track_online_node(
+          node_addr=node_addr,
+          node_id=node_alias,
+          node_eth_address=node_eth_address
+        )
       
       client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
       can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr      
@@ -654,9 +667,14 @@ class GenericSession(BaseDecentrAIObject):
       self._dct_online_nodes_last_heartbeat[msg_node_addr] = dict_msg
 
       msg_node_id = dict_msg[PAYLOAD_DATA.EE_ID]
+      msg_node_eth_addr = dict_msg.get(PAYLOAD_DATA.EE_ETH_ADDR, None)
       # track the node based on heartbeat - a normal heartbeat means the node is online
       # however this can lead to long wait times for the first heartbeat for all nodes
-      self.__track_online_node(msg_node_addr, msg_node_id)
+      self.__track_online_node(
+        node_addr=msg_node_addr,
+        node_id=msg_node_id,
+        node_eth_address=msg_node_eth_addr
+      )
 
       msg_active_configs = dict_msg.get(HB.CONFIG_STREAMS)
       if msg_active_configs is None:
@@ -1379,12 +1397,12 @@ class GenericSession(BaseDecentrAIObject):
         self._config[comm_ct.SECURED] = secured
         
       return
-    
+
     def __aliases_to_addresses(self):
       """
       Convert the aliases to addresses.
       """
-      dct_aliases = {v: k for k, v in self._dct_node_addr_name.items()}
+      dct_aliases = {v: k for k, v in self.__dct_node_address_to_alias.items()}
       return dct_aliases
 
     def __get_node_address(self, node):
@@ -1403,12 +1421,13 @@ class GenericSession(BaseDecentrAIObject):
       str
           The address of the node.
       """
-      # if node not in self.get_active_nodes():
-      #   node = next((key for key, value in self._dct_node_addr_name.items() if value == node), node)
       result = None
-      if node in self.get_active_nodes():
+      if node in self._dct_node_last_seen_time.keys():
         # node seems to be already an address
         result = node
+      elif node in self.__dct_node_eth_addr_to_node_addr.keys():
+        # node is an eth address
+        result = self.__dct_node_eth_addr_to_node_addr.get(node, None)
       else:
         # maybe node is a name
         aliases = self.__aliases_to_addresses()
@@ -1791,9 +1810,9 @@ class GenericSession(BaseDecentrAIObject):
       return self.__get_node_address(name)      
       
 
-    def get_node_name(self, node_addr):
+    def get_node_alias(self, node_addr):
       """
-      Get the name of a node.
+      Get the alias of a node.
 
       Parameters
       ----------
@@ -1805,7 +1824,39 @@ class GenericSession(BaseDecentrAIObject):
       str
           The name of the node.
       """
-      return self._dct_node_addr_name.get(node_addr, None)
+      return self.__dct_node_address_to_alias.get(node_addr, None)
+
+    def get_addr_by_eth_address(self, eth_address):
+      """
+      Get the address of a node by its eth address.
+
+      Parameters
+      ----------
+      eth_address : str
+          The eth address of the node.
+
+      Returns
+      -------
+      str
+          The address of the node.
+      """
+      return self.__dct_node_eth_addr_to_node_addr.get(eth_address, None)
+
+    def get_eth_address_by_addr(self, node_addr):
+      """
+      Get the eth address of a node by its address.
+
+      Parameters
+      ----------
+      node_addr : str
+          The address of the node.
+
+      Returns
+      -------
+      str
+          The eth address of the node.
+      """
+      return self.bc_engine.node_address_to_eth_address(node_addr)
 
     def get_active_nodes(self):
       """
@@ -2173,14 +2224,15 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
       node : str
-          The address or name of the Naeural Edge Protocol edge node.
+          The address or name of the Ratio1 edge node.
 
       Returns
       -------
       bool
           True if the node is online, False otherwise.
       """
-      return node in self.get_active_nodes() or node in self._dct_node_addr_name.values()
+      node = self.__get_node_address(node)
+      return node in self.get_active_nodes()
 
     def create_chain_dist_custom_job(
       self,
@@ -2846,7 +2898,7 @@ class GenericSession(BaseDecentrAIObject):
               val = seconds_to_short_format(val)
             elif key == PAYLOAD_DATA.NETMON_ADDRESS:
               if self.bc_engine._remove_prefix(val) == self.bc_engine._remove_prefix(best_super):
-                # again self.get_node_name(best_super) might not work if using the hb data
+                # again self.get_node_alias(best_super) might not work if using the hb data
                 best_super_alias = node_info.get(PAYLOAD_DATA.NETMON_EEID, None)
               val = self.bc_engine._add_prefix(val)
               if all_info:

@@ -1542,10 +1542,23 @@ class Pipeline(BaseCodeChecker):
       return
 
     @property
+    def node_alias(self):
+      """
+      Return the node alias of the pipeline.
+      """
+      return self.session.get_node_alias(self.node_addr)
+
+    @property
     def node_id(self):
       """
-      Return the node id of the pipeline.
+      Method alias for `node_alias`
       """
-      return self.session.get_node_name(self.node_addr)
+      return self.node_alias
 
+    @property
+    def node_name(self):
+      """
+      Method alias for `node_alias`
+      """
+      return self.node_alias
 
