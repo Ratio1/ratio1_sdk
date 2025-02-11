@@ -88,6 +88,7 @@ class GenericSession(BaseDecentrAIObject):
               on_notification=None,
               on_heartbeat=None,
               debug_silent=True,
+              debug=False,
               silent=False,
               verbosity=1,
               dotenv_path=None,
@@ -156,8 +157,13 @@ class GenericSession(BaseDecentrAIObject):
         As arguments, it has a reference to this Session object, the node name and the heartbeat payload.
         Defaults to None.
         
-    debug_silent : bool, optional
+    debug_silent : bool, optional 
         This flag will disable debug logs, set to 'False` for a more verbose log, by default True
+        Observation: Obsolete, will be removed
+        
+    debug : bool, optional
+        This flag will enable debug logs, set to 'False` for a more verbose log, by default False
+        
         
     silent : bool, optional
         This flag will disable all logs, set to 'False` for a more verbose log, by default False
@@ -173,6 +179,8 @@ class GenericSession(BaseDecentrAIObject):
         If True, the SDK will attempt to complete the dauth process automatically.
         Defaults to True.
     """
+    
+    debug = debug or not debug_silent
     
     self.__at_least_one_node_peered = False
     self.__at_least_a_netmon_received = False
@@ -260,7 +268,7 @@ class GenericSession(BaseDecentrAIObject):
       
     super(GenericSession, self).__init__(
       log=log, 
-      DEBUG=not debug_silent, 
+      DEBUG=debug, 
       create_logger=True,
       silent=self.silent,
       local_cache_base_folder=local_cache_base_folder,
@@ -529,7 +537,7 @@ class GenericSession(BaseDecentrAIObject):
       )
       self.bc_engine.sign(msg_to_send)
       if not self.silent:
-        self.P(f'Sending encrypted payload to <{node_addr}>', color='y')
+        self.P(f'Sending encrypted payload to <{node_addr}>', color='d')
       self._send_payload(msg_to_send)
       return
 
@@ -786,21 +794,27 @@ class GenericSession(BaseDecentrAIObject):
       if msg_pipeline.lower() == REQUIRED_PIPELINE.lower() and msg_signature.upper() == REQUIRED_SIGNATURE.upper():
         # extract data
         sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
+        short_sender_addr = sender_addr[:8] + '...' + sender_addr[-4:]
         receiver = dict_msg.get(PAYLOAD_DATA.EE_DESTINATION, None)
         if not isinstance(receiver, list):
           receiver = [receiver]
         path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None, None, None, None])
         ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
+        op = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {}).get(NET_CONFIG.OPERATION, "UNKNOWN")
+        # drop any incoming request as we are not a net-config provider just a consumer
+        if op == NET_CONFIG.REQUEST_COMMAND:
+          self.P(f"Dropping net-config request from <{short_sender_addr}> `{ee_id}`", color='d')
+          return
         
         # check if I am allowed to see this payload
         if not self.bc_engine.contains_current_address(receiver):
-          self.P(f"Received net-config from <{sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
+          self.P(f"Received net-config `{op}` from <{short_sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
           return                
 
         # decrypt payload
         is_encrypted = dict_msg.get(PAYLOAD_DATA.EE_IS_ENCRYPTED, False)
         if not is_encrypted:
-          self.P(f"Received net-config from <{sender_addr}> `{ee_id}` but it is not encrypted", color='r')
+          self.P(f"Received net-config from <{short_sender_addr}> `{ee_id}` but it is not encrypted", color='r')
           return
         net_config_data = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {})
         received_pipelines = net_config_data.get('PIPELINES', [])
@@ -809,8 +823,6 @@ class GenericSession(BaseDecentrAIObject):
         pipeline_names = [x.name for x in new_pipelines]
         self.P(f'<NETCFG>Received pipelines from <{sender_addr}>:{pipeline_names}', color='y')
         self.D(f'[DEBUG][NETCFG]Received pipelines from <{sender_addr}>:\n{new_pipelines}', color='y')
-
-        # load with same method as a hb
       return True
       
 
@@ -1163,7 +1175,8 @@ class GenericSession(BaseDecentrAIObject):
       self, 
       seconds=10, 
       close_session_on_timeout=True, 
-      close_pipeline_on_timeout=False
+      close_pipeline_on_timeout=False,
+      **kwargs,
     ):
       """
       Wait for a given amount of time.
@@ -1178,11 +1191,21 @@ class GenericSession(BaseDecentrAIObject):
           
       close_pipeline_on_timeout : bool, optional
           If `True`, will close the pipelines when the time is up, by default False
+          
+      **kwargs : dict
+          Additional or replacement parameters to be passed to the `run` method:
+            `close_session` : bool - If `True` will close the session when the loop is exited.
+            `close_pipelines` : bool - If `True` will close all pipelines initiated by this session when the loop is exited.
+          
       """
+      if "close_pipelines" in kwargs:
+        close_pipeline_on_timeout = kwargs.get("close_pipelines")
+      if "close_session" in kwargs:
+        close_session_on_timeout = kwargs.get("close_session")
       self.run(
         wait=seconds, 
         close_session=close_session_on_timeout, 
-        close_pipelines=close_pipeline_on_timeout
+        close_pipelines=close_pipeline_on_timeout,
       )
       return    
 
