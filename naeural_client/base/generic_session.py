@@ -534,10 +534,12 @@ class GenericSession(BaseDecentrAIObject):
 
       Parameters
       ----------
-      node_addr : str
-          The address of the edge node that will receive the message.
+      node_addr : str or list
+          The address or list of the edge node(s) that will receive the message.
+          
       payload : dict
           The payload dict to be sent.
+          
       **kwargs : dict
           Additional data to be sent to __prepare_message.
       """
@@ -557,10 +559,11 @@ class GenericSession(BaseDecentrAIObject):
       Request the pipelines for a node from the net-config monitor plugin instance.
       Parameters
       ----------
-      node_addr : str
-          The address of the edge node that sent the message.
+      node_addr : str or list
+          The address or list of the edge node(s) that sent the message.
 
       """
+      assert node_addr is not None, "Node address cannot be None"
       payload = {
         NET_CONFIG.NET_CONFIG_DATA: {
           NET_CONFIG.OPERATION: NET_CONFIG.REQUEST_COMMAND,
@@ -570,13 +573,18 @@ class GenericSession(BaseDecentrAIObject):
       additional_data = {
         PAYLOAD_DATA.EE_PAYLOAD_PATH: [self.bc_engine.address, DEFAULT_PIPELINES.ADMIN_PIPELINE, PLUGIN_SIGNATURES.NET_CONFIG_MONITOR, None]
       }
-      node_alias = self.__dct_node_address_to_alias.get(node_addr, None)
-      self.D("<NETCFG> Sending request to <{}> '{}'".format(node_addr, node_alias), color='y')
+      if isinstance(node_addr, str):
+        node_addr = [node_addr]
+      dest = [
+        f"<{x}> '{self.__dct_node_address_to_alias.get(x, None)}'"  for x in node_addr 
+      ]
+      self.D(f"<NETCFG> Sending request to:\n{json.dumps(dest, indent=2)}", color='y')
       self.send_encrypted_payload(
         node_addr=node_addr, payload=payload,
         additional_data=additional_data
       )
-      self._dct_netconfig_pipelines_requests[node_addr] = tm()      
+      for node in node_addr:
+        self._dct_netconfig_pipelines_requests[node] = tm()      
       return
 
     def __track_allowed_node_by_netmon(self, node_addr, dict_msg):
@@ -591,6 +599,7 @@ class GenericSession(BaseDecentrAIObject):
       dict_msg : dict
           The message received from the communication server as a heartbeat of the object from netconfig
       """
+      needs_netconfig = False
       node_whitelist = dict_msg.get(PAYLOAD_DATA.NETMON_WHITELIST, [])
       node_secured = dict_msg.get(PAYLOAD_DATA.NETMON_NODE_SECURED, False)
       node_online = dict_msg.get(PAYLOAD_DATA.NETMON_STATUS_KEY) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
@@ -611,7 +620,7 @@ class GenericSession(BaseDecentrAIObject):
           # only attempt to request pipelines if the node is online and if not recently requested
           last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
           if tm() - last_requested_by_netmon > SDK_NETCONFIG_REQUEST_DELAY:
-            self.__request_pipelines_from_net_config_monitor(node_addr)
+            needs_netconfig = True
           else:
             self.D(f"Node <{node_addr}> is online but pipelines were recently requested", color='y')
         else:
@@ -619,7 +628,7 @@ class GenericSession(BaseDecentrAIObject):
       # endif node seen for the first time
 
       self._dct_can_send_to_node[node_addr] = can_send
-      return
+      return needs_netconfig
     
     
     def __process_node_pipelines(self, node_addr, pipelines):
@@ -791,7 +800,9 @@ class GenericSession(BaseDecentrAIObject):
           self.__current_network_statuses[sender_addr] = current_network
           online_addresses = []
           all_addresses = []
+          lst_netconfig_request = []
           for _ , node_data in current_network.items():
+            needs_netconfig = False
             node_addr = node_data.get(PAYLOAD_DATA.NETMON_ADDRESS, None)
             all_addresses.append(node_addr)
             is_online = node_data.get(PAYLOAD_DATA.NETMON_STATUS_KEY) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
@@ -802,9 +813,14 @@ class GenericSession(BaseDecentrAIObject):
               online_addresses.append(node_addr)
             # end if is_online
             if node_addr is not None:
-              self.__track_allowed_node_by_netmon(node_addr, node_data)
+              needs_netconfig = self.__track_allowed_node_by_netmon(node_addr, node_data)
             # end if node_addr
+            if needs_netconfig:
+              lst_netconfig_request.append(node_addr)
           # end for each node in network map
+          if len(lst_netconfig_request) > 0:
+            self.__request_pipelines_from_net_config_monitor(lst_netconfig_request)
+          # end if needs netconfig
           nr_peers = sum(self._dct_can_send_to_node.values())
           self.P(f"Net mon from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
           if nr_peers > 0 and not self.__at_least_one_node_peered:                
@@ -835,6 +851,7 @@ class GenericSession(BaseDecentrAIObject):
         short_sender_addr = sender_addr[:8] + '...' + sender_addr[-4:]
         if self.client_address == sender_addr:
           self.D("<NETCFG> Ignoring message from self", color='d')
+          return
         receiver = dict_msg.get(PAYLOAD_DATA.EE_DESTINATION, None)
         if not isinstance(receiver, list):
           receiver = [receiver]
@@ -1478,12 +1495,17 @@ class GenericSession(BaseDecentrAIObject):
       ----------
       msg_data : dict
           The message to send.
+          
       encrypt_message : bool
           If True, will encrypt the message.
-      destination : str, optional
-          The destination address, by default None
+          
+      destination : str or list, optional
+          The destination address or list of addresses, by default None
+          
       destination_id : str, optional
           The destination id, by default None
+          IMPORTANT: this will be deprecated soon in favor of the direct use of the address
+          
       additional_data : dict, optional
           Additional data to send, by default None
           This has to be dict!
@@ -1505,7 +1527,9 @@ class GenericSession(BaseDecentrAIObject):
       # This part is duplicated with the creation of payloads
       if encrypt_message and destination is not None:
         str_data = json.dumps(msg_data)
-        str_enc_data = self.bc_engine.encrypt(str_data, destination)
+        str_enc_data = self.bc_engine.encrypt(
+          plaintext=str_data, receiver_address=destination
+        )
         msg_data = {
           comm_ct.COMM_SEND_MESSAGE.K_EE_IS_ENCRYPTED: True,
           comm_ct.COMM_SEND_MESSAGE.K_EE_ENCRYPTED_DATA: str_enc_data,
