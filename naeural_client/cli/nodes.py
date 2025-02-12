@@ -12,11 +12,19 @@ def _get_netstats(
   supervisors_only=False,
   return_session=False,
   eth=False,
-  all_info=False
+  all_info=False,
+  wait_for_node=None
 ):
   t1 = time()
   from naeural_client import Session
   sess = Session(silent=silent)
+  found = None
+  if wait_for_node:
+    sess.P("Waiting for node '{}' to appear...".format(wait_for_node), color='y')
+    found = sess.wait_for_node(wait_for_node, timeout=30)
+    if not found:
+      sess.P("Node '{}' not found.".format(wait_for_node), color='r')
+
   dct_info = sess.get_network_known_nodes(
     online_only=online_only, allowed_only=allowed_only, supervisor=supervisor,
     supervisors_only=supervisors_only,
@@ -95,14 +103,17 @@ def get_supervisors(args):
     log_with_color(f"{df}")
   return
 
-def _send_command_to_node(args, command):
+def _send_command_to_node(args, command, ignore_not_found=False):
   node = args.node
   silent = not args.verbose   
+
   
   t1 = time()
   df, _, _, _, _, sess = _get_netstats(
-    silent=silent, online_only=True, return_session=True    
+    silent=silent, online_only=True, return_session=True,
+    wait_for_node=node
   )
+  
   peered = None
   selection = df.Alias == node
   found = selection.any()
@@ -113,20 +124,28 @@ def _send_command_to_node(args, command):
     node_addr = df_found.Address.values[0]   
     log_with_color(f"{df_found}")
   if not found:
-    log_with_color(f"Node '{node}' <{node_addr}> not found in network.", color='r')
-    return
+    log_with_color("Node '{}' <{}> not found in network (toal {} nodes, {} peered).".format(
+      node, node_addr, df.shape[0], df.Peered.sum()), color='r'
+    )
+    
   if not peered:
-    log_with_color(f"Node '{node}' <{node_addr}> does not accept commands from this SDK.", color='r')
-    return
+    if found:
+      log_with_color(f"Node '{node}' <{node_addr}> is not peered.", color='r')
+    else:
+      log_with_color(f"Node '{node}' <{node_addr}> may not accept this command.", color='r')
+    
   # TODO: currently this is based on node alias, but we should be based on node address
   #       and maybe even node alias
-  if command == COMMANDS.RESTART:
-    sess._send_command_restart_node(node)
-  elif command == COMMANDS.SHUTDOWN:
-    sess._send_command_stop_node(node)
-  else:
-    log_with_color(f"Command '{command}' not supported.", color='r')
-    return
+  if (found and peered) or ignore_not_found:
+    if ignore_not_found:
+      log_with_color(f"Sending blind '{command}' to node <{node}>", color='b')
+    if command == COMMANDS.RESTART:
+      sess._send_command_restart_node(node)
+    elif command == COMMANDS.STOP:
+      sess._send_command_stop_node(node)
+    else:
+      log_with_color(f"Command '{command}' not supported.", color='r')
+      return
   elapsed = time() - t1  
   return  
 
@@ -141,7 +160,7 @@ def restart_node(args):
   """
   node = args.node
   log_with_color(f"Attempting to restart node <{node}>", color='b')
-  _send_command_to_node(args, COMMANDS.RESTART)
+  _send_command_to_node(args, COMMANDS.RESTART, ignore_not_found=True)
   return
 
 
@@ -156,6 +175,6 @@ def shutdown_node(args):
   """
   node = args.node
   log_with_color(f"Attempting to shutdown node <{node}>", color='b')
-  _send_command_to_node(args, COMMANDS.SHUTDOWN)
+  _send_command_to_node(args, COMMANDS.STOP, ignore_not_found=True)
   return
 
