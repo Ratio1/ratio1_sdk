@@ -140,6 +140,7 @@ if __name__ == '__main__':
       on_heartbeat=filterer.on_heartbeat,
       on_payload=filterer.on_data,
       # silent=True,
+      debug=True,
   )
 
   # Observation:

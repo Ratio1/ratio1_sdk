@@ -657,7 +657,6 @@ class GenericSession(BaseDecentrAIObject):
           The name of the instance that sent the message.
       """
       # extract relevant data from the message
-      self.D("<HB> Received hb from: {}".format(msg_node_addr), verbosity=2)
 
       if dict_msg.get(HB.HEARTBEAT_VERSION) == HB.V2:
         str_data = self.log.decompress_text(dict_msg[HB.ENCODED_DATA])
@@ -683,6 +682,10 @@ class GenericSession(BaseDecentrAIObject):
       # as the protocol should NOT send a heartbeat with active configs to
       # the entire network, only to the interested parties via net-config
 
+      self.D("<HB> Received {} with {} pipelines".format(
+        msg_node_addr, len(msg_active_configs)), verbosity=2
+      )
+
       if len(msg_active_configs) > 0:
         # this is for legacy and custom implementation where heartbeats still contain
         # the pipeline configuration.
@@ -700,8 +703,6 @@ class GenericSession(BaseDecentrAIObject):
       # end with
       for transaction in open_transactions_copy:
         transaction.handle_heartbeat(dict_msg)
-
-      self.D("<HB> Received hb from: {}".format(msg_node_addr), verbosity=2)
 
       self.__track_allowed_node_by_hb(msg_node_addr, dict_msg)
 
