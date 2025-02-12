@@ -179,18 +179,19 @@ def show_address(args):
   log_with_color(f"{sess.get_client_address()}", color='b')
   return
 
-def show_version():
+def show_version(silent=True):
   from naeural_client import Session
   sess = Session(
-    silent=True
+    silent=silent
   )  
   
   user_folder = get_user_folder()  
 
-  log_with_color(f"Ratio1 selected network: {get_network()}", color='b')
-  log_with_color(f"SDK folder: {user_folder}", color='b')
+  log_with_color(f"SDK folder:  {user_folder}", color='b')
   log_with_color(f"SDK version: {version}", color='b')
-  log_with_color(f"SDK Client address: {sess.get_client_address()}", color='b')
+  log_with_color(f"Ratio1 selected network: {get_network()}", color='b')
+  log_with_color(f"SDK Client address:      {sess.get_client_address()}", color='b')
+  log_with_color(f"SDK Client ETH address:  {sess.bc_engine.eth_address}", color='b')
   return
   
 
@@ -198,17 +199,16 @@ def show_config(args):
   """
   Displays the current configuration from ~/.naeural/config.
   """
-  show_version()
+  show_version(silent=not args.verbose)
   config_file = get_user_config_file()
   if config_file.exists():
+    keys = []
     with config_file.open("r") as file:
-      log_with_color(f"Current configuration ({config_file}):\n{file.read()}", color='d')
+      lines = file.readlines()
+      keys = [line.strip().split("=")[0] for line in lines if "=" in line]
+    log_with_color(f"Current configuration ({config_file}) has {keys}", color='d')
   else:
     log_with_color(f"No configuration found at {config_file}. Please run `reset_config` first.", color="r")
-  log_with_color("Current environment variables:", color='b')
-  for k in os.environ:
-    if k.startswith("EE_"):
-      log_with_color(f"{k}={os.environ[k]}", color='b')
   return
     
 
