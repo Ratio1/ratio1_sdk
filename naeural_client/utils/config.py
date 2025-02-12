@@ -187,11 +187,11 @@ def show_version(silent=True):
   
   user_folder = get_user_folder()  
 
-  log_with_color(f"SDK folder:  {user_folder}", color='b')
-  log_with_color(f"SDK version: {version}", color='b')
-  log_with_color(f"Ratio1 selected network: {get_network()}", color='b')
-  log_with_color(f"SDK Client address:      {sess.get_client_address()}", color='b')
-  log_with_color(f"SDK Client ETH address:  {sess.bc_engine.eth_address}", color='b')
+  log_with_color(f"SDK folder:     {user_folder}", color='b')
+  log_with_color(f"SDK version:    {version}", color='b')
+  log_with_color(f"Ratio1 network: {get_network()}", color='b')
+  log_with_color(f"SDK addr:       {sess.get_client_address()}", color='b')
+  log_with_color(f"SDK ETH addr:   {sess.bc_engine.eth_address}", color='b')
   return
   
 
@@ -206,7 +206,7 @@ def show_config(args):
     with config_file.open("r") as file:
       lines = file.readlines()
       keys = [line.strip().split("=")[0] for line in lines if "=" in line]
-    log_with_color(f"Current configuration ({config_file}) has {keys}", color='d')
+    log_with_color(f"Current config {config_file} has {len(keys)} keys: {keys}", color='d')
   else:
     log_with_color(f"No configuration found at {config_file}. Please run `reset_config` first.", color="r")
   return

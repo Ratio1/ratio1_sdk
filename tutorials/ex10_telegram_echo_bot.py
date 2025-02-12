@@ -15,6 +15,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
 
 if __name__ == "__main__":   
+  # Note: in order correctly setup the deployment you have to create the Session
+  #       object that will configure the execution environment
   session = Session() 
 
   # NOTE: When working with SDK please use the nodes internal addresses. While the EVM address of the node
@@ -24,8 +26,6 @@ if __name__ == "__main__":
 
   # this tutorial assumes you have started your own local node for dev-testing purposes
   # you can either supply the node address via env or directly here
-  # Note: in order to get the environment variable first you have to create the Session
-  #       object that will load the environment variables
   my_node = os.getenv("EE_TARGET_NODE", "0xai_my_own_node_address") 
 
   session.wait_for_node(my_node) 
@@ -38,7 +38,7 @@ if __name__ == "__main__":
   pipeline, _ = session.create_telegram_simple_bot(
     node=my_node,
     name="telegram_bot_echo",
-    telegram_bot_token="your_token_goes_here",  # we use the token directly
+    # telegram_bot_token="your_token_goes_here",  # we use the token directly
     message_handler=reply,
   )
   
@@ -51,7 +51,7 @@ if __name__ == "__main__":
   #   in production, you would not need this code as the script can close 
   #   after the pipeline will be sent 
   session.wait(
-    seconds=120,            # we wait the session for 120 seconds
+    seconds=60,            # we wait the session for 120 seconds
     close_pipelines=True,   # we close the pipelines after the session
     close_session=True,     # we close the session after the session
   )
