@@ -909,7 +909,7 @@ class GenericSession(BaseDecentrAIObject):
         msg_signature=msg_signature, 
         sender_addr=msg_node_addr
       )
-      
+
       self.__maybe_process_net_config(
         dict_msg=dict_msg, 
         msg_pipeline=msg_pipeline, 
@@ -1502,6 +1502,7 @@ class GenericSession(BaseDecentrAIObject):
         assert destination is not None, f"Unknown address for id: {destination_id}"
       # endif only destination_id provided
 
+      # TODO: apply self.__get_node_address on all destination addresses
       # This part is duplicated with the creation of payloads
       if encrypt_message and destination is not None:
         str_data = json.dumps(msg_data)
@@ -2250,6 +2251,102 @@ class GenericSession(BaseDecentrAIObject):
         else:
           self.P("Node '{}' did not appear online in {:.1f}s.".format(node, tm() - _start), color='r')
       return found
+
+    def wait_for_node_configs(self, node, /, timeout=15, verbose=True, attempt_additional_requests=True):
+      """
+      Wait for the node to have its configurations loaded.
+
+      Parameters
+      ----------
+      node : str
+          The address or name of the Naeural Edge Protocol edge node.
+      timeout : int, optional
+          The timeout, by default 15
+      attempt_additional_requests : bool, optional
+          If True, will attempt to send additional requests to the node to get the configurations, by default True
+
+      Returns
+      -------
+      bool
+          True if the node has its configurations loaded, False otherwise.
+      """
+
+      if verbose:
+        self.P("Waiting for node '{}' to have its configurations loaded...".format(node))
+
+      _start = tm()
+      found = self.check_node_config_received(node)
+      additional_request_sent = False
+      request_time_thr = timeout / 2
+      while (tm() - _start) < timeout and not found:
+        sleep(0.1)
+        found = self.check_node_config_received(node)
+        if not found and not additional_request_sent and (tm() - _start) > request_time_thr and attempt_additional_requests:
+          if verbose:
+            self.P("Re-requesting configurations of node '{}'...".format(node), show=True)
+          node_addr = self.__get_node_address(node)
+          self.__request_pipelines_from_net_config_monitor(node_addr)
+          additional_request_sent = True
+      # end while
+
+      if verbose:
+        if found:
+          self.P(f"Received configurations of node '{node}'.")
+        else:
+          self.P(f"Node '{node}' did not send configs in {(tm() - _start)}. Client might not be authorized!", color='r')
+      return found
+
+    def check_node_config_received(self, node):
+      """
+      Check if the SDK received the configuration of the specified node.
+      Parameters
+      ----------
+      node : str
+          The address or name of the Ratio1 edge node.
+
+      Returns
+      -------
+      bool
+          True if the configuration of the node was received, False otherwise.
+      """
+      node = self.__get_node_address(node)
+      return node in self._dct_online_nodes_pipelines
+
+    def is_peered(self, node):
+      """
+      Public method for checking if a node is peered with the current session.
+      Parameters
+      ----------
+      node : str
+          The address or name of the Ratio1 edge node.
+
+      Returns
+      -------
+      bool
+          True if the node is peered, False otherwise.
+      """
+      node = self.__get_node_address(node)
+      return self._dct_can_send_to_node.get(node, False)
+
+    def get_last_seen_time(self, node, *, default_value=0):
+      """
+      Get the last time the node was seen.
+      Parameters
+      ----------
+      node : str
+          The address or name of the Ratio1 edge node.
+
+      default_value : float, optional
+          The default value to return if the node was not seen, by default 0.
+          In case the user needs a specific default value, it can be provided here.
+
+      Returns
+      -------
+      float or type(default_value)
+          The last time the node was seen.
+      """
+      node = self.__get_node_address(node)
+      return self._dct_node_last_seen_time.get(node, default_value)
 
     def check_node_online(self, node, /):
       """
