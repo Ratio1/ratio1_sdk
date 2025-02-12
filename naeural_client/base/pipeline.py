@@ -1,5 +1,4 @@
 # TODO: for custom plugin, do the plugin verification locally too
-
 import os
 from time import sleep, time
 
@@ -1562,3 +1561,34 @@ class Pipeline(BaseCodeChecker):
       """
       return self.node_alias
 
+    def get_full_config(self):
+      """
+      Get the full configuration of the pipeline.
+      Returns
+      -------
+
+      """
+      dct_signature_instances = {}
+      for instance in self.lst_plugin_instances:
+        signature = instance.signature
+        if signature not in dct_signature_instances:
+          dct_signature_instances[signature] = []
+        dct_signature_instances[signature].append(instance)
+      # endfor instances
+      return {
+        'NAME': self.name,
+        'PLUGINS': [
+          {
+            'SIGNATURE': signature,
+            'INSTANCES': [
+              {
+                'INSTANCE_ID': instance.instance_id,
+                **instance.config
+              }
+              for instance in instances
+            ]
+          }
+          for signature, instances in dct_signature_instances.items()
+        ],
+        **self.config
+      }
