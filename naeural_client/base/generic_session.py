@@ -570,7 +570,8 @@ class GenericSession(BaseDecentrAIObject):
       additional_data = {
         PAYLOAD_DATA.EE_PAYLOAD_PATH: [self.bc_engine.address, DEFAULT_PIPELINES.ADMIN_PIPELINE, PLUGIN_SIGNATURES.NET_CONFIG_MONITOR, None]
       }
-      self.D("Sending net-config request to <{}>".format(node_addr), color='y')
+      node_alias = self.__dct_node_address_to_alias.get(node_addr, None)
+      self.D("<NETCFG> Sending request to <{}> '{}'".format(node_addr, node_alias), color='y')
       self.send_encrypted_payload(
         node_addr=node_addr, payload=payload,
         additional_data=additional_data
