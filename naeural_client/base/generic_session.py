@@ -1063,6 +1063,37 @@ class GenericSession(BaseDecentrAIObject):
 
       return
 
+
+    def close_pipeline(self, node_addr : str, pipeline_name : str):
+      """
+      Close a pipeline created by this session.
+
+      Parameters
+      ----------
+      node_addr : str
+          The address of the edge node that owns the pipeline.
+          
+      pipeline_name : str
+          The name of the pipeline to close.
+      """
+      pipeline : Pipeline = self._dct_online_nodes_pipelines.get(node_addr, {}).get(pipeline_name, None)
+      if pipeline is not None:
+        self.P(
+          f"Closing known pipeline <{pipeline_name}> from <{node_addr}>",
+          color='y'
+        )
+        pipeline.close()
+      else:
+        self.P(
+          "No known pipeline found. Sending close to <{}> for <{}>".format(
+            node_addr, pipeline_name
+          ),
+          color='y'
+        )
+        self._send_command_archive_pipeline(node_addr, pipeline_name)        
+      return
+
+
     def _connect(self) -> None:
       """
       Connect to the communication server using the credentials provided when creating this instance.
@@ -1504,11 +1535,12 @@ class GenericSession(BaseDecentrAIObject):
       ----------
       command : str
           The command to send.
+          
       worker : str
           The name of the Naeural Edge Protocol edge node that will receive the command.
           
-          Observation: this approach will be deprecated soon in favor of the direct use of the address that
-          will not require the node to be already "seend" by the session.
+          Observation: this approach will be deprecated soon in favor of the direct use of 
+          the address that will not require the node to be already "seen" by the session.
           
       payload : dict
           The payload to send.
