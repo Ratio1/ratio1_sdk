@@ -806,7 +806,7 @@ class GenericSession(BaseDecentrAIObject):
             # end if node_addr
           # end for each node in network map
           nr_peers = sum(self._dct_can_send_to_node.values())
-          self.P(f"Net config from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
+          self.P(f"Net mon from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
           if nr_peers > 0 and not self.__at_least_one_node_peered:                
             self.__at_least_one_node_peered = True
             self.P(
@@ -858,11 +858,11 @@ class GenericSession(BaseDecentrAIObject):
           return
         net_config_data = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {})
         received_pipelines = net_config_data.get('PIPELINES', [])
-        self.D(f"<NETCFG> Received {len(received_pipelines)} pipelines from <{sender_addr}>")
+        self.D(f"<NETCFG> Received {len(received_pipelines)} pipelines from <{sender_addr}> `{ee_id}`")
         new_pipelines = self.__process_node_pipelines(sender_addr, received_pipelines)
         pipeline_names = [x.name for x in new_pipelines]
         if len(new_pipelines) > 0:
-          self.P(f'<NETCFG>   Received NEW pipelines from <{sender_addr}>:{pipeline_names}', color='y')
+          self.P(f'<NETCFG>   Received NEW pipelines from <{sender_addr}> `{ee_id}`:{pipeline_names}', color='y')
       return True
       
 
