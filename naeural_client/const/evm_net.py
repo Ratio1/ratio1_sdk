@@ -36,7 +36,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_URL_KEY                    : "https://dauth-devnet.ratio1.ngrok.app/get_auth_data",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0x9f49fc29366F1C8285d42e7E82cA0bb668B32CeA",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",
-    EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-01-12 16:00:00",
+    EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-02-12 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 1,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.6,

@@ -10,10 +10,7 @@ from naeural_client.utils.config import get_user_folder
 
 
 if __name__ == '__main__' :
-  l = Logger(
-    "ENC", base_folder=str(get_user_folder()), app_folder="_local_cache",
-    # silent=True,
-  )
+  l = Logger("ENC")
   eng1 = DefaultBlockEngine(
     log=l, name="default", 
     config={
