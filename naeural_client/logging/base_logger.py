@@ -1100,14 +1100,18 @@ class BaseLogger(object):
     return
   
   def _maybe_migrate_folder(self):
-    if self.get_user_folder().is_dir():
+    user_folder = self.get_user_folder()
+    if user_folder.is_dir():
+      self.P(f"{str(user_folder)} already exists. Skipping migration.")
       return
     user_base_folder = self.get_user_folder(as_str=True, include_sdk_home=True)
+    self.P(f'{str(user_folder)} does not exist. Checking for previous app homes if necessary...')
     if user_base_folder in self._base_folder:
       BaseLogger.print_color("Using default user folder. Checking for previous app homes...", color='d')
       for old_sdk in SDK_HOME_PREV:
         new_path = self.get_user_folder(as_str=False, include_sdk_home=True)
         old_path = self.get_user_folder(as_str=False, include_sdk_home=False) / old_sdk
+        self.P(f'Checking for previous app home: {old_path}')
         if old_path.is_dir():
           BaseLogger.print_color(f"Found previous app home '{old_path}'. Renaming to '{SDK_HOME}'...", color='d')
           old_path.rename(new_path)
