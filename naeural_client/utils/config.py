@@ -327,7 +327,10 @@ def maybe_init_config():
   """
   config_file = get_user_config_file()
   if not config_file.exists():
-    log_with_color(f"No configuration file found at {config_file}. Initializing configuration...", color="y")     
-    reset_config(keep_existing=True)
-    return False
+    BaseLogger.maybe_migrate_user_folder(verbose=True)
+    if not config_file.exists():
+      log_with_color(f"No configuration file found at {config_file}. Initializing configuration...", color="y")
+      reset_config(keep_existing=True)
+      return False
+    # config_file still does not exist even after attempting the migration.
   return load_user_defined_config()

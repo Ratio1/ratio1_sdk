@@ -1098,28 +1098,32 @@ class BaseLogger(object):
   def reload_config(self):
     self._configure_data_and_dirs(self.config_file, self.config_file_encoding)
     return
-  
-  def _maybe_migrate_folder(self):
-    user_folder = self.get_user_folder()
-    if user_folder.is_dir():
-      self.P(f"{str(user_folder)} already exists. Skipping migration.")
+
+  @staticmethod
+  def maybe_migrate_user_folder(verbose=False):
+    current_user_folder = BaseLogger.get_user_folder()
+    if current_user_folder.is_dir():
+      if verbose:
+        BaseLogger.print_color(f"{str(current_user_folder)} already exists. Skipping migration.")
       return
-    user_base_folder = self.get_user_folder(as_str=True, include_sdk_home=True)
-    self.P(f'{str(user_folder)} does not exist. Checking for previous app homes if necessary...')
-    if user_base_folder in self._base_folder:
-      BaseLogger.print_color("Using default user folder. Checking for previous app homes...", color='d')
-      for old_sdk in SDK_HOME_PREV:
-        new_path = self.get_user_folder(as_str=False, include_sdk_home=True)
-        old_path = self.get_user_folder(as_str=False, include_sdk_home=False) / old_sdk
-        self.P(f'Checking for previous app home: {old_path}')
-        if old_path.is_dir():
-          BaseLogger.print_color(f"Found previous app home '{old_path}'. Renaming to '{SDK_HOME}'...", color='d')
-          old_path.rename(new_path)
-          break
-      #endfor
-    #endif
+    if verbose:
+      BaseLogger.print_color(f'User folder {str(current_user_folder)} does not exist. Checking for previous versions...')
+    for old_sdk_home in SDK_HOME_PREV:
+      old_user_folder = current_user_folder.parent / old_sdk_home
+      if old_user_folder.is_dir():
+        if verbose:
+          BaseLogger.print_color(f"Found previous user folder '{old_user_folder}'. Renaming to '{current_user_folder}'...")
+        old_user_folder.rename(current_user_folder)
+        return
+    if verbose:
+      BaseLogger.print_color("No previous user folders found.")
     return
 
+  def _maybe_migrate_folder(self):
+    user_base_folder = BaseLogger.get_user_folder(as_str=True, include_sdk_home=True)
+    if user_base_folder in self._base_folder:
+      BaseLogger.maybe_migrate_user_folder(verbose=True)
+    return
 
   def _configure_data_and_dirs(self, config_file, config_file_encoding=None):
     self._maybe_migrate_folder()
