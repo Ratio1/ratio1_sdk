@@ -93,14 +93,26 @@ def get_user_config_file():
   return get_user_folder() / CONFIG_FILE
 
 
+
+
 def get_network():
   return os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+
+def get_networks(args):
+  """
+  Shows the network configuration.
+  """
+  log_with_color(f"Client v{version} on network: {get_network()}", color='b')
+  from naeural_client.const.evm_net import EVM_NET_DATA
+  log_with_color(f"Available networks:\n{json.dumps(EVM_NET_DATA, indent=2)}", color='w')  
+  return
+
 
 def get_set_network(args):
   net = args.new or args.set
   env_network = get_network()
   if net is None:
-    log_with_color(f"Current network: {env_network}", color='b')
+    log_with_color(f"Client v{version} on network: {env_network}", color='b')
   else:
     config_file = get_user_config_file()
     # open config_file and update EE_EVM_NET
@@ -124,7 +136,7 @@ def reset_config(*larg, keep_existing=False, **kwargs):
   Resets the configuration by creating a ~/.naeural folder and populating
   ~/.naeural/config with values from a local .env file, if it exists.
   """
-  log_with_color("Resetting the configuration...", color='y')
+  log_with_color(f"Client v{version} resetting the configuration...", color='y')
   # Define the target config folder and file
   config_dir = get_user_folder()
   config_file = get_user_config_file()

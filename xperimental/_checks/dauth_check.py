@@ -31,7 +31,7 @@ if __name__ == '__main__' :
   to_use = eng1
   responders = {}
   
-  for _ in range(20):
+  for _ in range(5):
     d = to_use.dauth_autocomplete(
       # dauth_endp='N/Adhstrgredshtfnfnhgm',
       add_env=False,

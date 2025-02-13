@@ -1602,9 +1602,6 @@ class BaseBlockEngine:
               self.P(f"Response received from {server_alias} <{server_addr}>:\n {json.dumps(dct_response, indent=2)}")
             else:
               self.P(f"Response received from {server_alias} <{server_addr}>,")
-            error = dct_response.get('error', None)
-            if error is not None:
-              self.P(f"Error in dAuth response: {dct_response}", color='r')
             ver_result = self.verify(dct_result)
             if ver_result.valid:
               self.P(f"Signature from {server_alias} <{server_addr}> is valid.", color='g')
@@ -1624,22 +1621,29 @@ class BaseBlockEngine:
               self.P(f"No whitelist addresses found in dAuth response.", color='d')
             # end whitelist
 
+            error = dct_dauth.get('error', None)
+
             dct_env = {k : v for k,v in dct_dauth.items() if k.startswith(dAuth.DAUTH_ENV_KEYS_PREFIX)}
-            self.P("Found {} keys in dAuth response.".format(len(dct_env)), color='g')
-            for k, v in dct_env.items():
-              try:
-                if not isinstance(v, str):
-                  v = json.dumps(v)
-              except:
-                v = str(v)
-              if k not in os.environ:
-                self.P(f"  Adding key `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` to env.", color='y')
-              else:
-                self.P(f"  Overwrite  `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` in env.", color='y')
-              if add_env:
-                os.environ[k] = v
-              #endif add to env
-            #endfor each key in dAuth response
+            if len(dct_env) > 0:
+              self.P("Found {} keys in dAuth response.".format(len(dct_env)), color='g')
+              for k, v in dct_env.items():
+                try:
+                  if not isinstance(v, str):
+                    v = json.dumps(v)
+                except:
+                  v = str(v)
+                if k not in os.environ:
+                  self.P(f"  Adding key `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` to env.", color='y')
+                else:
+                  self.P(f"  Overwrite  `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` in env.", color='y')
+                if add_env:
+                  os.environ[k] = v
+                #endif add to env
+              #endfor each key in dAuth response
+              if error is not None:
+                self.P(f"Server message: {error}", color='y')
+            else:
+              self.P(f"dAuth reject response. Your node is not licensed. Error: {error}", color='r')
             done = True
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')

@@ -5,7 +5,7 @@ from naeural_client.cli.nodes import (
 from naeural_client.cli.oracles import get_availability
 from naeural_client.utils.config import (
   show_config, reset_config, show_address, get_set_network,
-  get_apps
+  get_apps, get_networks
 )
 
 # Define the available commands
@@ -47,7 +47,11 @@ CLI_COMMANDS = {
                 "--full": "Include admin apps (flag)",
                 "--json": "Output the entire JSON config of applications (flag)",
             }
-        }
+        },
+        "networks": {
+            "func": get_networks, # DONE
+            "description": "Show the network configuration",
+        },
     },
     "config": {
         "show": {
