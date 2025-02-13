@@ -20,7 +20,10 @@ from pathlib import Path
 
 from .tzlocal import get_localzone_name
 
-
+SDK_HOME = ".ratio1"
+SDK_HOME_PREV = [
+  ".naeural"
+]
 
 from .._ver import __VER__
 
@@ -108,6 +111,12 @@ class BaseLogger(object):
       })
     
     self._lock_table_mutex = threading.Lock()
+    
+    if base_folder is None:
+      base_folder = self.get_user_folder(as_str=True)
+      
+    if app_folder is None:
+      app_folder = "_local_cache"
 
     self._base_folder = base_folder
     self._app_folder = app_folder
@@ -205,6 +214,16 @@ class BaseLogger(object):
       self.P('  WARNING: Debug is NOT enabled in Logger, some functionalities are DISABLED', color='y')
 
     return
+  
+  @staticmethod
+  def get_user_folder(as_str=False, include_sdk_home=True):
+    """
+    Returns the user folder.
+    """    
+    path =  Path.home() / SDK_HOME if include_sdk_home else Path.home()
+    if as_str:
+      return str(path)
+    return path
   
   def get_unique_id(self, size=8):
     """
@@ -1062,6 +1081,8 @@ class BaseLogger(object):
       json.dump(path_dict, fp, sort_keys=True, indent=4)
     self._add_log("{} error log changed to {}...".format(file_path, self.log_e_file))
     return
+  
+  
 
   def _get_cloud_base_folder(self, base_folder):
     upper = base_folder.upper()
@@ -1077,8 +1098,28 @@ class BaseLogger(object):
   def reload_config(self):
     self._configure_data_and_dirs(self.config_file, self.config_file_encoding)
     return
+  
+  def _maybe_migrate_folder(self):
+    if self.get_user_folder().is_dir():
+      return
+    user_base_folder = self.get_user_folder(as_str=True, include_sdk_home=True)
+    if user_base_folder in self._base_folder:
+      BaseLogger.print_color("Using default user folder. Checking for previous app homes...", color='d')
+      for old_sdk in SDK_HOME_PREV:
+        new_path = self.get_user_folder(as_str=False, include_sdk_home=True)
+        old_path = self.get_user_folder(as_str=False, include_sdk_home=False) / old_sdk
+        if old_path.is_dir():
+          BaseLogger.print_color(f"Found previous app home '{old_path}'. Renaming to '{SDK_HOME}'...", color='d')
+          old_path.rename(new_path)
+          break
+      #endfor
+    #endif
+    return
+
 
   def _configure_data_and_dirs(self, config_file, config_file_encoding=None):
+    self._maybe_migrate_folder()
+    
     self.config_file_encoding = config_file_encoding
     
     if self.no_folders_no_save:
@@ -1109,6 +1150,9 @@ class BaseLogger(object):
         BaseLogger.print_color("Loaded config [{}]".format(config_file))
       self.config_file = config_file
     else:
+
+      
+      
       self.config_data = {
         'BASE_FOLDER' : self._base_folder,
         'APP_FOLDER' : self._app_folder
@@ -1145,7 +1189,7 @@ class BaseLogger(object):
 
       if not os.path.isdir(self._base_folder):
         BaseLogger.print_color(
-          f"WARNING! Invalid app base folder '{self._base_folder}'! We create it automatically!",
+          f"WARNING! No application base folder '{self._base_folder}'!",
           color='r'
         )
       #endif

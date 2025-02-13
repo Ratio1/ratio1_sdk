@@ -8,9 +8,11 @@ from datetime import datetime
 from naeural_client.const.base import BCct, dAuth
 from naeural_client._ver import __VER__ as version
 
+from naeural_client.logging.base_logger import SDK_HOME, BaseLogger
+
 
 CONFIG_FILE = "config"
-SDK_HOME = ".naeural"
+
 LOCAL_PEM_PATH = "./_local_cache/_data/" + BCct.DEFAULT_PEM_FILE
 
 ENV_TEMPLATE = """
@@ -84,7 +86,7 @@ def get_user_folder():
   """
   Returns the user folder.
   """
-  return Path.home() / SDK_HOME
+  return BaseLogger.get_user_folder(as_str=False, include_sdk_home=True)
 
 def get_user_config_file():
   """

@@ -100,7 +100,7 @@ class GenericSession(BaseDecentrAIObject):
               root_topic="naeural",
               local_cache_base_folder=None,
               local_cache_app_folder='_local_cache',
-              use_home_folder=False,
+              use_home_folder=True,
               eth_enabled=True,
               auto_configuration=True,
               **kwargs
@@ -179,6 +179,11 @@ class GenericSession(BaseDecentrAIObject):
     auto_configuration : bool, optional
         If True, the SDK will attempt to complete the dauth process automatically.
         Defaults to True.
+        
+        
+    use_home_folder : bool, optional
+        If True, the SDK will use the home folder as the base folder for the local cache.
+        NOTE: if you need to use development style ./_local_cache, set this to False.
     """
     
     debug = debug or not debug_silent
@@ -818,11 +823,11 @@ class GenericSession(BaseDecentrAIObject):
             if needs_netconfig:
               lst_netconfig_request.append(node_addr)
           # end for each node in network map
+          self.P(f"Net mon from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
           if len(lst_netconfig_request) > 0:
             self.__request_pipelines_from_net_config_monitor(lst_netconfig_request)
           # end if needs netconfig
           nr_peers = sum(self._dct_can_send_to_node.values())
-          self.P(f"Net mon from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
           if nr_peers > 0 and not self.__at_least_one_node_peered:                
             self.__at_least_one_node_peered = True
             self.P(
@@ -2276,7 +2281,11 @@ class GenericSession(BaseDecentrAIObject):
           self.P("Node '{}' did not appear online in {:.1f}s.".format(node, tm() - _start), color='r')
       return found
 
-    def wait_for_node_configs(self, node, /, timeout=15, verbose=True, attempt_additional_requests=True):
+    def wait_for_node_configs(
+      self, node, /, 
+      timeout=15, verbose=True, 
+      attempt_additional_requests=True
+    ):
       """
       Wait for the node to have its configurations loaded.
 
@@ -2295,8 +2304,7 @@ class GenericSession(BaseDecentrAIObject):
           True if the node has its configurations loaded, False otherwise.
       """
 
-      if verbose:
-        self.P("Waiting for node '{}' to have its configurations loaded...".format(node))
+      self.P("Waiting for node '{}' to have its configurations loaded...".format(node))
 
       _start = tm()
       found = self.check_node_config_received(node)
@@ -2306,8 +2314,7 @@ class GenericSession(BaseDecentrAIObject):
         sleep(0.1)
         found = self.check_node_config_received(node)
         if not found and not additional_request_sent and (tm() - _start) > request_time_thr and attempt_additional_requests:
-          if verbose:
-            self.P("Re-requesting configurations of node '{}'...".format(node), show=True)
+          self.P("Re-requesting configurations of node '{}'...".format(node), show=True)
           node_addr = self.__get_node_address(node)
           self.__request_pipelines_from_net_config_monitor(node_addr)
           additional_request_sent = True
