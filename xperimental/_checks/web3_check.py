@@ -26,6 +26,8 @@ if __name__ == '__main__' :
     "0x93B04EF1152D81A0847C2272860a8a5C70280E14",    
   ]
   
+  l.P(f"Checking web3 API on {eng.evm_network}", color='b')
+  
   for addr in addresses:
     is_active = eng.web3_is_node_licensed(
       address=addr, network=network, debug=True

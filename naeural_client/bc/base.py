@@ -7,7 +7,6 @@ import datetime
 import uuid
 import requests
 
-from web3 import Web3
 
 from hashlib import sha256, md5
 from threading import Lock
@@ -22,9 +21,21 @@ from ..const.base import (
   BCctbase, BCct, 
   DAUTH_SUBKEY, DAUTH_ENV_KEY,
   DAUTH_NONCE, dAuth,
+  EE_VPN_IMPL_ENV_KEY
 )
 
-    
+EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
+  'true', '1', 'yes', 'y', 't', 'on'
+]
+
+if EE_VPN_IMPL:
+  class Web3:
+    """
+    VPS enabled. Web3 is not available.
+    """
+else:
+  from web3 import Web3
+
   
   
 class _DotDict(dict):
@@ -1439,6 +1450,10 @@ class BaseBlockEngine:
     address : str
       the address to check.
     """
+    if EE_VPN_IMPL:
+      self.P("VPN implementation. Skipping Ethereum check.", color='r')
+      return False
+    
     if network is None:
       network = self.evm_network
     
@@ -1530,6 +1545,9 @@ class BaseBlockEngine:
     dict with the dAuth information if the request got status 200(if errors occured, but
     the status is still 200, an empty dictionary will be returned).
     """
+    if EE_VPN_IMPL:
+      return {}
+    #endif EE_VPN_IMPL
     from naeural_client._ver import __VER__ as sdk_version
     try:
       from ver import __VER__ as app_version
@@ -1596,8 +1614,11 @@ class BaseBlockEngine:
           if len(kwargs) == 0:
             to_send[dAuth.DAUTH_SENDER_ALIAS] = dAuth.DAUTH_SENDER_ALIAS_DEFAULT
           ######
-          self.sign(to_send)          
-          response = requests.post(url, json={'body' : to_send})
+          self.sign(to_send)    
+          json_to_send = {'body' : to_send}
+          if debug:
+            self.P(f"Sending to dAuth URL: {url}\n{json.dumps(json_to_send, indent=2)}")   
+          response = requests.post(url, json=json_to_send)
           if response.status_code == 200:
             dct_response = response.json()
             dct_result = dct_response.get('result', {}) or {}
