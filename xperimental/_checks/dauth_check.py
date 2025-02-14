@@ -10,26 +10,18 @@ from naeural_client.utils.config import get_user_folder
 
 
 if __name__ == '__main__' :
-  l = Logger("ENC")
-  eng1 = DefaultBlockEngine(
+  l = Logger("ENC", base_folder=".", app_folder="_local_cache")
+  eng = DefaultBlockEngine(
     log=l, name="default", 
     config={
-        
-      }
-  )
-
-  eng2 = DefaultBlockEngine(
-    log=l, name="default", 
-    config={
-        "PEM_FILE": "r03.pem",
+        "PEM_FILE": "aid01.pem",
       }
   )
   
-  to_use = eng1
   responders = {}
   
-  for _ in range(5):
-    d = to_use.dauth_autocomplete(
+  for _ in range(1):
+    d = eng.dauth_autocomplete(
       # dauth_endp='N/Adhstrgredshtfnfnhgm',
       add_env=False,
       debug=True,

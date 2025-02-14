@@ -1510,6 +1510,7 @@ class BaseBlockEngine:
     max_tries=5,
     network=None,
     return_full_data=False,
+    debug_data=False,
     **kwargs
   ):
     """
@@ -1575,13 +1576,22 @@ class BaseBlockEngine:
       while not done:
         self.P(f"<{eth_short}> ({network}) dAuth with `{url}`... (try {tries + 1} / {max_tries})")
         try:
-          to_send = {
-            **kwargs,
-            DAUTH_NONCE : str(uuid.uuid4())[:8],
-            dAuth.DAUTH_SENDER_APP_VER  : app_version,
-            dAuth.DAUTH_SENDER_SDK_VER  : sdk_version,
-            dAuth.DAUTH_SENDER_CORE_VER : core_version,
-          }
+          if debug_data:
+            to_send = {
+              DAUTH_NONCE : str(uuid.uuid4())[:8],
+              dAuth.DAUTH_SENDER_APP_VER  : app_version,
+              dAuth.DAUTH_SENDER_SDK_VER  : sdk_version,
+              dAuth.DAUTH_SENDER_CORE_VER : core_version,
+              **kwargs,
+            }
+          else:
+            to_send = {
+              **kwargs,
+              DAUTH_NONCE : str(uuid.uuid4())[:8],
+              dAuth.DAUTH_SENDER_APP_VER  : app_version,
+              dAuth.DAUTH_SENDER_SDK_VER  : sdk_version,
+              dAuth.DAUTH_SENDER_CORE_VER : core_version,
+            }
           ######
           if len(kwargs) == 0:
             to_send[dAuth.DAUTH_SENDER_ALIAS] = dAuth.DAUTH_SENDER_ALIAS_DEFAULT
