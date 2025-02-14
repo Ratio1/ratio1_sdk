@@ -1648,8 +1648,7 @@ class BaseLogger(object):
     return result
   
   
-  @staticmethod
-  def utc_to_local(remote_datetime, remote_utc, fmt='%Y-%m-%d %H:%M:%S', as_string=False):
+  def utc_to_local(self, remote_datetime, remote_utc, fmt='%Y-%m-%d %H:%M:%S', as_string=False):
     """
     Given a "remote" datetime (in datetime or str format) and a string or int denoting an offset 
     will return local datetime as a datetime object.
@@ -1668,13 +1667,21 @@ class BaseLogger(object):
     """
     if remote_utc is None:
       remote_utc = 'UTC+3'
-    if isinstance(remote_utc, str):
-      remote_utc = tz.gettz(remote_utc)
-    elif isinstance(remote_utc, int):
-      utc_offset = remote_utc
-      remote_utc = tz.tzoffset(None, timedelta(hours=utc_offset))
-    elif not isinstance(remote_utc, tzinfo):
-      raise ValueError("Unknown remote_utc type: {}".format(type(remote_utc)))
+    try:
+      if isinstance(remote_utc, str):
+        remote_utc = tz.gettz(remote_utc)
+      elif isinstance(remote_utc, int):
+        utc_offset = remote_utc
+        remote_utc = tz.tzoffset(None, timedelta(hours=utc_offset))
+      elif not isinstance(remote_utc, tzinfo):
+        raise ValueError("Unknown remote_utc type: {}".format(type(remote_utc)))
+    except Exception as exc:
+      # if it breaks use local time
+      remote_utc = tz.tzlocal()
+      self.P("Error in remote_datetime: {} requested remote_utc: {}, Error: {}. Using local timezone {} for given date.".format(
+        remote_datetime, remote_utc, exc, remote_utc), color='r'
+      )
+      
 
     if isinstance(remote_datetime, str):
       remote_datetime = dt.strptime(remote_datetime, fmt)
