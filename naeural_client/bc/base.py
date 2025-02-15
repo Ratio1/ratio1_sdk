@@ -23,7 +23,7 @@ from ..const.base import (
   DAUTH_NONCE, dAuth,
 )
 
-from .evm import _EVMMixin, Web3
+from .evm import _EVMMixin, Web3, EE_VPN_IMPL
 
 EVM_COMMENT = " # "
 INVALID_COMMENT = " # INVALID: "
