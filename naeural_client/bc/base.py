@@ -36,6 +36,11 @@ if EE_VPN_IMPL:
 else:
   from web3 import Web3
 
+
+from eth_account import Account
+from eth_utils import keccak, to_checksum_address
+from eth_account.messages import encode_defunct
+    
   
   
 class _DotDict(dict):
@@ -534,7 +539,7 @@ class BaseBlockEngine:
     return path  
   
   
-  def address_is_valid(self, address):
+  def address_is_valid(self, address, return_error=False):
     """
     Checks if an address is valid
 
@@ -550,11 +555,15 @@ class BaseBlockEngine:
 
     """
     result = False
+    msg = ""
     try:
       pk = self._address_to_pk(address)
       result = False if pk is None else True
-    except:
+    except Exception as exc:
       result = False
+      msg = str(exc)
+    if return_error:
+      return result, msg
     return result
   
   
@@ -578,11 +587,16 @@ class BaseBlockEngine:
           continue
         addr = parts[0]
         name = parts[1] if len(parts) > 1 else ""
-        if not self.address_is_valid(addr):
-          self.P("WARNING: address <{}> is not valid. Ignoring.".format(addr), color='r')
+        is_valid, valid_msg = self.address_is_valid(addr, return_error=True)
+        if not is_valid:
+          self.P("WARNING: address <{}> is not valid. Commenting.".format(addr), color='r')
+          addr = "# " + addr
+          name = name + " # " + valid_msg
         else:
-          lst_addresses.append(self.maybe_add_prefix(addr))
-          lst_names.append(name)
+          addr = self.maybe_add_prefix(addr)
+          eth = self.
+        lst_addresses.append(addr)
+        lst_names.append(name)
         #endif
       #endfor
       if len(lst_addresses) > 0:
@@ -594,7 +608,10 @@ class BaseBlockEngine:
             changed = True
             existing_addrs.append(addr)
             existing_names.append(name)
-            self.P("Address <{}{}> added to the allowed list.".format(addr, name), color='g')
+            if addr.startswith("#"):
+              self.P("WARNING: address <{}> is not valid and will be ignored.".format(addr), color='r')
+            else:
+              self.P("Address <{}{}> added to the allowed list.".format(addr, name), color='g')
           #endif new address
         #endfor
         if changed:
@@ -628,7 +645,7 @@ class BaseBlockEngine:
             fh.write('\n')
         lst_allowed = [x.strip() for x in lst_allowed]
         lst_allowed = [x for x in lst_allowed if x != '']
-        lst_lines = []
+        lst_lines_to_write = []
         errors = False
         for allowed_tuple in lst_allowed:
           parts = allowed_tuple.split()
@@ -637,20 +654,23 @@ class BaseBlockEngine:
           allowed = parts[0]
           allowed = self._remove_prefix(allowed)
           name = parts[1] if len(parts) > 1 else ""
-          if not self.address_is_valid(allowed):
+          is_valid, valid_msg = self.address_is_valid(allowed, return_error=True)
+          if not is_valid:
             self.P("WARNING: address <{}> is not valid. Removing {} from allowed list.".format(
               allowed, allowed_tuple), color='r'
             )
             errors = True
+            error_line = "# " + allowed_tuple + " # " + valid_msg
+            lst_lines_to_write.append(error_line)
           else:
             if return_prefix:
               allowed = self.maybe_add_prefix(allowed)
             lst_final.append(allowed)
-            lst_lines.append(allowed_tuple)
             lst_names.append(name)
+            lst_lines_to_write.append(allowed_tuple)
         if errors:
           with open(fn, 'wt') as fh:
-            for line in lst_lines:
+            for line in lst_lines_to_write:
               fh.write("{}\n".format(line))   
       except Exception as exc:
         self.P(f"ERROR: failed to load the allowed list of addresses: {exc}", color='r')
@@ -1493,7 +1513,7 @@ class BaseBlockEngine:
 
     """
     if network is None:
-      network = BaseBlockEngine.get_evm_network()
+      network = self.evm_network
 
     network_data = self.get_network_data(network)
     
@@ -1512,7 +1532,196 @@ class BaseBlockEngine:
     result = contract.functions.getSigners().call()
     return result
   
+
   
+  ### ETH
+
+  def _get_eth_address(self, pk=None):
+    if pk is None:
+      pk = self.public_key
+    raw_public_key = pk.public_numbers()
+
+    # Compute Ethereum-compatible address
+    x = raw_public_key.x.to_bytes(32, 'big')
+    y = raw_public_key.y.to_bytes(32, 'big')
+    uncompressed_key = b'\x04' + x + y
+    keccak_hash = keccak(uncompressed_key[1:])  # Remove 0x04 prefix
+    eth_address = "0x" + keccak_hash[-20:].hex()
+    eth_address = to_checksum_address(eth_address)
+    return eth_address    
+  
+  def _get_eth_account(self):
+    private_key_bytes = self.private_key.private_numbers().private_value.to_bytes(32, 'big')
+    return Account.from_key(private_key_bytes)
+  
+  
+  def node_address_to_eth_address(self, address):
+    """
+    Converts a node address to an Ethereum address.
+
+    Parameters
+    ----------
+    address : str
+        The node address convert.
+
+    Returns
+    -------
+    str
+        The Ethereum address.
+    """
+    public_key = self._address_to_pk(address)
+    return self._get_eth_address(pk=public_key)
+  
+  def is_node_address_in_eth_addresses(self, node_address: str, lst_eth_addrs) -> bool:
+    """
+    Check if the node address is in the list of Ethereum addresses
+
+    Parameters
+    ----------
+    node_address : str
+      the node address.
+      
+    lst_eth_addrs : list
+      list of Ethereum addresses.
+
+    Returns
+    -------
+    bool
+      True if the node address is in the list of Ethereum addresses.
+
+    """
+    eth_addr = self.node_address_to_eth_address(node_address)
+    return eth_addr in lst_eth_addrs
+
+
+  def eth_hash_message(self, types, values, as_hex=False):
+    """
+    Hashes a message using the keccak256 algorithm.
+
+    Parameters
+    ----------
+    types : list
+        The types of the values.
+        
+    values : list of any
+        The values to hash.
+
+    Returns
+    -------
+    bytes
+        The hash of the message in hexadecimal format.
+    """
+    message = Web3.solidity_keccak(types, values)
+    if as_hex:
+      return message.hex()
+    return message
+  
+  
+  def eth_sign_message(self, types, values):
+    """
+    Signs a message using the private key.
+
+    Parameters
+    ----------
+    types : list
+        The types of the values.
+        
+    values : list of any
+        The values to sign.
+
+    Returns
+    -------
+    str
+        The signature of the message.
+    """
+    message_hash = self.eth_hash_message(types, values, as_hex=False)
+    signable_message = encode_defunct(primitive=message_hash)
+    signed_message = Account.sign_message(signable_message, private_key=self.eth_account.key)
+    if hasattr(signed_message, "message_hash"): # backward compatibility
+      signed_message_hash = signed_message.message_hash
+    else:
+      signed_message_hash = signed_message.messageHash
+    return {
+        "message_hash": message_hash.hex(),
+        "r": hex(signed_message.r),
+        "s": hex(signed_message.s),
+        "v": signed_message.v,
+        "signature": signed_message.signature.hex(),
+        "signed_message": signed_message_hash.hex(),
+        "sender" : self.eth_address,
+        "eth_signed_data" : types,
+    }
+    
+  def eth_sign_text(self, message, signature_only=True):
+    """
+    Signs a text message using the private key.
+
+    Parameters
+    ----------
+    message : str
+        The message to sign.
+        
+    signature_only : bool, optional
+        Whether to return only the signature. The default is True
+
+    Returns
+    -------
+    str
+        The signature of the message.
+    """
+    types = ["string"]
+    values = [message]
+    result = self.eth_sign_message(types, values)
+    if signature_only:
+      return result["signature"]
+    return result
+    
+    
+    
+  def eth_sign_node_epochs(
+    self, 
+    node, 
+    epochs, 
+    epochs_vals, 
+    signature_only=True, 
+    use_evm_node_addr=True
+  ):
+    """
+    Signs the node availability
+
+    Parameters
+    ----------
+    node : str
+        The node address to sign. Either the node address or the Ethereum address based on `use_evm_node_addr`.
+        
+    epochs : list of int
+        The epochs to sign.
+        
+    epochs_vals : list of int
+        The values for each epoch.
+        
+    signature_only : bool, optional
+        Whether to return only the signature. The default is True.
+        
+    use_evm_node_addr : bool, optional
+        Whether to use the Ethereum address of the node. The default is True.
+
+    Returns
+    -------
+    str
+        The signature of the message.
+    """
+    if use_evm_node_addr:
+      types = ["address", "uint256[]", "uint256[]"]  
+    else:
+      types = ["string", "uint256[]", "uint256[]"]
+    values = [node, epochs, epochs_vals]
+    result = self.eth_sign_message(types, values)
+    if signature_only:
+      return result["signature"]
+    return result
+  
+    
   
   ### end Ethereum
 
