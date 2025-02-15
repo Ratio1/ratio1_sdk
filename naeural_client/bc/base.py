@@ -7,7 +7,6 @@ import datetime
 import uuid
 import requests
 
-from web3 import Web3
 
 from hashlib import sha256, md5
 from threading import Lock
@@ -24,7 +23,10 @@ from ..const.base import (
   DAUTH_NONCE, dAuth,
 )
 
-    
+from .evm import _EVMMixin, Web3, EE_VPN_IMPL
+
+EVM_COMMENT = " # "
+INVALID_COMMENT = " # INVALID: "
   
   
 class _DotDict(dict):
@@ -238,7 +240,7 @@ def ripemd160(data):
   
 # END ## RIPEMD160  
 
-class BaseBlockEngine:
+class BaseBlockEngine(_EVMMixin):
   """
   This multiton (multi-singleton via key) is the base workhorse of the private blockchain. 
   
@@ -326,7 +328,8 @@ class BaseBlockEngine:
     self.__pem_file = pem_fn
     self._init()
     return
-  
+
+
   def P(self, s, color=None, boxed=False, verbosity=1, **kwargs):
     if verbosity > self.__verbosity:
       return
@@ -338,15 +341,35 @@ class BaseBlockEngine:
       boxed=boxed, 
       **kwargs
     )
+    return
   
   
   @property
   def eth_enabled(self):
     return self.__eth_enabled
-  
+
+
+  def set_eth_flag(self, value):    
+    if value != self.__eth_enabled:
+      self.__eth_enabled = value
+      self.log.P("Changed eth_enabled to {}".format(value), color='d')
+    return
+
+
   @property
   def name(self):
     return self.__name
+
+  
+  @property
+  def eth_address(self):
+    return self.__eth_address
+
+
+  @property
+  def eth_account(self):
+    return self.__eth_account
+
 
   def _init(self):
     self.P(
@@ -523,7 +546,7 @@ class BaseBlockEngine:
     return path  
   
   
-  def address_is_valid(self, address):
+  def address_is_valid(self, address, return_error=False):
     """
     Checks if an address is valid
 
@@ -539,11 +562,15 @@ class BaseBlockEngine:
 
     """
     result = False
+    msg = ""
     try:
       pk = self._address_to_pk(address)
       result = False if pk is None else True
-    except:
+    except Exception as exc:
       result = False
+      msg = str(exc)
+    if return_error:
+      return result, msg
     return result
   
   
@@ -558,8 +585,10 @@ class BaseBlockEngine:
     if isinstance(address, list) and len(address) > 0:
       # self.P(f"Adding addresses to the allowed list:\n{address}", verbosity=1)
       # now check addresses
-      lst_addresses = []
+      lst_lines = []
+      lst_addrs = []
       lst_names = []
+      whitelist = self.whitelist_with_prefixes
       for addr in address:
         addr = addr.strip()
         parts = addr.split()
@@ -567,31 +596,45 @@ class BaseBlockEngine:
           continue
         addr = parts[0]
         name = parts[1] if len(parts) > 1 else ""
-        if not self.address_is_valid(addr):
+        is_valid, valid_msg = self.address_is_valid(addr, return_error=True)
+        if not is_valid:
           self.P("WARNING: address <{}> is not valid. Ignoring.".format(addr), color='r')
+          addr = "# " + addr
+          name = name + INVALID_COMMENT + valid_msg
+          continue # skip invalid address or go forward and add it ...
         else:
-          lst_addresses.append(self.maybe_add_prefix(addr))
-          lst_names.append(name)
+          addr = self.maybe_add_prefix(addr)
+          if addr in whitelist:
+            self.P("WARNING: address <{}> already in the allowed list. Ignoring.".format(addr), color='r')
+            continue
+          eth = self.node_address_to_eth_address(addr)
+          name = name + EVM_COMMENT + eth          
+        str_line = "{}{}".format(addr, ("  " + name) if len(name)>0 else "")
+        lst_lines.append(str_line)
+        lst_addrs.append(addr)
+        lst_names.append(name)
         #endif
       #endfor
-      if len(lst_addresses) > 0:
-        existing_addrs, existing_names = self._load_and_maybe_create_allowed(
-          return_names=True, return_prefix=True
-        )
-        for addr, name in zip(lst_addresses, lst_names):
-          if addr not in existing_addrs:
+      if len(lst_lines) > 0:
+        with self._whitelist_lock:
+          fn = self._get_allowed_file()
+          with open(fn, 'rt') as fh:
+            lst_existing = fh.readlines()
+          #endwith
+        for line, addr, name in zip(lst_lines, lst_addrs, lst_names):
+          if line not in lst_existing:
             changed = True
-            existing_addrs.append(addr)
-            existing_names.append(name)
-            self.P("Address <{}{}> added to the allowed list.".format(addr, name), color='g')
-          #endif new address
+            lst_existing.append(line)
+            self.P("Address <{}> added to the allowed list.".format(addr), color='g')
         #endfor
         if changed:
           with self._whitelist_lock:
             fn = self._get_allowed_file()
             with open(fn, 'wt') as fh:
-              for addr, name in zip(existing_addrs, existing_names):
-                fh.write("{}{}\n".format(addr, ("  " + name) if len(name)>0 else ""))
+              for line in lst_existing:
+                line = line.strip()
+                if line != "":
+                  fh.write(f"{line}\n")
               #endfor each address in modified whitelist
             #endwith open file
           #endwith lock
@@ -617,30 +660,42 @@ class BaseBlockEngine:
             fh.write('\n')
         lst_allowed = [x.strip() for x in lst_allowed]
         lst_allowed = [x for x in lst_allowed if x != '']
-        lst_lines = []
-        errors = False
+        lst_lines_to_write = []
+        needs_rewrite = False
         for allowed_tuple in lst_allowed:
           parts = allowed_tuple.split()
           if len(parts) == 0:
             continue
           allowed = parts[0]
+          if allowed.startswith("#"):
+            # skip comments but keep them if we re-write the file
+            lst_lines_to_write.append(allowed_tuple)
+            continue
           allowed = self._remove_prefix(allowed)
           name = parts[1] if len(parts) > 1 else ""
-          if not self.address_is_valid(allowed):
-            self.P("WARNING: address <{}> is not valid. Removing {} from allowed list.".format(
+          is_valid, valid_msg = self.address_is_valid(allowed, return_error=True)
+          if not is_valid:
+            self.P("WARNING: address <{}> is not valid. Commenting {} from allowed list.".format(
               allowed, allowed_tuple), color='r'
             )
-            errors = True
+            needs_rewrite = True
+            error_line = "# " + allowed_tuple + INVALID_COMMENT + valid_msg
+            lst_lines_to_write.append(error_line)
           else:
             if return_prefix:
               allowed = self.maybe_add_prefix(allowed)
             lst_final.append(allowed)
-            lst_lines.append(allowed_tuple)
             lst_names.append(name)
-        if errors:
+            if len(parts) < 3:
+              eth = self.node_address_to_eth_address(allowed)
+              allowed_tuple = allowed_tuple + EVM_COMMENT + eth
+              needs_rewrite = True 
+            lst_lines_to_write.append(allowed_tuple)
+              
+        if needs_rewrite:
           with open(fn, 'wt') as fh:
-            for line in lst_lines:
-              fh.write("{}\n".format(line))   
+            for line in lst_lines_to_write:
+              fh.write(f"{line}\n")
       except Exception as exc:
         self.P(f"ERROR: failed to load the allowed list of addresses: {exc}", color='r')
       #endtry
@@ -899,32 +954,6 @@ class BaseBlockEngine:
     """
     raise NotImplementedError()  
   
-  
-  def _get_eth_address(self):
-    """
-    Returns the Ethereum address for the current pk
-
-    Returns
-    -------
-    eth_address : str
-      the Ethereum address.
-
-    """
-    raise NotImplementedError()
-  
-  
-  def _get_eth_acccount(self):
-    """
-    Returns the Ethereum account for the current sk
-
-    Returns
-    -------
-    eth_account : str
-      the Ethereum account.
-
-    """
-    raise NotImplementedError()
-    
       
   
   #############################################################################
@@ -1346,161 +1375,7 @@ class BaseBlockEngine:
     raise NotImplementedError()
   
   
-  ### Ethereum
   
-  def set_eth_flag(self, value):    
-    if value != self.__eth_enabled:
-      self.__eth_enabled = value
-      self.log.P("Changed eth_enabled to {}".format(value), color='d')
-    return
-  
-  @property
-  def eth_address(self):
-    return self.__eth_address
-  
-  @property
-  def eth_account(self):
-    return self.__eth_account
-  
-  @staticmethod
-  def is_valid_evm_address(address: str) -> bool:
-    """
-    Check if the input string is a valid Ethereum (EVM) address using basic heuristics.
-
-    Parameters
-    ----------
-    address : str
-        The address string to verify.
-
-    Returns
-    -------
-    bool
-        True if `address` meets the basic criteria for an EVM address, False otherwise.
-    """
-    # Basic checks:
-    # A) Must start with '0x'
-    # B) Must be exactly 42 characters in total
-    # C) All remaining characters must be valid hexadecimal digits
-    if not address.startswith("0x"):
-      return False
-    if len(address) != 42:
-      return False
-    
-    hex_part = address[2:]
-    # Ensure all characters in the hex part are valid hex digits
-    return all(c in "0123456789abcdefABCDEF" for c in hex_part)
-  
-  @staticmethod
-  def is_valid_eth_address(address: str) -> bool:
-    """
-    Check if the input string is a valid Ethereum (EVM) address using basic heuristics.
-
-    Parameters
-    ----------
-    address : str
-        The address string to verify.
-
-    Returns
-    -------
-    bool
-        True if `address` meets the basic criteria for an EVM address, False otherwise.
-    """
-    return BaseBlockEngine.is_valid_evm_address(address)
-  
-  
-  @staticmethod
-  def get_evm_network() -> str:
-    """
-    Get the current network
-
-    Returns
-    -------
-    str
-      the network name.
-
-    """
-    return os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
-  
-  @property
-  def evm_network(self):
-    return self.get_evm_network()
-  
-  def get_network_data(self, network=None):
-    assert isinstance(network, str) and network.lower() in dAuth.EVM_NET_DATA, f"Invalid network: {network}"
-    return dAuth.EVM_NET_DATA[network.lower()]
-
-    
-  def web3_is_node_licensed(self, address : str, network=None, debug=False) -> bool:
-    """
-    Check if the address is allowed to send commands to the node
-
-    Parameters
-    ----------
-    address : str
-      the address to check.
-    """
-    if network is None:
-      network = self.evm_network
-    
-    assert BaseBlockEngine.is_valid_eth_address(address), "Invalid Ethereum address"
-    
-    network_data = self.get_network_data(network)
-    
-    contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
-    rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
-          
-    if debug:
-      self.P(f"Checking if {address} ({network}) is allowed via {rpc_url}...")
-    
-    w3 = Web3(Web3.HTTPProvider(rpc_url)) 
-
-    contract_abi = dAuth.DAUTH_ABI_IS_NODE_ACTIVE
-
-    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
-
-    result = contract.functions.isNodeActive(address).call()
-    return result
-
-
-  def web3_get_oracles(self, network=None, debug=False) -> list:
-    """
-    Get the list of oracles from the contract
-
-    Parameters
-    ----------
-    network : str, optional
-      the network to use. The default is None.
-
-    Returns
-    -------
-    list
-      the list of oracles addresses.
-
-    """
-    if network is None:
-      network = BaseBlockEngine.get_evm_network()
-
-    network_data = self.get_network_data(network)
-    
-    contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
-    rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
-
-    if debug:
-      self.P(f"Getting oracles for {network} via {rpc_url}...")
-    
-    w3 = Web3(Web3.HTTPProvider(rpc_url)) 
-
-    contract_abi = dAuth.DAUTH_ABI_GET_SIGNERS
-
-    contract = w3.eth.contract(address=contract_address, abi=contract_abi)
-
-    result = contract.functions.getSigners().call()
-    return result
-  
-  
-  
-  ### end Ethereum
-
 
   def dauth_autocomplete(
     self, 
@@ -1530,6 +1405,9 @@ class BaseBlockEngine:
     dict with the dAuth information if the request got status 200(if errors occured, but
     the status is still 200, an empty dictionary will be returned).
     """
+    if EE_VPN_IMPL:
+      return {}
+    #endif EE_VPN_IMPL
     from naeural_client._ver import __VER__ as sdk_version
     try:
       from ver import __VER__ as app_version
@@ -1596,8 +1474,11 @@ class BaseBlockEngine:
           if len(kwargs) == 0:
             to_send[dAuth.DAUTH_SENDER_ALIAS] = dAuth.DAUTH_SENDER_ALIAS_DEFAULT
           ######
-          self.sign(to_send)          
-          response = requests.post(url, json={'body' : to_send})
+          self.sign(to_send)    
+          json_to_send = {'body' : to_send}
+          if debug:
+            self.P(f"Sending to dAuth URL: {url}\n{json.dumps(json_to_send, indent=2)}")   
+          response = requests.post(url, json=json_to_send)
           if response.status_code == 200:
             dct_response = response.json()
             dct_result = dct_response.get('result', {}) or {}
