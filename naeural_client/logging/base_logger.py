@@ -1122,7 +1122,7 @@ class BaseLogger(object):
   def _maybe_migrate_folder(self):
     user_base_folder = BaseLogger.get_user_folder(as_str=True, include_sdk_home=True)
     if user_base_folder in self._base_folder:
-      BaseLogger.maybe_migrate_user_folder(verbose=True)
+      BaseLogger.maybe_migrate_user_folder()
     return
 
   def _configure_data_and_dirs(self, config_file, config_file_encoding=None):

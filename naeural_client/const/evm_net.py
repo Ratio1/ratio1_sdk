@@ -8,7 +8,8 @@ class EvmNetData:
   EE_EPOCH_INTERVAL_SECONDS_KEY = 'EE_EPOCH_INTERVAL_SECONDS'
   
   EE_SUPERVISOR_MIN_AVAIL_PRC_KEY = 'EE_SUPERVISOR_MIN_AVAIL_PRC'
-  
+
+  EE_ORACLE_API_URL_KEY = 'EE_ORACLE_API_URL'
   
 EVM_NET_DATA = {
   'mainnet': {
@@ -19,6 +20,7 @@ EVM_NET_DATA = {
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.98,
+    EvmNetData.EE_ORACLE_API_URL_KEY            : "https://oracle.ratio1.ai",
   },        
 
   'testnet': {
@@ -29,6 +31,7 @@ EVM_NET_DATA = {
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.6,
+    EvmNetData.EE_ORACLE_API_URL_KEY             : "https://testnet-oracle.ratio1.ai",
   },
 
   
@@ -40,6 +43,7 @@ EVM_NET_DATA = {
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 1,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.6,
+    EvmNetData.EE_ORACLE_API_URL_KEY            : "https://devnet-oracle.ratio1.ai",
   },
 
 }

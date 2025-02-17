@@ -11,11 +11,10 @@ from collections import defaultdict
 from naeural_client import Logger
 from naeural_client.bc import DefaultBlockEngine
 from naeural_client.utils.config import log_with_color, get_user_folder
-
+from naeural_client.const.evm_net import EvmNetData
 
 
 class OracleTesterConstants:
-  BASE_URL = "https://naeural-oracle.ngrok.app"
   TEST_ENDPOINT = "/node_epochs_range"
   CURRENT_EPOCH_ENDPOINT = "/current_epoch"
   ACTIVE_NODES_ENDPOINT = "/active_nodes_list"
@@ -38,7 +37,6 @@ class OracleTester:
   ):
     self.bc = bce
     self.log = log
-    self.BASE_URL = ct.BASE_URL
     self.TEST_ENDPOINT = ct.TEST_ENDPOINT
     self.CURRENT_EPOCH_ENDPOINT = ct.CURRENT_EPOCH_ENDPOINT
     self.ACTIVE_NODES_ENDPOINT = ct.ACTIVE_NODES_ENDPOINT
@@ -56,6 +54,27 @@ class OracleTester:
 
   """UTILS"""
   if True:
+    def get_base_url(self, network=None):
+      """
+      Get the base URL for the oracle API server.
+      Parameters
+      ----------
+      network : str or None
+          The network for which to get the base URL. Default None.
+          If None, the network from the user config will be used.
+
+      Returns
+      -------
+      str
+          The base URL for the oracle API server.
+      """
+      network = network or self.bc.evm_network
+      res = self.bc.get_network_data(network=network).get(EvmNetData.EE_ORACLE_API_URL_KEY)
+      if res is None:
+        msg_end = f" for the network: {network}" if network is not None else ""
+        raise ValueError(f"Failed to get the base URL{msg_end}.")
+      return res
+
     def maybe_register_node(self, node_addr: str, eth_address: str, alias: str = None):
       if node_addr is None:
         return
@@ -239,7 +258,7 @@ class OracleTester:
       return stats_dict
   """END RESPONSE HANDLING"""
 
-  def gather(self, nodes, request_kwargs=None, debug=False, rounds=None):
+  def gather(self, nodes, request_kwargs=None, debug=False, rounds=None, network=None):
     """
     Gather data from the oracle server for the given nodes.
 
@@ -253,6 +272,12 @@ class OracleTester:
         The request kwargs to be used for the request. Default None.
     debug : bool
         Whether to enable debug mode or not. If enabled the function will exit after one request round.
+    rounds : int
+        The number of rounds to be executed. Default None. If None, self.max_request_rounds will be used.
+    network : str
+        The network for which to gather data. Default None.
+        If None, the network from the user config will be used.
+        In case the network is not found in the user config, the testnet will be used.
 
     Returns
     -------
@@ -266,7 +291,7 @@ class OracleTester:
     while not self.done(rounds):
       try:
         self.P(f'Starting request round {self.request_rounds + 1} for {len(nodes)} nodes...')
-        current_url = self.BASE_URL + self.TEST_ENDPOINT
+        current_url = self.get_base_url(network=network) + self.TEST_ENDPOINT
         # TODO: maybe shuffle the nodes list in order to avoid
         #  the same order of requests in each round
         #  relevant if the number of nodes is divisible by the number of oracles.
@@ -309,7 +334,7 @@ class OracleTester:
     self.P(f'Finished gathering data for {len(nodes)} nodes and {self.max_request_rounds}.')
     return responses, stats_dict
 
-  def gather_and_compare(self, nodes, request_kwargs=None, debug=False, rounds=None):
+  def gather_and_compare(self, nodes, request_kwargs=None, debug=False, rounds=None, network=None):
     """
     Gather data from the oracle server for the given nodes and compare the results between oracles.
 
@@ -323,6 +348,12 @@ class OracleTester:
         The request kwargs to be used for the request. Default None.
     debug : bool
         Whether to enable debug mode or not. If enabled the function will exit after one request round.
+    rounds : int
+        The number of rounds to be executed. Default None. If None, self.max_request_rounds will be used.
+    network : str
+        The network for which to gather data. Default None.
+        If None, the network from the user config will be used.
+        In case the network is not found in the user config, the testnet will be used.
 
     Returns
     -------
@@ -333,7 +364,8 @@ class OracleTester:
       nodes=nodes,
       request_kwargs=request_kwargs,
       debug=debug,
-      rounds=rounds
+      rounds=rounds,
+      network=network
     )
     # Statistics for each node of each epoch
     epochs_nodes_stats = {}
@@ -381,15 +413,15 @@ class OracleTester:
 
     return responses, stats_dict
 
-  def get_current_epoch(self):
-    epoch_url = self.BASE_URL + self.CURRENT_EPOCH_ENDPOINT
+  def get_current_epoch(self, network=None):
+    epoch_url = self.get_base_url(network=network) + self.CURRENT_EPOCH_ENDPOINT
     response = self.make_request(epoch_url)
     if response:
       return response.get("result", {}).get("current_epoch", 1)
     return None
 
-  def get_active_nodes(self):
-    active_nodes_url = self.BASE_URL + self.ACTIVE_NODES_ENDPOINT
+  def get_active_nodes(self, network=None):
+    active_nodes_url = self.get_base_url(network=network) + self.ACTIVE_NODES_ENDPOINT
     response = self.make_request(active_nodes_url)
     result = []
     if response:
@@ -589,10 +621,15 @@ def oracle_tester_init(silent=True, **kwargs):
   return tester
 
 def test_commands():
-  tester = oracle_tester_init()
-  start = 78
-  end = 85
-  node_eth_addr = "<node_eth_address>"
+  from naeural_client.utils.config import load_user_defined_config
+  load_user_defined_config()
+  tester = oracle_tester_init(max_requests_rounds=30)
+  start = 10
+  end = 10
+  # node_eth_addr = "0x7C07758C23DF14c2fF4b016F0ad58F2D4aF329a7"  # r1s-ssj-1
+  # node_eth_addr = "0xdc4fDFd5B86aeA7BaB17d4742B7c39A2728Ff59B"  # r1s-02
+  # node_eth_addr = "0x93B04EF1152D81A0847C2272860a8a5C70280E14"  # tr1s-aid02
+  node_eth_addr = '0x37379B80c7657620E5631832c4437B51D67A88cB'  # dr1s-db-1
 
   # Single round
   tester.P(f'Test single round: Epochs {start} to {end}', show=True)
@@ -601,12 +638,12 @@ def test_commands():
 
   # Multiple rounds
   tester.P(f'Test multiple rounds: Epochs {start} to {end}', show=True)
-  res = tester.execute_command(node_eth_addr=node_eth_addr, start=start, end=end, rounds=5)
+  res = tester.execute_command(node_eth_addr=node_eth_addr, start=start, end=end, rounds=3)
   handle_command_results(res)
 
   # Debug mode
   tester.P(f'Test debug mode: Epochs {start} to {end}', show=True)
-  res = tester.execute_command(node_eth_addr=node_eth_addr, start=80, end=85, debug=True)
+  res = tester.execute_command(node_eth_addr=node_eth_addr, start=5, end=7, debug=True)
   handle_command_results(res)
   return
 
@@ -694,8 +731,8 @@ def oracle_test(N=10):
 
 # Main loop
 def main():
-  TEST_COMMANDS = False
-  TEST_ORACLE = True
+  TEST_COMMANDS = True
+  TEST_ORACLE = False
   if TEST_COMMANDS:
     test_commands()
 
