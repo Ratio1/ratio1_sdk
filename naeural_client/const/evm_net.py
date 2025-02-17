@@ -12,7 +12,7 @@ class EvmNetData:
   
 EVM_NET_DATA = {
   'mainnet': {
-    EvmNetData.DAUTH_URL_KEY                    : "https://dauth-main.ratio1.ai/get_auth_data",
+    EvmNetData.DAUTH_URL_KEY                    : "https://dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0xE20198EE2B76eED916A568a47cdea9681f7c79BF",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-mainnet.public.blastapi.io",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-02-05 16:00:00",
@@ -22,7 +22,7 @@ EVM_NET_DATA = {
   },        
 
   'testnet': {
-    EvmNetData.DAUTH_URL_KEY                    : "https://dauth-test.ratio1.ai/get_auth_data",
+    EvmNetData.DAUTH_URL_KEY                    : "https://testnet-dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0xE20198EE2B76eED916A568a47cdea9681f7c79BF",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",      
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-02-05 16:00:00",
@@ -33,7 +33,7 @@ EVM_NET_DATA = {
 
   
   'devnet' : {
-    EvmNetData.DAUTH_URL_KEY                    : "https://dauth-devnet.ratio1.ngrok.app/get_auth_data",
+    EvmNetData.DAUTH_URL_KEY                    : "https://devnet-dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0x9f49fc29366F1C8285d42e7E82cA0bb668B32CeA",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-02-12 16:00:00",
