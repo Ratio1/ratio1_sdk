@@ -9,13 +9,20 @@ import base64
 import time
 import os
 import tempfile
+import uuid
 
+from threading import Lock
+
+__VER__ = "0.2.1"
 
 
 class IPFSCt:
   EE_IPFS_RELAY_ENV_KEY = "EE_IPFS_RELAY"
   EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY = "EE_SWARM_KEY_CONTENT_BASE64"
-  TEMP = "./_local_cache/_output/ipfs_downloads"
+  R1FS_DOWNLOADS = "ipfs_downloads"
+  R1FS_UPLOADS = "ipfs_uploads"
+  TEMP_DOWNLOAD = os.path.join("./_local_cache/_output", R1FS_DOWNLOADS)
+  TEMP_UPLOAD = os.path.join("./_local_cache/_output", R1FS_UPLOADS)
 
 ERROR_TAG = "Unknown"
 
@@ -24,6 +31,8 @@ COLOR_CODES = {
   "r": "\033[91m",
   "b": "\033[94m",
   "y": "\033[93m",
+  "m": "\033[95m",
+  'd': "\033[90m", # dark gray
   "reset": "\033[0m"
 }
 
@@ -65,19 +74,48 @@ def require_ipfs_started(method):
   return wrapper  
 
 
+
 class R1FSEngine:
-  def __init__(
-    self, 
+  _lock: Lock = Lock()
+  __instances = {}
+
+  def __new__(
+    cls, 
+    name: str = "default", 
     logger: any = None, 
     downloads_dir: str = None,
+    uploads_dir: str = None,
     base64_swarm_key: str = None, 
     ipfs_relay: str = None,   
-    debug=True,     
+    debug=False,     
+  ):
+    with cls._lock:
+      if name not in cls.__instances:
+        instance = super(R1FSEngine, cls).__new__(cls)
+        instance._build(
+          name=name, logger=logger, downloads_dir=downloads_dir, uploads_dir=uploads_dir,
+          base64_swarm_key=base64_swarm_key, ipfs_relay=ipfs_relay, debug=debug,
+        )
+        cls.__instances[name] = instance
+      else:
+        instance = cls.__instances[name]
+    return instance
+    
+  def _build(
+    self, 
+    name: str = "default",
+    logger: any = None, 
+    downloads_dir: str = None,
+    uploads_dir: str = None,
+    base64_swarm_key: str = None, 
+    ipfs_relay: str = None,   
+    debug=False,     
   ):
     """
     Initialize the IPFS wrapper with a given logger function.
     By default, it uses the built-in print function for logging.
     """
+    self.__name = name
     if logger is None:
       logger = SimpleLogger()
 
@@ -92,6 +130,7 @@ class R1FSEngine:
     self.__base64_swarm_key = base64_swarm_key
     self.__ipfs_relay = ipfs_relay
     self.__downloads_dir = downloads_dir
+    self.__uploads_dir = uploads_dir
     self.__debug = debug
     
     self.startup()
@@ -101,10 +140,24 @@ class R1FSEngine:
     
     if self.__downloads_dir is None:
       if hasattr(self.logger, "get_output_folder"):
-        self.__downloads_dir = self.logger.get_output_folder()
+        self.__downloads_dir = os.path.join(
+          self.logger.get_output_folder(),
+          IPFSCt.R1FS_DOWNLOADS
+        )
       else:
-        self.__downloads_dir = IPFSCt.TEMP
-    os.makedirs(self.__downloads_dir, exist_ok=True)
+        self.__downloads_dir = IPFSCt.TEMP_DOWNLOAD
+    #end if downloads_dir    
+    os.makedirs(self.__downloads_dir, exist_ok=True)    
+    
+    if self.__uploads_dir is None:
+      if hasattr(self.logger, "get_output_folder"):
+        self.__uploads_dir = os.path.join(
+          self.logger.get_output_folder(),
+          IPFSCt.R1FS_UPLOADS
+        )
+      else:
+        self.__uploads_dir = IPFSCt.TEMP_UPLOAD
+    os.makedirs(self.__uploads_dir, exist_ok=True)    
     
     self.maybe_start_ipfs(
       base64_swarm_key=self.__base64_swarm_key,
@@ -147,8 +200,21 @@ class R1FSEngine:
   @property
   def downloaded_files(self):
     return self.__downloaded_files
+  
+  def get_unique_name(self, prefix="r1fs", suffix=""):
+    str_id = str(uuid.uuid4()).replace("-", "")[:8]
+    return f"{prefix}_{str_id}{suffix}"
+  
+  def get_unique_upload_name(self, prefix="r1fs", suffix=""):
+    return os.path.join(self.__uploads_dir, self.get_unique_name(prefix, suffix))
+  
+  def get_unique_or_complete_upload_name(self, fn=None, prefix="r1fs", suffix=""):
+    if fn is not None and os.path.dirname(fn) == "":
+      return os.path.join(self.__uploads_dir, fn)
+    return self.get_unique_upload_name(prefix, suffix)
+  
 
-  def run_command(
+  def __run_command(
     self, 
     cmd_list: list, 
     raise_on_error=True,
@@ -163,7 +229,7 @@ class R1FSEngine:
     failed = False
     output = ""
     cmd_str = " ".join(cmd_list)
-    self.Pd(f"Running command: {cmd_str}")
+    self.Pd(f"Running command: {cmd_str}", color='d')
     try:
       result = subprocess.run(
         cmd_list, 
@@ -188,49 +254,102 @@ class R1FSEngine:
         self.Pd(f"Command output: {result.stdout.strip()}")
       output = result.stdout.strip()
     return output
+  
+
+  def __get_id(self) -> str:
+    """
+    Get the IPFS peer ID via 'ipfs id' (JSON output).
+    Returns the 'ID' field as a string.
+    """
+    output = self.__run_command(["ipfs", "id"])
+    try:
+      data = json.loads(output)
+      self.__ipfs_id = data.get("ID", ERROR_TAG)
+      self.__ipfs_address = data.get("Addresses", [ERROR_TAG,ERROR_TAG])[1]
+      self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
+      return data.get("ID", ERROR_TAG)
+    except json.JSONDecodeError:
+      raise Exception("Failed to parse JSON from 'ipfs id' output.")
+
+  @require_ipfs_started
+  def __pin_add(self, cid: str) -> str:
+    """
+    Explicitly pin a CID (and fetch its data) so it appears in the local pinset.
+    """
+    res = self.__run_command(["ipfs", "pin", "add", cid])
+    self.Pd(f"{res}")
+    return res  
 
   
+  # Public methods
   
-  def add_json(self, data) -> bool:
+  def add_json(self, data, fn=None, tempfile=False) -> bool:
     """
     Add a JSON object to IPFS.
     """
     try:
       json_data = json.dumps(data)
-      with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        f.write(json_data)
-      cid = self.add_file(f.name)
+      if tempfile:
+        self.Pd("Using tempfile for JSON")
+        with tempfile.NamedTemporaryFile(
+          mode='w', suffix='.json', delete=False
+        ) as f:
+          f.write(json_data)
+        fn = f.name
+      else:
+        fn = self.get_unique_or_complete_upload_name(fn=fn, suffix=".json")
+        self.Pd(f"Using unique name for JSON: {fn}")
+        with open(fn, "w") as f:
+          f.write(json_data)
+      #end if tempfile
+      cid = self.add_file(fn)
       return cid
     except Exception as e:
       self.P(f"Error adding JSON to IPFS: {e}", color='r')
       return None
     
     
-  def add_yaml(self, data, fn=None) -> bool:
+  def add_yaml(self, data, fn=None, tempfile=False) -> bool:
     """
     Add a YAML object to IPFS.
     """
     try:
       import yaml
       yaml_data = yaml.dump(data)
-      with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        f.write(yaml_data)
-      cid = self.add_file(f.name)
+      if tempfile:
+        self.Pd("Using tempfile for YAML")
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+          f.write(yaml_data)
+        fn = f.name
+      else:
+        fn = self.get_unique_or_complete_upload_name(fn=fn, suffix=".yaml")
+        self.Pd(f"Using unique name for YAML: {fn}")
+        with open(fn, "w") as f:
+          f.write(yaml_data)
+      cid = self.add_file(fn)
       return cid
     except Exception as e:
       self.P(f"Error adding YAML to IPFS: {e}", color='r')
       return None
     
     
-  def add_pickle(self, data) -> bool:
+  def add_pickle(self, data, fn=None, tempfile=False) -> bool:
     """
     Add a Pickle object to IPFS.
     """
     try:
-      with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
-        import pickle
-        pickle.dump(data, f)
-      cid = self.add_file(f.name)
+      import pickle
+      if tempfile:
+        self.Pd("Using tempfile for Pickle")
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
+          pickle.dump(data, f)
+        fn = f.name
+      else:
+        fn = self.get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
+        self.Pd(f"Using unique name for pkl: {fn}")
+        with open(fn, "wb") as f:
+          pickle.dump(data, f)
+      cid = self.add_file(fn)
       return cid
     except Exception as e:
       self.P(f"Error adding Pickle to IPFS: {e}", color='r')
@@ -240,13 +359,22 @@ class R1FSEngine:
   @require_ipfs_started
   def add_file(self, file_path: str) -> str:
     """
-    Add a file to IPFS via 'ipfs add -q'.
-    Returns the CID of the added file.
+    This method adds a file to IPFS and returns the CID of the wrapped folder.
     
-    TODO: add another add/pin to get the CID of the metadata file so each file will 
-    have a CID for the file and a CID for the metadata.
+    Parameters
+    ----------
+    file_path : str
+        The path to the file to be added.
+    
+    Returns
+    -------
+    str
+        The CID of the wrapped folder
+      
     """
-    output = self.run_command(["ipfs", "add", "-q", "-w", file_path])
+    assert os.path.isfile(file_path), f"File not found: {file_path}"
+    
+    output = self.__run_command(["ipfs", "add", "-q", "-w", file_path])
     # "ipfs add -w <file>" typically prints two lines:
     #   added <hash_of_file> <filename>
     #   added <hash_of_wrapped_folder> <foldername?>
@@ -257,7 +385,8 @@ class R1FSEngine:
     folder_cid = lines[-1].strip()
     self.__uploaded_files[folder_cid] = file_path
     # now we pin the folder
-    self.pin_add(folder_cid)
+    res = self.__pin_add(folder_cid)
+    self.P(f"Added file {file_path} as <{folder_cid}>")
     return folder_cid
 
 
@@ -272,12 +401,13 @@ class R1FSEngine:
     ----------
     cid : str
         The CID of the file to download.
+        
     local_folder : str
         The local folder to save the
             
     """
     if pin:
-      pin_result = self.pin_add(cid)
+      pin_result = self.__pin_add(cid)
       
     if local_folder is None:
       local_folder = self.__downloads_dir # default downloads directory
@@ -285,27 +415,19 @@ class R1FSEngine:
       local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
       
     self.Pd(f"Downloading file {cid} to {local_folder}")
-    self.run_command(["ipfs", "get", cid, "-o", local_folder])
+    self.__run_command(["ipfs", "get", cid, "-o", local_folder])
     # now we need to get the file from the folder
     folder_contents = os.listdir(local_folder)
     if len(folder_contents) != 1:
       raise Exception(f"Expected one file in {local_folder}, found {folder_contents}")
     # get the full path of the file
     out_local_filename = os.path.join(local_folder, folder_contents[0])
-    self.P(f"Downloaded file {cid} to {out_local_filename}")
+    self.P(f"Downloaded <{cid}> to {out_local_filename}")
     self.__downloaded_files[cid] = out_local_filename
     return out_local_filename
 
 
-  @require_ipfs_started
-  def pin_add(self, cid: str) -> str:
-    """
-    Explicitly pin a CID (and fetch its data) so it appears in the local pinset.
-    """
-    res = self.run_command(["ipfs", "pin", "add", cid])
-    self.Pd(f"{res}")
-    return res
-    
+
 
 
   @require_ipfs_started
@@ -314,7 +436,7 @@ class R1FSEngine:
     List pinned CIDs via 'ipfs pin ls --type=recursive'.
     Returns a list of pinned CIDs.
     """
-    output = self.run_command(["ipfs", "pin", "ls", "--type=recursive"])
+    output = self.__run_command(["ipfs", "pin", "ls", "--type=recursive"])
     pinned_cids = []
     for line in output.split("\n"):
       line = line.strip()
@@ -326,22 +448,7 @@ class R1FSEngine:
     return pinned_cids
 
 
-  def get_id(self) -> str:
-    """
-    Get the IPFS peer ID via 'ipfs id' (JSON output).
-    Returns the 'ID' field as a string.
-    """
-    output = self.run_command(["ipfs", "id"])
-    try:
-      data = json.loads(output)
-      self.__ipfs_id = data.get("ID", ERROR_TAG)
-      self.__ipfs_address = data.get("Addresses", [ERROR_TAG,ERROR_TAG])[1]
-      self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
-      return data.get("ID", ERROR_TAG)
-    except json.JSONDecodeError:
-      raise Exception("Failed to parse JSON from 'ipfs id' output.")
-
-
+  
 
   def maybe_start_ipfs(
     self, 
@@ -367,6 +474,13 @@ class R1FSEngine:
     
     self.__base64_swarm_key = base64_swarm_key
     self.__ipfs_relay = ipfs_relay
+    hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
+    msg = f"Starting R1FS <{self.__name}>:"
+    msg += f"\n  Relay:    {self.__ipfs_relay}"
+    msg += f"\n  Download: {self.__downloads_dir}"
+    msg += f"\n  Upload:   {self.__uploads_dir}"
+    msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
+    self.P(msg, color='m')
     
     ipfs_repo = os.path.expanduser("~/.ipfs")
     os.makedirs(ipfs_repo, exist_ok=True)
@@ -387,7 +501,7 @@ class R1FSEngine:
 
       try:
         self.P("Initializing IPFS repository...")
-        self.run_command(["ipfs", "init"])
+        self.__run_command(["ipfs", "init"])
       except Exception as e:
         self.P(f"Error during IPFS init: {e}", color='r')
         return False
@@ -396,14 +510,14 @@ class R1FSEngine:
 
     try:
       self.P("Removing public IPFS bootstrap nodes...")
-      self.run_command(["ipfs", "bootstrap", "rm", "--all"])
+      self.__run_command(["ipfs", "bootstrap", "rm", "--all"])
     except Exception as e:
       self.P(f"Error removing bootstrap nodes: {e}", color='r')
 
     # Check if daemon is already running by attempting to get the node id.
     try:
       # explicit run no get_id
-      result = self.run_command(["ipfs", "id"])
+      result = self.__run_command(["ipfs", "id"])
       self.__ipfs_id = json.loads(result)["ID"]
       self.__ipfs_address = json.loads(result)["Addresses"][1]
       self.__ipfs_agent = json.loads(result)["AgentVersion"]
@@ -419,13 +533,14 @@ class R1FSEngine:
         return
 
     try:
-      my_id = self.get_id()
+      my_id = self.__get_id()
       assert my_id != ERROR_TAG, "Failed to get IPFS ID."
       self.P("IPFS ID: " + my_id, color='g')
       self.P(f"Connecting to relay: {ipfs_relay}")
-      result = self.run_command(["ipfs", "swarm", "connect", ipfs_relay])
+      result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
+      relay_ip = ipfs_relay.split("/")[2]
       if "connect" in result.lower() and "success" in result.lower():
-        self.P(f"R1FS connected to: {ipfs_relay}", color='g', boxed=True)
+        self.P(f"R1FS connected to: {relay_ip}", color='g', boxed=True)
         self.__ipfs_started = True
       else:
         self.P("Relay connection result did not indicate success.", color='r')
