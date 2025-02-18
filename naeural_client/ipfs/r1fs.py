@@ -1,6 +1,53 @@
 """
 Ratio1 base IPFS utility functions.
 
+
+NOTE: 
+  - Following the bootstrapping of this module, it takes a few minutes for the relay
+    to be connected and the IPFS daemon to be fully operational so sometimes, after
+    the start of the engine, the first few `get` operations may fail.
+
+
+Installation:
+
+1. On the dev node or seed node run ifps_keygen and generate `swarm_key_base64.txt` then
+   save this key to the environment variable `EE_SWARM_KEY_CONTENT_BASE64` on the seed 
+   oracles as well as in a file.
+     
+2. On seed node create `ipfs_setup`, copy the files from the `ipfs_setup` including the
+  key file.
+  
+3. Run `setup.sh` on the seed node or:
+
+    ```bash
+    #!/bin/bash
+    wget https://dist.ipfs.tech/kubo/v0.32.1/kubo_v0.32.1_linux-amd64.tar.gz && \
+      tar -xvzf kubo_v0.32.1_linux-amd64.tar.gz && \
+      cd kubo && \
+      bash install.sh
+    ipfs init
+    ipfs config --json Swarm.EnableRelayHop true
+
+    ./write_key.sh
+    ```
+  The `write_key.sh` script should contain the following:
+  
+    ```bash 
+    cat swarm_key_base64.txt | base64 -d > /root/.ipfs/swarm.key
+    cat /root/.ipfs/swarm.key
+    ```
+  
+4. Continue on the seed node and run either manually (NOT recommended) or via a systemd
+   the ifps daemon using `./launch_service.sh` that basically does:
+   
+    ```bash
+    cp ipfs.service /etc/systemd/system/ipfs.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable ipfs
+    sudo systemctl start ipfs
+    ./show.sh
+    ```
+
 """
 import subprocess
 import json
@@ -13,7 +60,7 @@ import uuid
 
 from threading import Lock
 
-__VER__ = "0.2.1"
+__VER__ = "0.2.2"
 
 
 class IPFSCt:
@@ -23,6 +70,10 @@ class IPFSCt:
   R1FS_UPLOADS = "ipfs_uploads"
   TEMP_DOWNLOAD = os.path.join("./_local_cache/_output", R1FS_DOWNLOADS)
   TEMP_UPLOAD = os.path.join("./_local_cache/_output", R1FS_UPLOADS)
+  
+  TIMEOUT = 90 # seconds
+  REPROVIDER = "1m"
+
 
 ERROR_TAG = "Unknown"
 
@@ -201,24 +252,38 @@ class R1FSEngine:
   def downloaded_files(self):
     return self.__downloaded_files
   
-  def get_unique_name(self, prefix="r1fs", suffix=""):
+  def _get_unique_name(self, prefix="r1fs", suffix=""):
     str_id = str(uuid.uuid4()).replace("-", "")[:8]
     return f"{prefix}_{str_id}{suffix}"
   
-  def get_unique_upload_name(self, prefix="r1fs", suffix=""):
-    return os.path.join(self.__uploads_dir, self.get_unique_name(prefix, suffix))
+  def _get_unique_upload_name(self, prefix="r1fs", suffix=""):
+    return os.path.join(self.__uploads_dir, self._get_unique_name(prefix, suffix))
   
-  def get_unique_or_complete_upload_name(self, fn=None, prefix="r1fs", suffix=""):
+  def _get_unique_or_complete_upload_name(self, fn=None, prefix="r1fs", suffix=""):
     if fn is not None and os.path.dirname(fn) == "":
       return os.path.join(self.__uploads_dir, fn)
-    return self.get_unique_upload_name(prefix, suffix)
+    return self._get_unique_upload_name(prefix, suffix)
   
+  def __set_reprovider_interval(self):
+    # Command to set the Reprovider.Interval to 1 minute
+    cmd = ["ipfs", "config", "--json", "Reprovider.Interval", f'"{IPFSCt.REPROVIDER}"']
+    result = self.__run_command(cmd)
+    return
+
+  
+  def __set_relay(self):
+    # Command to enable the IPFS relay
+    result = self.__run_command(
+      ["ipfs", "config", "--json", "Swarm.DisableRelay", "false"]
+    )
+    return
+
 
   def __run_command(
     self, 
     cmd_list: list, 
     raise_on_error=True,
-    timeout=60,
+    timeout=IPFSCt.TIMEOUT,
     verbose=False,
   ):
     """
@@ -297,7 +362,7 @@ class R1FSEngine:
           f.write(json_data)
         fn = f.name
       else:
-        fn = self.get_unique_or_complete_upload_name(fn=fn, suffix=".json")
+        fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".json")
         self.Pd(f"Using unique name for JSON: {fn}")
         with open(fn, "w") as f:
           f.write(json_data)
@@ -322,7 +387,7 @@ class R1FSEngine:
           f.write(yaml_data)
         fn = f.name
       else:
-        fn = self.get_unique_or_complete_upload_name(fn=fn, suffix=".yaml")
+        fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".yaml")
         self.Pd(f"Using unique name for YAML: {fn}")
         with open(fn, "w") as f:
           f.write(yaml_data)
@@ -345,7 +410,7 @@ class R1FSEngine:
           pickle.dump(data, f)
         fn = f.name
       else:
-        fn = self.get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
+        fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
         self.Pd(f"Using unique name for pkl: {fn}")
         with open(fn, "wb") as f:
           pickle.dump(data, f)
@@ -415,14 +480,16 @@ class R1FSEngine:
       local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
       
     self.Pd(f"Downloading file {cid} to {local_folder}")
+    start_time = time.time()
     self.__run_command(["ipfs", "get", cid, "-o", local_folder])
+    elapsed_time = time.time() - start_time
     # now we need to get the file from the folder
     folder_contents = os.listdir(local_folder)
     if len(folder_contents) != 1:
       raise Exception(f"Expected one file in {local_folder}, found {folder_contents}")
     # get the full path of the file
     out_local_filename = os.path.join(local_folder, folder_contents[0])
-    self.P(f"Downloaded <{cid}> to {out_local_filename}")
+    self.P(f"Downloaded in {elapsed_time:.1f}s <{cid}> to {out_local_filename}")
     self.__downloaded_files[cid] = out_local_filename
     return out_local_filename
 
@@ -463,9 +530,13 @@ class R1FSEngine:
     
     if base64_swarm_key is None:
       base64_swarm_key = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
+      if base64_swarm_key is not None:
+        self.P("Found IPFS swarm key in environment variable.", color='d')
       
     if ipfs_relay is None:
       ipfs_relay = os.getenv(IPFSCt.EE_IPFS_RELAY_ENV_KEY)
+      if ipfs_relay is not None:
+        self.P("Found IPFS relay in environment variable.", color='d')
       
     
     if not base64_swarm_key or not ipfs_relay:
@@ -524,8 +595,11 @@ class R1FSEngine:
       self.P("IPFS daemon running", color='g')
             
     except Exception:
+      self.Pd("ipfs id failed, starting daemon...")
       try:
-        self.P("Starting IPFS daemon in background...")
+        self.__set_reprovider_interval()
+        self.__set_relay()
+        self.P("Starting IPFS daemon in background...")        
         subprocess.Popen(["ipfs", "daemon"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(5)
       except Exception as e:

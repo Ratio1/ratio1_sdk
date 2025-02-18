@@ -1,0 +1,13 @@
+[Unit]
+Description=IPFS daemon
+After=network.target
+
+[Service]
+# Set the user who owns ~/.ipfs (assuming "ipfsuser" owns ~/.ipfs)
+User=root
+ExecStart=/usr/local/bin/ipfs daemon
+Restart=always
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
