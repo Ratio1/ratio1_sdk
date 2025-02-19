@@ -27,7 +27,7 @@ if __name__ == '__main__' :
       debug=True,
       max_tries=1,
       sender_alias='test1',
-      return_full_data=True,
+      return_full_data=True,      
     )
     try:
       server_alias = d['result']['server_alias']
