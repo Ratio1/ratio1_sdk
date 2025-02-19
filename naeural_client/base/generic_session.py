@@ -80,7 +80,7 @@ class GenericSession(BaseDecentrAIObject):
               user=None,
               pwd=None,
               secured=None,
-              name='pySDK',
+              name='R1SDK',
               encrypt_comms=True,
               config={},
               filter_workers=None,
@@ -318,18 +318,25 @@ class GenericSession(BaseDecentrAIObject):
     )
     ## end config
         
-    self.formatter_wrapper = IOFormatterWrapper(self.log, plugin_search_locations=self.__formatter_plugins_locations)
+    self.formatter_wrapper = IOFormatterWrapper(
+      self.log, plugin_search_locations=self.__formatter_plugins_locations
+    )
+    
+    obfuscated_pass = self._config[comm_ct.PASS][:3] + '*' * (len(self._config[comm_ct.PASS]) - 3) 
 
-    msg = f"Connection to {self._config[comm_ct.USER]}:*****@{self._config[comm_ct.HOST]}:{self._config[comm_ct.PORT]} {'<secured>' if self._config[comm_ct.SECURED] else '<UNSECURED>'}"
+    msg = f"Connection to {self._config[comm_ct.USER]}:{obfuscated_pass}@{self._config[comm_ct.HOST]}:{self._config[comm_ct.PORT]} {'<secured>' if self._config[comm_ct.SECURED] else '<UNSECURED>'}"
     self.P(msg, color='y')
     self._connect()
 
     msg = f"Created comms session '{self.name}'"
     msg += f"\n - SDK:     {self.log.version}"
     msg += f"\n - Address: {self.bc_engine.address}"
+    msg += f"\n - ETH:     {self.bc_engine.eth_address}"
+    msg += f"\n - Network: {self.bc_engine.evm_network}"
     msg += f"\n - Server:  {self._config[comm_ct.HOST]}:{self._config[comm_ct.PORT]}"
     msg += f"\n - Secured: {self._config[comm_ct.SECURED]}"
     msg += f"\n - User:    {self._config[comm_ct.USER]}"
+    msg += f"\n - Pass:    {obfuscated_pass}"
     msg += f"\n - Encrypt: {'YES' if self.encrypt_comms else 'NO'}"
     self.P(msg, color='g')
     

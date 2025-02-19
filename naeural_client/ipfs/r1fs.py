@@ -528,15 +528,23 @@ class R1FSEngine:
     if self.ipfs_started:
       return
     
+    self.P("Starting R1FS...", color='m')
+    
     if base64_swarm_key is None:
       base64_swarm_key = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
       if base64_swarm_key is not None:
-        self.P("Found IPFS swarm key in environment variable.", color='d')
+        self.P(f"Found env IPFS swarm key: {str(base64_swarm_key)[:4]}...", color='d')
+        if len(base64_swarm_key) < 10:
+          self.P(f"Invalid IPFS swarm key: `{base64_swarm_key}`", color='r')
+          return False
       
     if ipfs_relay is None:
       ipfs_relay = os.getenv(IPFSCt.EE_IPFS_RELAY_ENV_KEY)
       if ipfs_relay is not None:
-        self.P("Found IPFS relay in environment variable.", color='d')
+        self.P(f"Found env IPFS relay: {ipfs_relay}", color='d')
+        if len(ipfs_relay) < 10:
+          self.P(f"Invalid IPFS relay: `{ipfs_relay}`", color='r')
+          return False
       
     
     if not base64_swarm_key or not ipfs_relay:
@@ -551,12 +559,14 @@ class R1FSEngine:
     msg += f"\n  Download: {self.__downloads_dir}"
     msg += f"\n  Upload:   {self.__uploads_dir}"
     msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
-    self.P(msg, color='m')
+    self.P(msg, color='d')
     
     ipfs_repo = os.path.expanduser("~/.ipfs")
     os.makedirs(ipfs_repo, exist_ok=True)
     config_path = os.path.join(ipfs_repo, "config")
     swarm_key_path = os.path.join(ipfs_repo, "swarm.key")
+    
+    # TODO: maybe here we need to update swarm.key if the ~/.ipfs is volume mounted
 
     if not os.path.isfile(config_path):
       # Repository is not initialized; write the swarm key and init.
@@ -609,12 +619,16 @@ class R1FSEngine:
     try:
       my_id = self.__get_id()
       assert my_id != ERROR_TAG, "Failed to get IPFS ID."
-      self.P("IPFS ID: " + my_id, color='g')
-      self.P(f"Connecting to relay: {ipfs_relay}")
+      msg =  f"Connecting to R1FS relay"
+      msg += f"\n  IPFS ID:    {my_id}"
+      msg += f"\n  IPFS Addr:  {self.__ipfs_address}"
+      msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
+      msg += f"\n  Relay:      {ipfs_relay}"
+      self.P(msg, color='m')
       result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
       relay_ip = ipfs_relay.split("/")[2]
       if "connect" in result.lower() and "success" in result.lower():
-        self.P(f"R1FS connected to: {relay_ip}", color='g', boxed=True)
+        self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
         self.__ipfs_started = True
       else:
         self.P("Relay connection result did not indicate success.", color='r')
