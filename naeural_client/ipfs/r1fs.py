@@ -227,6 +227,13 @@ class R1FSEngine:
       s = "[R1FS][DEBUG] " + s
       self.logger.P(s, *args, **kwargs)
     return
+  
+  def _set_debug(self):
+    """
+    Force debug mode on.
+    """
+    self.__debug = True
+    return
     
   @property
   def ipfs_id(self):
