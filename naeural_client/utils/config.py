@@ -251,7 +251,7 @@ def get_apps(args):
   # 2. Wait for node to appear online
   found = sess.wait_for_node(node)
   if not found:
-    sess.P(f'Node {node} not found. Please check the configuration.', color='r')
+    log_with_color(f'Node {node} not found. Please check the configuration.', color='r')
     return
   # 3. Check if the node is peered with the client
   is_allowed = sess.is_peered(node)
