@@ -1,6 +1,10 @@
-
+import json
 from naeural_client import Instance, Payload, Pipeline, Session
 
+def instance_on_data(pipeline: Pipeline, data: Payload):
+  data = data.data
+  print(f"Data received: {json.dumps(data, indent=2)}")
+  return
 
 if __name__ == '__main__':
 
@@ -23,6 +27,7 @@ if __name__ == '__main__':
 
     instance: Instance = pipeline.create_plugin_instance(
       signature='R1FS_DEMO',
+      on_data=instance_on_data,
       instance_id='inst01',
     )
 
