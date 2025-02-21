@@ -40,6 +40,7 @@ class Pipeline(BaseCodeChecker):
     on_notification=None, 
     is_attached=False, 
     existing_config=None, 
+    debug=False,
     **kwargs
   ) -> None:
     """
@@ -99,6 +100,7 @@ class Pipeline(BaseCodeChecker):
     self.session = session
     self.node_addr = node_addr
     self.name = name
+    self.__debug = debug
 
     self.config = {}
     plugins = config.pop('PLUGINS', plugins)
@@ -148,10 +150,27 @@ class Pipeline(BaseCodeChecker):
 
     self.__init_plugins(plugins, is_attached)
     return
+  
+  def Pd(self, *args, **kwargs):
+    """
+    Print debug message.
+    """
+    if self.__debug:
+      self.P(*args, **kwargs)
+    return
 
   # Utils
   if True:
-    def __init_instance(self, signature, instance_id, config, on_data, on_notification, is_attached):
+    def __init_instance(
+      self, 
+      signature, 
+      instance_id, 
+      config, 
+      on_data, 
+      on_notification, 
+      is_attached,
+      debug=False,
+    ):
       instance_class = None
       str_signature = None
       if isinstance(signature, str):
@@ -160,15 +179,17 @@ class Pipeline(BaseCodeChecker):
       else:
         instance_class = signature
         str_signature = instance_class.signature.upper()
-      instance = instance_class(self.log,
-                                pipeline=self,
-                                signature=str_signature,
-                                instance_id=instance_id,
-                                config=config,
-                                on_data=on_data,
-                                on_notification=on_notification,
-                                is_attached=is_attached
-                                )
+      instance = instance_class(
+        self.log,
+        pipeline=self,
+        signature=str_signature,
+        instance_id=instance_id,
+        config=config,
+        on_data=on_data,
+        on_notification=on_notification,
+        is_attached=is_attached,
+        debug=debug, 
+      )
       self.lst_plugin_instances.append(instance)
       return instance
 
@@ -710,6 +731,7 @@ class Pipeline(BaseCodeChecker):
           The payload of the message.
       """
       # call all self callbacks
+      self.Pd(f"Pipeline <{self.name}> received data from <{signature}:{instance_id}>")
       for callback in self.on_data_callbacks:
         callback(self, signature, instance_id, data)
 
@@ -834,6 +856,7 @@ class Pipeline(BaseCodeChecker):
       config={}, 
       on_data=None, 
       on_notification=None, 
+      debug=False,
       **kwargs
     ) -> Instance:
       """
@@ -884,7 +907,11 @@ class Pipeline(BaseCodeChecker):
 
       # create the new instance and add it to the list
       config = {**config, **kwargs}
-      instance = self.__init_instance(signature, instance_id, config, on_data, on_notification, is_attached=False)
+      instance = self.__init_instance(
+        signature=signature, instance_id=instance_id, config=config, 
+        on_data=on_data, on_notification=on_notification, is_attached=False,
+        debug=debug
+      )
       return instance
 
     def __remove_plugin_instance(self, instance):

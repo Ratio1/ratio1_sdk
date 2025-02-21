@@ -9,7 +9,19 @@ class Instance():
   The Instance class is a wrapper around a plugin instance. It provides a simple API for sending commands to the instance and updating its configuration.
   """
 
-  def __init__(self, log, pipeline, instance_id, signature, on_data=None, on_notification=None, config={}, is_attached=False, **kwargs):
+  def __init__(
+    self, 
+    log, 
+    pipeline, 
+    instance_id, 
+    signature, 
+    on_data=None, 
+    on_notification=None, 
+    config={}, 
+    is_attached=False, 
+    debug=False,
+    **kwargs
+  ):
     """
     Create a new instance of the plugin.
 
@@ -39,6 +51,7 @@ class Instance():
     self.instance_id = instance_id
     self.signature = signature.upper()
     self.config = {}
+    self.__debug = debug
 
     if is_attached:
       assert len(kwargs) == 0, "When attaching an instance, no additional parameters are allowed"
@@ -61,6 +74,11 @@ class Instance():
       self.on_notification_callbacks.append(on_notification)
 
     return
+  
+  def Pd(self, *args, **kwargs):
+    if self.__debug:
+      self.log.P(*args, **kwargs)
+    return
 
   # Message handling
   if True:
@@ -75,6 +93,7 @@ class Instance():
       data : dict | Payload
           The data received from the instance
       """
+      self.Pd(f"_on_data: {pipeline.name}:{self.signature}:{self.instance_id}")
       for callback in self.on_data_callbacks:
         callback(pipeline, data)
       for callback in self.temporary_on_data_callbacks.values():
