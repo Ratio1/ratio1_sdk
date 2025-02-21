@@ -4,10 +4,10 @@ import pandas as pd
 
 if __name__ == "__main__":
   N = 4
-  DEBUG = True
+  DEBUG = False
 
   # the provided url, note: if this does not return json directly, it might need adjustment
-  url = "https://naeural-oracle.ngrok.app/active_nodes_list"
+  url = "https://devnet-oracle.ratio1.ai/active_nodes_list"
   server_alias_counts = {}
 
   for i in range(N):

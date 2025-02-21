@@ -1,3 +1,5 @@
+import signal
+import sys
 import argparse
 
 from naeural_client.utils.config import maybe_init_config, log_with_color
@@ -5,6 +7,11 @@ from naeural_client.cli.cli_commands import CLI_COMMANDS
 
 from naeural_client import version
 import traceback
+
+def handle_sigint(signum, frame):
+  """Handler for the SIGINT signal (Ctrl-C)."""
+  print("Interrupted. Exiting...")
+  sys.exit(1)
 
 
 def create_global_parser():
@@ -96,6 +103,9 @@ def main():
   Ensures the configuration is initialized, builds the parser, 
   and executes the appropriate command function.
   """
+  # Register the SIGINT handler
+  signal.signal(signal.SIGINT, handle_sigint)  
+  
   try:
     # Initialize configuration if necessary
     initialized = maybe_init_config()
