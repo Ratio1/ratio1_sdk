@@ -145,6 +145,7 @@ class GenericSession(BaseDecentrAIObject):
         As arguments, it has a reference to this Session object, the node name, the pipeline, signature and instance, and the payload.
         This callback acts as a default payload processor and will be called even if for a given instance
         the user has defined a specific callback.
+        
     on_notification : Callable[[Session, str, dict], None], optional
         Callback that handles notifications received from this network.
         As arguments, it has a reference to this Session object, the node name and the notification payload.
@@ -153,6 +154,7 @@ class GenericSession(BaseDecentrAIObject):
         This callback will be called when there are notifications related to the node itself, e.g. when the node runs
         low on memory.
         Defaults to None.
+        
     on_heartbeat : Callable[[Session, str, dict], None], optional
         Callback that handles heartbeats received from this network.
         As arguments, it has a reference to this Session object, the node name and the heartbeat payload.
@@ -163,8 +165,11 @@ class GenericSession(BaseDecentrAIObject):
         Observation: Obsolete, will be removed
         
     debug : bool or int, optional
-        This flag will enable debug logs, set to 'False` for a more verbose log, by default False
-        A value of 1 will enable debug logs, a value of 2 will enable more verbose logs.
+        This flag will enable debug logs, set to 'True` or 2 for a more verbose log, by default 1
+        - 0 or False will disable debug logs
+        - 1 will enable level 1
+        - 2 will enable full debug
+        
         
         
     silent : bool, optional
@@ -186,8 +191,9 @@ class GenericSession(BaseDecentrAIObject):
         If True, the SDK will use the home folder as the base folder for the local cache.
         NOTE: if you need to use development style ./_local_cache, set this to False.
     """
-    
     debug = debug or not debug_silent
+    if isinstance(debug, bool):
+      debug = 2 if debug else 0
     
     self.__debug = int(debug) > 0
     

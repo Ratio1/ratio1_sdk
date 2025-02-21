@@ -17,7 +17,7 @@ def instance_on_data(pipeline: Pipeline, payload: Payload):
   # then we extract the R1FS file originator (creator) from the demo data
   read_file_originator = r1fs_data["owner_id"] 
   # we print the data 
-  pipeline.P("Data received from worker '{}' created by '{}':\n {}".format(
+  pipeline.P("Data received from worker '{}' from file created by '{}':\n {}".format(
     sender_alias, read_file_originator, json.dumps(r1fs_data, indent=2)
   ))
   return
@@ -39,7 +39,9 @@ if __name__ == '__main__':
       node=node, name='r1fs_demo_pipeline', data_source='Void',
       debug=True,
     )
-
+    # The ideea is that we create a plugin instance that listens for data
+    # on ChainStorage from other plugins/nodes that create R1FS demo files
+    # while itself also creating R1FS demo files
     instance: Instance = pipeline.create_plugin_instance(
       signature='R1FS_DEMO', on_data=instance_on_data,
       instance_id='inst01',
