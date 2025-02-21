@@ -156,6 +156,7 @@ class Pipeline(BaseCodeChecker):
     Print debug message.
     """
     if self.__debug:
+      kwargs["color"] = 'd' if kwargs.get("color") != 'r' else 'r'
       self.P(*args, **kwargs)
     return
 

@@ -89,7 +89,7 @@ class GenericSession(BaseDecentrAIObject):
               on_notification=None,
               on_heartbeat=None,
               debug_silent=True,
-              debug=False,
+              debug=1,
               silent=False,
               verbosity=1,
               dotenv_path=None,
@@ -162,8 +162,9 @@ class GenericSession(BaseDecentrAIObject):
         This flag will disable debug logs, set to 'False` for a more verbose log, by default True
         Observation: Obsolete, will be removed
         
-    debug : bool, optional
+    debug : bool or int, optional
         This flag will enable debug logs, set to 'False` for a more verbose log, by default False
+        A value of 1 will enable debug logs, a value of 2 will enable more verbose logs.
         
         
     silent : bool, optional
@@ -187,6 +188,8 @@ class GenericSession(BaseDecentrAIObject):
     """
     
     debug = debug or not debug_silent
+    
+    self.__debug = int(debug) > 0
     
     self.__at_least_one_node_peered = False
     self.__at_least_a_netmon_received = False
@@ -278,13 +281,20 @@ class GenericSession(BaseDecentrAIObject):
       
     super(GenericSession, self).__init__(
       log=log, 
-      DEBUG=debug, 
+      DEBUG=int(debug) > 1, 
       create_logger=True,
       silent=self.silent,
       local_cache_base_folder=local_cache_base_folder,
       local_cache_app_folder=local_cache_app_folder,
     )
     return
+  
+  def Pd(self, *args, **kwargs):
+    if self.__debug:
+      kwargs["color"] = 'd' if kwargs.get("color") != 'r' else 'r'
+      self.log.P(*args, **kwargs)
+    return
+  
 
   def startup(self):    
     ## 1st config step - we prepare config via ~/.naeural/config or .env
@@ -830,7 +840,7 @@ class GenericSession(BaseDecentrAIObject):
             if needs_netconfig:
               lst_netconfig_request.append(node_addr)
           # end for each node in network map
-          self.P(f"Net mon from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}", color='y')
+          self.Pd(f"Net mon from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}")
           if len(lst_netconfig_request) > 0:
             self.__request_pipelines_from_net_config_monitor(lst_netconfig_request)
           # end if needs netconfig
@@ -1607,7 +1617,7 @@ class GenericSession(BaseDecentrAIObject):
       )
       self.bc_engine.sign(msg_to_send, use_digest=True)
       if show_command:
-        self.P(
+        self.Pd(
           "Sending command '{}' to '{}':\n{}".format(command, worker, json.dumps(msg_to_send, indent=2)),
           color='y',
           verbosity=1
