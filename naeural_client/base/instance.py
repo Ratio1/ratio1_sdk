@@ -93,7 +93,7 @@ class Instance():
       data : dict | Payload
           The data received from the instance
       """
-      self.P(f"_on_data: {pipeline.name}:{self.signature}:{self.instance_id}")
+      self.Pd(f"_on_data: {pipeline.name}:{self.signature}:{self.instance_id}")
       for callback in self.on_data_callbacks:
         callback(pipeline, data)
       for callback in self.temporary_on_data_callbacks.values():

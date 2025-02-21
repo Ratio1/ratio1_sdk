@@ -1778,6 +1778,7 @@ class GenericSession(BaseDecentrAIObject):
                         on_notification=None,
                         max_wait_time=0,
                         pipeline_type=None,
+                        debug=False,
                         **kwargs) -> Pipeline:
       """
       Create a new pipeline on a node. A pipeline is the equivalent of the "config file" used by the Naeural Edge Protocol edge node team internally.
@@ -1857,6 +1858,7 @@ class GenericSession(BaseDecentrAIObject):
           on_data=on_data,
           on_notification=on_notification,
           is_attached=False,
+          debug=debug,
           **kwargs
       )
       self.own_pipelines.append(pipeline)

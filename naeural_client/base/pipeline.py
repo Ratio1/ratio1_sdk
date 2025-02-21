@@ -168,7 +168,8 @@ class Pipeline(BaseCodeChecker):
       config, 
       on_data, 
       on_notification, 
-      is_attached
+      is_attached,
+      debug=False,
     ):
       instance_class = None
       str_signature = None
@@ -178,15 +179,17 @@ class Pipeline(BaseCodeChecker):
       else:
         instance_class = signature
         str_signature = instance_class.signature.upper()
-      instance = instance_class(self.log,
-                                pipeline=self,
-                                signature=str_signature,
-                                instance_id=instance_id,
-                                config=config,
-                                on_data=on_data,
-                                on_notification=on_notification,
-                                is_attached=is_attached
-                                )
+      instance = instance_class(
+        self.log,
+        pipeline=self,
+        signature=str_signature,
+        instance_id=instance_id,
+        config=config,
+        on_data=on_data,
+        on_notification=on_notification,
+        is_attached=is_attached,
+        debug=debug, 
+      )
       self.lst_plugin_instances.append(instance)
       return instance
 
@@ -853,6 +856,7 @@ class Pipeline(BaseCodeChecker):
       config={}, 
       on_data=None, 
       on_notification=None, 
+      debug=False,
       **kwargs
     ) -> Instance:
       """
@@ -905,7 +909,8 @@ class Pipeline(BaseCodeChecker):
       config = {**config, **kwargs}
       instance = self.__init_instance(
         signature=signature, instance_id=instance_id, config=config, 
-        on_data=on_data, on_notification=on_notification, is_attached=False
+        on_data=on_data, on_notification=on_notification, is_attached=False,
+        debug=debug
       )
       return instance
 

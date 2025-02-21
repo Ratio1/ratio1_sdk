@@ -23,12 +23,14 @@ if __name__ == '__main__':
       node=node,
       name='r1fs_demo_pipeline',
       data_source='Void',
+      debug=True,
     )
 
     instance: Instance = pipeline.create_plugin_instance(
       signature='R1FS_DEMO',
       on_data=instance_on_data,
       instance_id='inst01',
+      debug=True,
     )
 
     pipeline.deploy()
