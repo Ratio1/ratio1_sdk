@@ -77,6 +77,7 @@ class Instance():
   
   def Pd(self, *args, **kwargs):
     if self.__debug:
+      kwargs["color"] = 'd' if kwargs.get("color") != 'r' else 'r'
       self.log.P(*args, **kwargs)
     return
 
@@ -522,7 +523,7 @@ class Instance():
           The list of transactions generated, or None if `wait_confirmation` is False.
 
       """
-      self.P(f'Sending command <{command}> to instance <{self.__repr__()}>', color="b")
+      self.Pd(f'Sending command <{command}> to instance <{self.__repr__()}>', color="b")
 
       self.__was_last_operation_successful = None
 
