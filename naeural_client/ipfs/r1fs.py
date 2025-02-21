@@ -268,8 +268,8 @@ class R1FSEngine:
   
   def _get_unique_or_complete_upload_name(self, fn=None, prefix="r1fs", suffix=""):
     if fn is not None and os.path.dirname(fn) == "":
-      return os.path.join(self.__uploads_dir, fn)
-    return self._get_unique_upload_name(prefix, suffix)
+      return os.path.join(self.__uploads_dir, f"{fn}{suffix}")
+    return self._get_unique_upload_name(prefix, suffix=suffix)
   
   def __set_reprovider_interval(self):
     # Command to set the Reprovider.Interval to 1 minute
@@ -566,6 +566,7 @@ class R1FSEngine:
     msg += f"\n  Download: {self.__downloads_dir}"
     msg += f"\n  Upload:   {self.__uploads_dir}"
     msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
+    msg += f"\n  Debug:    {self.__debug}"
     self.P(msg, color='d')
     
     ipfs_repo = os.path.expanduser("~/.ipfs")
