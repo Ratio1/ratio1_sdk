@@ -328,7 +328,7 @@ class GenericSession(BaseDecentrAIObject):
     self.__fill_config(
       host=self.__host, 
       port=self.__port, 
-      user=self.__port, 
+      user=self.__user,
       pwd=self.__pwd, 
       secured=self.__secured,
     )
