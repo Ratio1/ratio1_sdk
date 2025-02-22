@@ -815,7 +815,7 @@ class BaseBlockEngine(_EVMMixin):
 
     """
     if from_file and os.path.isfile(source):
-      self.P("Reading SK from '{}'".format(source), verbosity=1)
+      self.P("Reading SK from '{}'".format(source), verbosity=2)
       with open(source, 'rt') as fh:
         data = fh.read()
     else:
