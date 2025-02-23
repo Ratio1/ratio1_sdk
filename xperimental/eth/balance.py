@@ -15,29 +15,35 @@ if __name__ == '__main__' :
   with open("xperimental/eth/addrs.txt", "rt") as fd:
     lines = fd.readlines()
     addresses = [line.strip() for line in lines]
+      
   
   l.P("Check #1", color='b')
   for address in addresses:
-    balance = eng.web3_get_balance_eth(address)
+    eth_balance = eng.web3_get_balance_eth(address)    
+    l.P(f"ETH Balance of {address} is {eth_balance:.4f} ETH")
+    r1_balance = eng.web3_get_balance_r1(address)
+    l.P(f"R1 Balance of {address} is {r1_balance:.4f} R1")
     
-    l.P(f"Balance of {address} is {balance:.4f} ETH")
   
   l.P("Check #2", color='b')
   for address in addresses:
-    balance = eng.web3_get_balance(address, network="mainnet")
-    
-    l.P(f"Balance of {address} is {balance:.4f} ETH")
+    eth_balance = eng.web3_get_balance_eth(address, network="mainnet")    
+    l.P(f"ETH Balance of {address} is {eth_balance:.4f} ETH")
+    r1_balance = eng.web3_get_balance_r1(address)
+    l.P(f"R1 Balance of {address} is {r1_balance:.4f} R1")
 
   l.P("Check #3", color='b')
   for address in addresses:
-    balance = eng.web3_get_balance(address)
-    
-    l.P(f"Balance of {address} is {balance:.4f} ETH")
+    eth_balance = eng.web3_get_balance_eth(address)    
+    l.P(f"ETH Balance of {address} is {eth_balance:.4f} ETH")
+    r1_balance = eng.web3_get_balance_r1(address)
+    l.P(f"R1 Balance of {address} is {r1_balance:.4f} R1")
     
   eng.reset_network("mainnet")
 
   l.P("Check #4", color='b')
   for address in addresses:
-    balance = eng.web3_get_balance(address)
-    
-    l.P(f"Balance of {address} is {balance:.4f} ETH")
+    eth_balance = eng.web3_get_balance_eth(address)    
+    l.P(f"ETH Balance of {address} is {eth_balance:.4f} ETH")
+    r1_balance = eng.web3_get_balance_r1(address)
+    l.P(f"R1 Balance of {address} is {r1_balance:.4f} R1")

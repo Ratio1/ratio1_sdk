@@ -76,6 +76,8 @@ def get_nodes(args):
     log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')
   else:
     log_with_color(f"<{network}> {prefix}odes reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s ({nr_supers} supervisors seen):", color='b')
+    import pandas as pd
+    pd.set_option('display.float_format', '{:.4f}'.format)
     log_with_color(f"{df}")    
   return
   

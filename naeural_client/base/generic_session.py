@@ -3000,6 +3000,7 @@ class GenericSession(BaseDecentrAIObject):
           
       eth: bool, optional
           If True, will use the nodes eth addresses instead of internal. Defaults to False.
+          It will also display extra info about node wallets (ETH and $R1 balances)
           
       all_info: bool, optional
           If True, will return all the information. Defaults to False.
@@ -3032,10 +3033,17 @@ class GenericSession(BaseDecentrAIObject):
       if all_info:
         mapping = OrderedDict({
           # we assign dummy integer values to the computed columns 
-          # and we will fillter them 
+          # and we will filter them 
           'ETH Address': 1,
           **mapping
         })
+      if eth or all_info:
+        mapping = OrderedDict({
+          **mapping,
+          'ETH' : 2,
+          '$R1' : 3,
+        })        
+      # end if eth or all_info
       res = OrderedDict()
       for k in mapping:
         res[k] = []
@@ -3074,6 +3082,7 @@ class GenericSession(BaseDecentrAIObject):
             continue
           for key, column in reverse_mapping.items():
             if isinstance(key, int):
+              # if the key is an integer, then it is a computed column
               continue
             val = node_info.get(key, None)
             if key == PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME:
@@ -3088,16 +3097,26 @@ class GenericSession(BaseDecentrAIObject):
                 # again self.get_node_alias(best_super) might not work if using the hb data
                 best_super_alias = node_info.get(PAYLOAD_DATA.NETMON_EEID, None)
               val = self.bc_engine._add_prefix(val)
+              add_balance = False
               if all_info:
                 val_eth = self.bc_engine.node_address_to_eth_address(val)
                 res['ETH Address'].append(val_eth)
+                eth_addr = val_eth
+                add_balance = True
               elif eth:
                 val = self.bc_engine.node_address_to_eth_address(val)
+                eth_addr = val
+                add_balance = True
+              if add_balance:
+                eth_balance = self.bc_engine.web3_get_balance_eth(val)
+                r1_balance = self.bc_engine.web3_get_balance_r1(val)
+                res['ETH'].append(round(eth_balance,4))
+                res['$R1'].append(round(r1_balance,4))
             elif key == PAYLOAD_DATA.NETMON_WHITELIST:
               val = client_is_allowed
             elif key in [PAYLOAD_DATA.NETMON_STATUS_KEY, PAYLOAD_DATA.NETMON_NODE_VERSION]:
               val = val.split(' ')[0]
-            res[column].append(val)          
+            res[column].append(val)                        
         # end for
       # end if
       pd.options.display.float_format = '{:.1f}'.format

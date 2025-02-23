@@ -1,6 +1,8 @@
 import json
 import os
 
+from collections import namedtuple
+
 from eth_account import Account
 from eth_utils import keccak, to_checksum_address
 from eth_account.messages import encode_defunct
@@ -11,6 +13,11 @@ EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
   'true', '1', 'yes', 'y', 't', 'on'
 ]
 
+Web3Vars = namedtuple("Web3Vars", [
+  "w3", "rpc_url", "nd_contract_address", "r1_contract_address", "network"
+])
+
+
 if not EE_VPN_IMPL:
   from web3 import Web3
 else:
@@ -19,7 +26,39 @@ else:
     VPS enabled. Web3 is not available.
     """
 
-
+# A minimal ERC20 ABI for balanceOf, transfer, and decimals functions.
+ERC20_ABI = [
+  {
+      "constant": True,
+      "inputs": [{"name": "_owner", "type": "address"}],
+      "name": "balanceOf",
+      "outputs": [{"name": "balance", "type": "uint256"}],
+      "payable": False,
+      "stateMutability": "view",
+      "type": "function"
+  },
+  {
+      "constant": False,
+      "inputs": [
+          {"name": "_to", "type": "address"},
+          {"name": "_value", "type": "uint256"}
+      ],
+      "name": "transfer",
+      "outputs": [{"name": "success", "type": "bool"}],
+      "payable": False,
+      "stateMutability": "nonpayable",
+      "type": "function"
+  },
+  {
+      "constant": True,
+      "inputs": [],
+      "name": "decimals",
+      "outputs": [{"name": "", "type": "uint8"}],
+      "payable": False,
+      "stateMutability": "view",
+      "type": "function"
+  }
+]
 
 class _EVMMixin:
   
@@ -153,7 +192,7 @@ class _EVMMixin:
         self.current_evm_network = network
         network_data = self.get_network_data(network)
         rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
-        self.web3 = Web3(Web3.HTTPProvider(self.network_rpc))
+        self.web3 = Web3(Web3.HTTPProvider(rpc_url))
         self.P(f"Resetting Web3 for {network=} via {rpc_url=}...")
       return network
     
@@ -173,26 +212,36 @@ class _EVMMixin:
 
 
     @property
-    def contract_address(self):
+    def nd_contract_address(self):
       return self.get_network_data(self.evm_network)[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
+    
+    @property
+    def r1_contract_address(self):
+      return self.get_network_data(self.evm_network)[dAuth.EvmNetData.DAUTH_R1_ADDR_KEY]
 
 
-    def _get_web3_vars(self, network=None) -> tuple[Web3, str, str, str]:
+    def _get_web3_vars(self, network=None) -> Web3Vars:
       if network is None:
         network = self.evm_network
         w3 = self.web3
         rpc_url = self.network_rpc
-        contract_address = self.contract_address
+        nd_contract_address = self.nd_contract_address
+        r1_contract_address = self.r1_contract_address
       else:
-        network_data = self.get_network_data(network)
-        contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
+        network_data = self.get_network_data(network)        
+        nd_contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
         rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
+        r1_contract_address = network_data[dAuth.EvmNetData.DAUTH_R1_ADDR_KEY]
         w3 = Web3(Web3.HTTPProvider(rpc_url)) 
         self.P(f"Created temporary Web3 for {network=} via {rpc_url=}...", verbosity=2)
-      return w3, rpc_url, contract_address, network
+      result = Web3Vars(
+        w3=w3, rpc_url=rpc_url, nd_contract_address=nd_contract_address, 
+        r1_contract_address=r1_contract_address, network=network
+      )
+      return result
 
 
-  # EVM signing methods
+  # EVM signing methods (internal)
   if True:
     def eth_hash_message(self, types, values, as_hex=False):
       """
@@ -385,15 +434,15 @@ class _EVMMixin:
         self.P("VPN implementation. Skipping Ethereum check.", color='r')
         return False
       
-      w3, rpc_url, contract_address, network = self._get_web3_vars(network)
+      w3vars = self._get_web3_vars(network)
       
       assert self.is_valid_eth_address(address), "Invalid Ethereum address"
       
       if debug:
-        self.P(f"Checking if {address} ({network}) is allowed via {rpc_url}...")
+        self.P(f"Checking if {address} ({network}) is allowed...")
       
       contract_abi = dAuth.DAUTH_ABI_IS_NODE_ACTIVE
-      contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+      contract = w3vars.w3.eth.contract(address=w3vars.nd_contract_address, abi=contract_abi)
 
       result = contract.functions.isNodeActive(address).call()
       return result
@@ -414,13 +463,15 @@ class _EVMMixin:
         the list of oracles addresses.
 
       """
-      w3, rpc_url, contract_address, network = self._get_web3_vars(network)
+      w3vars = self._get_web3_vars(network)
 
       if debug:
-        self.P(f"Getting oracles for {network} via {rpc_url}...")
+        self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url}...")
       
       contract_abi = dAuth.DAUTH_ABI_GET_SIGNERS
-      contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.nd_contract_address, abi=contract_abi
+      )
 
       result = contract.functions.getSigners().call()
       return result    
@@ -428,7 +479,7 @@ class _EVMMixin:
     
     def web3_get_balance_eth(self, address=None, network=None):
       """
-      Get the balance of the address
+      Get the ETH balance of the address
 
       Parameters
       ----------
@@ -443,10 +494,10 @@ class _EVMMixin:
       if address is None:
         address = self.eth_address
       assert self.is_valid_eth_address(address), "Invalid Ethereum address"
-      w3 , _, _, network = self._get_web3_vars(network)
-      balance_wei = w3.eth.get_balance(address)
-      balance_eth = w3.from_wei(balance_wei, 'ether')
-      return balance_eth
+      w3vars = self._get_web3_vars(network)
+      balance_wei = w3vars.w3.eth.get_balance(address)
+      balance_eth = w3vars.w3.from_wei(balance_wei, 'ether')
+      return float(balance_eth)
 
 
     def web3_send_eth(
@@ -457,7 +508,8 @@ class _EVMMixin:
       network=None,
       wait_for_tx=True,
       timeout=120,
-      return_receipt=False
+      return_receipt=False,
+      raise_if_error=False,
     ):
       """
       Send ETH from the account associated with this object to another address,
@@ -483,42 +535,54 @@ class _EVMMixin:
           
       timeout : int, optional 
           The maximum time to wait for the transaction to be mined, in seconds. Default is 120 seconds.
+          
+      return_receipt : bool, optional
+          If True, returns the transaction receipt instead of the transaction hash. Default is False.
+          
+      raise_if_error : bool, optional
+          If True, raises an exception if the transaction fails. Default is False.
 
       Returns
       -------
       str
           The transaction hash of the broadcasted transaction.
       """
-      w3, rpc_url, _, network = self._get_web3_vars(network=network)
+      w3vars = self._get_web3_vars(network=network)
+      network = w3vars.network
       
       # Get the sender's address from the object's stored attribute (assumed available)
       from_address = self.eth_address
 
       # Fetch the current balance (in Wei)
-      balance_wei = w3.eth.get_balance(from_address)
+      balance_wei = w3vars.w3.eth.get_balance(from_address)
       
       # Define gas parameters for a standard ETH transfer.
       gas_limit = 21000  # typical gas limit for a simple ETH transfer
-      gas_price = w3.to_wei('50', 'gwei')  # example gas price; you may choose a dynamic approach
+      gas_price = w3vars.w3.to_wei('50', 'gwei')  # example gas price; you may choose a dynamic approach
       
       # Calculate the total gas cost.
       gas_cost = gas_limit * gas_price
       
       # Convert transfer amount and buffer to Wei.
-      amount_wei = w3.to_wei(amount_eth, 'ether')
-      extra_buffer = w3.to_wei(extra_buffer_eth, 'ether')
+      amount_wei = w3vars.w3.to_wei(amount_eth, 'ether')
+      extra_buffer = w3vars.w3.to_wei(extra_buffer_eth, 'ether')
       
       # Compute the total cost: amount to send + gas cost + extra buffer.
       total_cost = amount_wei + gas_cost + extra_buffer
       
       # Check if the balance is sufficient.
       if balance_wei < total_cost:
-          raise Exception("Insufficient funds: your balance is less than the required amount plus gas cost and buffer.")
+        msg = "Insufficient funds: your balance is less than the required amount plus gas cost and buffer."
+        if raise_if_error:
+          raise Exception(msg)
+        else:
+          self.P(msg, color='r')
+          return None
       
       # Get the nonce for the transaction.
-      nonce = w3.eth.get_transaction_count(from_address)
+      nonce = w3vars.w3.eth.get_transaction_count(from_address)
       
-      chain_id = w3.eth.chain_id
+      chain_id = w3vars.w3.eth.chain_id
           
       # Build the transaction dictionary.
       tx = {
@@ -530,18 +594,18 @@ class _EVMMixin:
         'chainId': chain_id,
       }
       
-      self.P(f"Executing transaction on {network} via {rpc_url}:\n {json.dumps(tx, indent=2)}", verbosity=2)
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(tx, indent=2)}", verbosity=2)
           
       # Sign the transaction with the account's private key.
-      signed_tx = w3.eth.account.sign_transaction(tx, self.eth_account.key)
+      signed_tx = w3vars.w3.eth.account.sign_transaction(tx, self.eth_account.key)
       
       # Broadcast the signed transaction.
-      tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
       
       if wait_for_tx:
         # Wait for the transaction receipt with the specified timeout.
         self.P("Waiting for transaction to be mined...", verbosity=2)
-        tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
         tx_hash_hex = tx_receipt.transactionHash.hex()
         self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
         if return_receipt:          
@@ -550,3 +614,168 @@ class _EVMMixin:
           return tx_hash_hex
       else:
         return tx_hash.hex()
+
+
+    def web3_get_balance_r1(self, address=None, network=None):
+      """
+      Get the R1 balance of the address
+
+      Parameters
+      ----------
+      address : str
+          The address to check.
+
+      Returns
+      -------
+      float
+          The balance of the address.
+      """
+      if address is None:
+        address = self.eth_address
+      assert self.is_valid_eth_address(address), "Invalid Ethereum address"
+      w3vars = self._get_web3_vars(network)
+
+      token_contract = w3vars.w3.eth.contract(
+        address=w3vars.r1_contract_address, abi=ERC20_ABI
+      )
+
+      try:
+          decimals = token_contract.functions.decimals().call()
+      except Exception:
+          decimals = 18  # default to 18 if the decimals call fails
+
+      raw_balance = token_contract.functions.balanceOf(address).call()
+      human_balance = raw_balance / (10 ** decimals)
+      return float(human_balance)
+    
+    def web3_send_r1(
+      self,
+      to_address: str,
+      amount: float,
+      extra_buffer_eth: float = 0.005,
+      wait_for_tx: bool = False,
+      timeout: int = 120,
+      network: str = None,
+      return_receipt=False,
+      raise_if_error=False,
+    ):
+      """
+      Send R1 tokens from the default account (self.eth_address) to the specified address.
+
+      Parameters
+      ----------
+      to_address : str
+          The recipient's Ethereum address.
+          
+      amount : float
+          The amount of R1 tokens to send (in human-readable units).
+          
+      extra_buffer_eth : float, optional
+          Additional ETH (in Ether) as a buffer for gas fees. Default is 0.005 ETH.
+          
+      wait_for_tx : bool, optional
+          If True, waits for the transaction to be mined and returns the receipt.
+          If False, returns immediately with the transaction hash.
+          
+      timeout : int, optional
+          Maximum number of seconds to wait for the transaction receipt. Default is 120.
+          
+      network : str, optional
+          The network to use. If None, uses the default self.evm_network.
+
+      return_receipt: bool, optional
+          If True, returns the transaction receipt instead of the transaction hash.
+          
+      raise_if_error : bool, optional
+          If True, raises an exception if the transaction fails. Default is False.  
+          
+      Returns
+      -------
+          If wait_for_tx is False, returns the transaction hash as a string.
+          If wait_for_tx is True, returns the transaction receipt as a dict.
+      """
+      # Validate the recipient address.
+      assert self.is_valid_eth_address(to_address), "Invalid Ethereum address"
+      
+      # Retrieve the Web3 instance, RPC URL, and the R1 contract address.
+      # Note: This follows the same pattern as web3_get_balance_r1.
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      
+      # Create the token contract instance.
+      token_contract = w3vars.w3.eth.contract(
+        address=w3vars.r1_contract_address, abi=ERC20_ABI
+      )
+      
+      # Get the token's decimals (default to 18 if not available).
+      try:
+          decimals = token_contract.functions.decimals().call()
+      except Exception:
+          decimals = 18
+
+      # Convert the human-readable amount to the token's smallest unit.
+      token_amount = int(amount * (10 ** decimals))
+      
+      # Ensure the sender has enough R1 token balance.
+      sender_balance = token_contract.functions.balanceOf(self.eth_address).call()
+      if sender_balance < token_amount:
+        msg = "Insufficient funds: your $R1 balance is less than the required amount."
+        if raise_if_error:
+          raise Exception(msg)
+        else:
+          self.P(msg, color='r')
+          return None
+      
+      # Estimate gas fees for the token transfer.
+      gas_price = w3vars.w3.to_wei('50', 'gwei')  # Adjust as needed or use a dynamic gas strategy.
+      estimated_gas = token_contract.functions.transfer(
+        to_address, token_amount
+      ).estimate_gas(
+        {'from': self.eth_address}
+      )
+      gas_cost = estimated_gas * gas_price
+      
+      # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
+      eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
+      extra_buffer = w3vars.w3.to_wei(extra_buffer_eth, 'ether')
+      if eth_balance < gas_cost + extra_buffer:
+          raise Exception("Insufficient ETH balance to cover gas fees and extra buffer.")
+      
+      # Get the transaction count for the nonce.
+      nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
+      
+      # Programmatically determine the chainId.
+      chain_id = w3vars.w3.eth.chain_id
+
+      # Build the transaction for the ERC20 transfer.
+      tx = token_contract.functions.transfer(to_address, token_amount).build_transaction({
+        'from': self.eth_address,
+        'nonce': nonce,
+        'gas': estimated_gas,
+        'gasPrice': gas_price,
+        'chainId': chain_id,
+      })
+      
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)      
+      
+      # Sign the transaction using the internal account (via _get_eth_account).
+      eth_account = self._get_eth_account()
+      signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
+      
+      # Broadcast the transaction.
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+      
+      if wait_for_tx:
+        # Wait for the transaction receipt if required.
+        tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        tx_hash_hex = tx_receipt.transactionHash.hex()
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        if return_receipt:          
+          return tx_receipt
+        else:
+          return tx_hash_hex
+      else:
+        return tx_hash.hex()
+
+    
+

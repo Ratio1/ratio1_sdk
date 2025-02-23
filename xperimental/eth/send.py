@@ -18,11 +18,23 @@ if __name__ == '__main__' :
     
   dest = addresses[0]
   
-  l.P(f"Src  {eng.eth_address} has {eng.web3_get_balance():.4f} ETH")
-  l.P(f"Dest {dest} has {eng.web3_get_balance(dest):.4f} ETH")
+  l.P(f"ETH and $R1 transfer test on Ratio1:{eng.evm_network}")
+  
+  l.P("ETH Test")
+  l.P(f"Src  {eng.eth_address} has {eng.web3_get_balance_eth():.4f} ETH")
+  l.P(f"Dest {dest} has {eng.web3_get_balance_eth(dest):.4f} ETH")
   l.P(f"Sending 0.1 ETH to {dest}", color='b')
-  tx_receipt = eng.wallet_send_eth(dest, 0.1, wait_for_tx=True)
-  l.P(f"Executed tx: {tx_receipt.transactionHash}", color='g')
-  l.P(f"Src  {eng.eth_address} has {eng.web3_get_balance():.4f} ETH")
-  l.P(f"Dest {dest} has {eng.web3_get_balance(dest):.4f} ETH")
+  tx_hash = eng.web3_send_eth(dest, 0.1, wait_for_tx=True, return_receipt=False)
+  l.P(f"Executed tx: {tx_hash}", color='g')
+  l.P(f"Src  {eng.eth_address} has {eng.web3_get_balance_eth():.4f} ETH")
+  l.P(f"Dest {dest} has {eng.web3_get_balance_eth(dest):.4f} ETH")
+
+  l.P("R1 Test")
+  l.P(f"Src  {eng.eth_address} has {eng.web3_get_balance_r1():.4f} $R1")
+  l.P(f"Dest {dest} has {eng.web3_get_balance_r1(dest):.4f} $R1")
+  l.P(f"Sending 100 $R1 to {dest}", color='b')
+  tx_hash = eng.web3_send_r1(dest, 100, wait_for_tx=True, return_receipt=False)
+  l.P(f"Executed tx: {tx_hash}", color='g')
+  l.P(f"Src  {eng.eth_address} has {eng.web3_get_balance_r1():.4f} $R1")
+  l.P(f"Dest {dest} has {eng.web3_get_balance_r1(dest):.4f} $R1")
   

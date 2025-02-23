@@ -180,3 +180,5 @@ xperimental/petrica/
 xperimental/_checks/dauth_check_aid.py
 
 xperimental/eth/addrs.txt
+
+xperimental/eth/mynodes.txt
