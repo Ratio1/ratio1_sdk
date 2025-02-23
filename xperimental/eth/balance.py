@@ -18,19 +18,19 @@ if __name__ == '__main__' :
   
   l.P("Check #1", color='b')
   for address in addresses:
-    balance = eng.wallet_get_balance(address)
+    balance = eng.web3_get_balance_eth(address)
     
     l.P(f"Balance of {address} is {balance:.4f} ETH")
   
   l.P("Check #2", color='b')
   for address in addresses:
-    balance = eng.wallet_get_balance(address, network="mainnet")
+    balance = eng.web3_get_balance(address, network="mainnet")
     
     l.P(f"Balance of {address} is {balance:.4f} ETH")
 
   l.P("Check #3", color='b')
   for address in addresses:
-    balance = eng.wallet_get_balance(address)
+    balance = eng.web3_get_balance(address)
     
     l.P(f"Balance of {address} is {balance:.4f} ETH")
     
@@ -38,6 +38,6 @@ if __name__ == '__main__' :
 
   l.P("Check #4", color='b')
   for address in addresses:
-    balance = eng.wallet_get_balance(address)
+    balance = eng.web3_get_balance(address)
     
     l.P(f"Balance of {address} is {balance:.4f} ETH")
