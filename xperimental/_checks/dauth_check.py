@@ -20,6 +20,8 @@ if __name__ == '__main__' :
   
   responders = {}
   
+  eng.reset_network("devnet")
+  
   for _ in range(1):
     d = eng.dauth_autocomplete(
       # dauth_endp='N/Adhstrgredshtfnfnhgm',
