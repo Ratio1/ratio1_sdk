@@ -3,6 +3,8 @@ import os
 
 from collections import namedtuple
 
+from datetime import timezone, datetime
+
 from eth_account import Account
 from eth_utils import keccak, to_checksum_address
 from eth_account.messages import encode_defunct
@@ -14,7 +16,8 @@ EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
 ]
 
 Web3Vars = namedtuple("Web3Vars", [
-  "w3", "rpc_url", "nd_contract_address", "r1_contract_address", "network"
+  "w3", "rpc_url", "nd_contract_address", "r1_contract_address", "network", 
+  "genesis_date", "epoch_length_seconds" 
 ])
 
 
@@ -224,22 +227,87 @@ class _EVMMixin:
       if network is None:
         network = self.evm_network
         w3 = self.web3
-        rpc_url = self.network_rpc
-        nd_contract_address = self.nd_contract_address
-        r1_contract_address = self.r1_contract_address
       else:
-        network_data = self.get_network_data(network)        
-        nd_contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
-        rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
-        r1_contract_address = network_data[dAuth.EvmNetData.DAUTH_R1_ADDR_KEY]
-        w3 = Web3(Web3.HTTPProvider(rpc_url)) 
+        w3 = None
+        
+      network_data = self.get_network_data(network)
+      nd_contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
+      rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
+      r1_contract_address = network_data[dAuth.EvmNetData.DAUTH_R1_ADDR_KEY]
+      str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
+      genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
+      ep_sec = (
+        network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
+        network_data[dAuth.EvmNetData.EE_EPOCH_INTERVALS_KEY]
+      )
+
+      if w3 is None:
+        w3 = Web3(Web3.HTTPProvider(rpc_url))
         self.P(f"Created temporary Web3 for {network=} via {rpc_url=}...", verbosity=2)
+      #end if
+      
       result = Web3Vars(
-        w3=w3, rpc_url=rpc_url, nd_contract_address=nd_contract_address, 
-        r1_contract_address=r1_contract_address, network=network
+        w3=w3, 
+        rpc_url=rpc_url, 
+        nd_contract_address=nd_contract_address, 
+        r1_contract_address=r1_contract_address, 
+        network=network,
+        genesis_date=genesis_date,
+        epoch_length_seconds=ep_sec
       )
       return result
 
+  # Epoch handling
+  if True:    
+    def get_epoch_id(self, date : any, network: str = None):
+      """
+      Given a date as string or datetime, returns the epoch id - ie the number of days since 
+      the genesis epoch.
+
+      Parameters
+      ----------
+      date : str or date
+        The date as string that will be converted to epoch id.
+      """
+      w3vars = self._get_web3_vars(network)
+      if isinstance(date, str):
+        # remove milliseconds from string
+        date = date.split('.')[0]
+        date = self.log.str_to_date(date)
+        # again this is correct to replace in order to have a timezone aware date
+        # and not consider the local timezone. the `date` string naive should be UTC offsetted
+        date = date.replace(tzinfo=timezone.utc) 
+      # compute difference between date and self.__genesis_date in seconds
+      elapsed_seconds = (date - w3vars.genesis_date).total_seconds()
+      
+      # the epoch id starts from 0 - the genesis epoch
+      # the epoch id is the number of days since the genesis epoch
+      # # TODO: change this if we move to start-from-one offset by adding +1
+      # OBS: epoch always ends at AB:CD:59 no matter what 
+      epoch_id = int(elapsed_seconds / w3vars.epoch_length_seconds) 
+      return epoch_id
+
+
+    def get_current_date(self):
+      # we convert local time to UTC time
+      return datetime.now(timezone.utc)
+
+
+    def get_time_epoch(self):
+      """
+      Returns the current epoch id.
+      """
+      return self.get_epoch_id(self.get_current_date())
+
+    
+    def get_current_epoch(self):
+      """
+      Returns the current epoch id using `get_time_epoch`.
+      """
+      return self.get_time_epoch()    
+    
+  ## End Epoch handling
+      
 
   # EVM signing methods (internal)
   if True:
