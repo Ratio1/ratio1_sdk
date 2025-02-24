@@ -178,3 +178,5 @@ personal.md
 
 xperimental/petrica/
 xperimental/_checks/dauth_check_aid.py
+
+xperimental/eth/*.txt

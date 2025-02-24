@@ -26,7 +26,9 @@ if __name__ == '__main__' :
   
   addresses = [
     "0xE486F0d594e9F26931fC10c29E6409AEBb7b5144",
-    "0x93B04EF1152D81A0847C2272860a8a5C70280E14",    
+    "0x93B04EF1152D81A0847C2272860a8a5C70280E14",  
+    "0x369C7dfc6484528A472897Cae6A98EB05c49c122",
+    "0x37379B80c7657620E5631832c4437B51D67A88cB"
   ]
   
   l.P(f"Checking web3 API on {eng.evm_network}", color='b')
