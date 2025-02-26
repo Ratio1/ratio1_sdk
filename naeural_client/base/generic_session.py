@@ -3108,8 +3108,8 @@ class GenericSession(BaseDecentrAIObject):
                 eth_addr = val
                 add_balance = True
               if add_balance:
-                eth_balance = self.bc_engine.web3_get_balance_eth(val)
-                r1_balance = self.bc_engine.web3_get_balance_r1(val)
+                eth_balance = self.bc_engine.web3_get_balance_eth(eth_addr)
+                r1_balance = self.bc_engine.web3_get_balance_r1(eth_addr)
                 res['ETH'].append(round(eth_balance,4))
                 res['$R1'].append(round(r1_balance,4))
             elif key == PAYLOAD_DATA.NETMON_WHITELIST:

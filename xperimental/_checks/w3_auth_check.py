@@ -19,7 +19,6 @@ if __name__ == '__main__' :
   eng = DefaultBlockEngine(
     log=l, name="default", 
     config={
-        
       }
   )
   
@@ -39,7 +38,7 @@ if __name__ == '__main__' :
     )
     l.P("{} {}".format(
         addr,
-        "has a license" if is_active else "does NOT have a license"
+        "has a license" if is_active else f"does NOT have a license on {eng.evm_network}"
       ), 
       color='g' if is_active else 'r'
     )
