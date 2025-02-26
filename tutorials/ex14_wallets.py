@@ -33,7 +33,8 @@ if __name__ == '__main__' :
     log=l, name="default", 
     verbosity=2,
   )
-  with open("xperimental/eth/mynodes.txt", "rt") as fd:
+  file = os.path.join(os.path.dirname(__file__), "mynodes.txt")
+  with open(file, "rt") as fd:
     lines = fd.readlines()
     addresses = [line.strip() for line in lines]
   
