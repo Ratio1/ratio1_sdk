@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives import serialization
 
 from ..utils.config import get_user_folder
 
+
 from ..const.base import (
   BCctbase, BCct, 
   DAUTH_SUBKEY, DAUTH_ENV_KEY,
@@ -305,7 +306,7 @@ class BaseBlockEngine(_EVMMixin):
     ):
 
     self.__name = name
-    assert log is not None, "Logger object was not provided!"
+    assert log is not None, "Logger object was not provided!"      
       
     self.log = log
     self.__private_key = None
@@ -378,7 +379,7 @@ class BaseBlockEngine(_EVMMixin):
 
     if True:
       self.P("Initializing private blockchain:\n{}".format(
-        json.dumps(self.__config, indent=4)), verbosity=2
+        json.dumps(self.__config, indent=4)), verbosity=1
       )
     if self.__pem_file is not None:
       try:
