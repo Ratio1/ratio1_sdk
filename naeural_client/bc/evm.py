@@ -190,6 +190,8 @@ class _EVMMixin:
         the network name.
 
       """
+      if EE_VPN_IMPL:
+        return "VPN"
       network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
       if not hasattr(self, "current_evm_network") or self.current_evm_network != network:
         self.current_evm_network = network
@@ -201,6 +203,8 @@ class _EVMMixin:
     
     @property
     def evm_network(self):
+      if EE_VPN_IMPL:
+        return "VPN"
       return self.get_evm_network()
 
     
