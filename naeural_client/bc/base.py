@@ -7,7 +7,7 @@ import datetime
 import uuid
 import requests
 
-
+from collections import defaultdict
 from hashlib import sha256, md5
 from threading import Lock
 from copy import deepcopy
@@ -309,6 +309,9 @@ class BaseBlockEngine(_EVMMixin):
     assert log is not None, "Logger object was not provided!"      
       
     self.log = log
+    
+    self._first_checks_done = defaultdict(lambda: False) # used to store the first check results
+    
     self.__private_key = None
     self.__verbosity = verbosity
     self.__public_key = None    
@@ -1407,8 +1410,9 @@ class BaseBlockEngine(_EVMMixin):
     the status is still 200, an empty dictionary will be returned).
     """
     if EE_VPN_IMPL:
-      return {}
+      return None # must return None not empty dict for VPNs
     #endif EE_VPN_IMPL
+    
     from naeural_client._ver import __VER__ as sdk_version
     try:
       from ver import __VER__ as app_version
@@ -1444,13 +1448,13 @@ class BaseBlockEngine(_EVMMixin):
         url = network_data[dAuth.EvmNetData.DAUTH_URL_KEY]
       #endif not in env
       
-    if isinstance(url, str) and len(url) > 0:
+    if isinstance(url, str) and len(url) > MIN_LEN:
       # Valid URL
       if dauth_endp is None:
         if in_env:
-          self.P("Found dAuth URL in environment: '{}'".format(url), color='g')
+          self.P("Found dAuth URL in environment: '{}'".format(url))
         else:
-          self.P("Using default dAuth URL: '{}'".format(url), color='g')
+          self.P("Using default dAuth URL: '{}'".format(url))
       eth_short = self.eth_address[:6] + '...' + self.eth_address[-4:]
       while not done:
         self.P(f"<{eth_short}> ({network}) dAuth with `{url}`... (try {tries + 1} / {max_tries})")
@@ -1550,7 +1554,7 @@ class BaseBlockEngine(_EVMMixin):
       #end while
     else:
       # Invalid URL, thus dct_env will remain None
-      self.P(f"dAuth URL is not invalid: {url}", color='r')
+      self.P(f"dAuth URL is not valid: {url}", color='r')
     #end if url is valid
     if return_full_data:
       return dct_response
