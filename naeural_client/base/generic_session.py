@@ -682,19 +682,25 @@ class GenericSession(BaseDecentrAIObject):
           last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
           elapsed = tm() - last_requested_by_netmon
           if elapsed > SDK_NETCONFIG_REQUEST_DELAY:
-            self.D(f"Node <{node_addr}> is online and last request was {elapsed}s ago > {SDK_NETCONFIG_REQUEST_DELAY}", color='y')
+            self.D(f"Node <{node_addr}> is online and last request was {elapsed}s ago > {SDK_NETCONFIG_REQUEST_DELAY}")
             needs_netconfig = True
           else:
-            self.D(f"Node <{node_addr}> is online but pipelines were recently requested", color='y')
+            self.D(f"Node <{node_addr}> is online but pipelines were recently requested")
         else:
-          self.D(f"Node <{node_addr}> is offline thus NOT sending net-config request", color='y')
+          self.D(f"Node <{node_addr}> is offline thus NOT sending net-config request")
       # endif node seen for the first time
       return needs_netconfig
     
     
-    def __process_node_pipelines(self, node_addr, pipelines):
+    def __process_node_pipelines(
+      self, 
+      node_addr : str, 
+      pipelines : list, 
+      plugin_statuses : list
+    ):
       """
-      Given a list of pipeline configurations, create or update the pipelines for a node.      
+      Given a list of pipeline configurations, create or update the pipelines for a node
+      including the liveness of the plugins required for app monitoring      
       """
       new_pipelines = []
       if node_addr not in self._dct_online_nodes_pipelines:
@@ -862,6 +868,7 @@ class GenericSession(BaseDecentrAIObject):
           online_addresses = []
           all_addresses = []
           lst_netconfig_request = []
+          self.D(f"<NETMON> Processing {len(current_network)} from <{sender_addr}> `{ee_id}`")
           for _ , node_data in current_network.items():
             needs_netconfig = False
             node_addr = node_data.get(PAYLOAD_DATA.NETMON_ADDRESS, None)
@@ -879,8 +886,9 @@ class GenericSession(BaseDecentrAIObject):
             if needs_netconfig:
               lst_netconfig_request.append(node_addr)
           # end for each node in network map
-          self.Pd(f"<NETMON> From <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}")
+          self.Pd(f"<NETMON> <{sender_addr}> `{ee_id}`:  {len(online_addresses)} online of total {len(all_addresses)} nodes")
           if len(lst_netconfig_request) > 0:
+            self.D("<NETCFG> Requesting pipelines from net-config monitor")
             self.__request_pipelines_from_net_config_monitor(lst_netconfig_request)
           # end if needs netconfig
           nr_peers = sum(self._dct_can_send_to_node.values())
@@ -935,11 +943,15 @@ class GenericSession(BaseDecentrAIObject):
           self.P(f"<NETCFG> Received from <{short_sender_addr}> `{ee_id}` but it is not encrypted", color='r')
           return
         net_config_data = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {})
-        received_pipelines = net_config_data.get('PIPELINES', [])
+        received_pipelines = net_config_data.get(NET_CONFIG.PIPELINES, [])
+        received_plugins = net_config_data.get(NET_CONFIG.PLUGINS_STATUSES, [])
         self.D(f"<NETCFG> Received {len(received_pipelines)} pipelines from <{sender_addr}> `{ee_id}`")
         if self._verbosity > 2:
           self.D(f"<NETCFG> {ee_id} Netconfig data:\n{json.dumps(net_config_data, indent=2)}")
-        new_pipelines = self.__process_node_pipelines(sender_addr, received_pipelines)
+        new_pipelines = self.__process_node_pipelines(
+          node_addr=sender_addr, pipelines=received_pipelines,
+          plugin_statuses=received_plugins
+        )
         pipeline_names = [x.name for x in new_pipelines]
         if len(new_pipelines) > 0:
           self.P(f'<NETCFG>   Received NEW pipelines from <{sender_addr}> `{ee_id}`:{pipeline_names}', color='y')
