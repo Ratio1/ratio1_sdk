@@ -328,7 +328,8 @@ class GenericSession(BaseDecentrAIObject):
   def Pd(self, *args, verbosity=1, **kwargs):
     if self.__debug and verbosity <= self._verbosity:
       kwargs["color"] = 'd' if kwargs.get("color") != 'r' else 'r'
-      self.log.P(*args, **kwargs)
+      kwargs['forced_debug'] = True
+      self.D(*args, **kwargs)
     return
   
 
@@ -637,7 +638,7 @@ class GenericSession(BaseDecentrAIObject):
       dest = [
         f"<{x}> '{self.__dct_node_address_to_alias.get(x, None)}'"  for x in node_addr 
       ]
-      self.D(f"<NETCFG> Sending request to:\n{json.dumps(dest, indent=2)}", color='y')
+      self.D(f"<NETCFG> Sending request to:\n{json.dumps(dest, indent=2)}")
       self.send_encrypted_payload(
         node_addr=node_addr, payload=payload,
         additional_data=additional_data
@@ -674,19 +675,20 @@ class GenericSession(BaseDecentrAIObject):
       
       client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
       can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr      
-      if node_addr not in self._dct_can_send_to_node and can_send:
+      self._dct_can_send_to_node[node_addr] = can_send
+      if can_send:
         if node_online:
           # only attempt to request pipelines if the node is online and if not recently requested
           last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
-          if tm() - last_requested_by_netmon > SDK_NETCONFIG_REQUEST_DELAY:
+          elapsed = tm() - last_requested_by_netmon
+          if elapsed > SDK_NETCONFIG_REQUEST_DELAY:
+            self.D(f"Node <{node_addr}> is online and last request was {elapsed}s ago > {SDK_NETCONFIG_REQUEST_DELAY}", color='y')
             needs_netconfig = True
           else:
             self.D(f"Node <{node_addr}> is online but pipelines were recently requested", color='y')
         else:
           self.D(f"Node <{node_addr}> is offline thus NOT sending net-config request", color='y')
       # endif node seen for the first time
-
-      self._dct_can_send_to_node[node_addr] = can_send
       return needs_netconfig
     
     
@@ -877,7 +879,7 @@ class GenericSession(BaseDecentrAIObject):
             if needs_netconfig:
               lst_netconfig_request.append(node_addr)
           # end for each node in network map
-          self.Pd(f"Net mon from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}")
+          self.Pd(f"<NETMON> From <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}")
           if len(lst_netconfig_request) > 0:
             self.__request_pipelines_from_net_config_monitor(lst_netconfig_request)
           # end if needs netconfig
@@ -935,6 +937,8 @@ class GenericSession(BaseDecentrAIObject):
         net_config_data = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {})
         received_pipelines = net_config_data.get('PIPELINES', [])
         self.D(f"<NETCFG> Received {len(received_pipelines)} pipelines from <{sender_addr}> `{ee_id}`")
+        if self._verbosity > 2:
+          self.D(f"<NETCFG> {ee_id} Netconfig data:\n{json.dumps(net_config_data, indent=2)}")
         new_pipelines = self.__process_node_pipelines(sender_addr, received_pipelines)
         pipeline_names = [x.name for x in new_pipelines]
         if len(new_pipelines) > 0:
