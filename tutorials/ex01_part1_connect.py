@@ -74,7 +74,7 @@ if __name__ == '__main__':
   # the network credentials are read from the .env file automatically
   session = Session(
       on_heartbeat=filterer.on_heartbeat,
-      verbosity=2
+      verbosity=3
   )
 
   session.P("Client address is: {}".format(session.get_client_address()), color='m')

@@ -34,7 +34,9 @@ from .pipeline import Pipeline
 from .webapp_pipeline import WebappPipeline
 from .transaction import Transaction
 from ..utils.config import (
-  load_user_defined_config, get_user_config_file, get_user_folder, seconds_to_short_format
+  load_user_defined_config, get_user_config_file, get_user_folder, 
+  seconds_to_short_format, log_with_color, set_client_alias,
+  EE_SDK_ALIAS_ENV_KEY, EE_SDK_ALIAS_DEFAULT
 )
 
 # from ..default.instance import PLUGIN_TYPES # circular import
@@ -44,8 +46,7 @@ from ..utils.config import (
 DEBUG_MQTT_SERVER = "r9092118.ala.eu-central-1.emqxsl.com"
 SDK_NETCONFIG_REQUEST_DELAY = 300
 
-EE_SDK_ALIAS_ENV_KEY = "EE_SDK_ALIAS"
-EE_SDK_ALIAS_DEFAULT = "R1SDK"
+
 
 
 class GenericSession(BaseDecentrAIObject):
@@ -117,32 +118,42 @@ class GenericSession(BaseDecentrAIObject):
     ----------
     host : str, optional
         The hostname of the server. If None, it will be retrieved from the environment variable AIXP_HOSTNAME
+        
     port : int, optional
         The port. If None, it will be retrieved from the environment variable AIXP_PORT
+        
     user : str, optional
         The user name. If None, it will be retrieved from the environment variable AIXP_USERNAME
+        
     pwd : str, optional
         The password. If None, it will be retrieved from the environment variable AIXP_PASSWORD
+        
     secured: bool, optional
         True if connection is secured, by default None
+        
     name : str, optional
         The name of this connection, used to identify owned pipelines on a specific Naeural Edge Protocol edge node.
         The name will be used as `INITIATOR_ID` and `SESSION_ID` when communicating with Naeural Edge Protocol edge nodes, by default 'pySDK'
+        
     config : dict, optional
         Configures the names of the channels this session will connect to.
         If using a Mqtt server, these channels are in fact topics.
         Modify this if you are absolutely certain of what you are doing.
         By default {}
+        
     filter_workers: list, optional
         If set, process the messages that come only from the nodes from this list.
         Defaults to None
+        
     show_commands : bool
         If True, will print the commands that are being sent to the Naeural Edge Protocol edge nodes.
         Defaults to False
+        
     log : Logger, optional
         A logger object which implements basic logging functionality and some other utils stuff. Can be ignored for now.
         In the future, the documentation for the Logger base class will be available and developers will be able to use
         custom-made Loggers.
+        
     on_payload : Callable[[Session, str, str, str, str, dict], None], optional
         Callback that handles all payloads received from this network.
         As arguments, it has a reference to this Session object, the node name, the pipeline, signature and instance, and the payload.
@@ -207,6 +218,9 @@ class GenericSession(BaseDecentrAIObject):
     self.__debug = int(debug) > 0
     self._verbosity = verbosity
     
+    if self.__debug:
+      log_with_color(f"Debug mode enabled: {debug=}, {verbosity=}", color='y')
+    
     ### END verbosity fix needed
     
     self.__at_least_one_node_peered = False
@@ -226,19 +240,7 @@ class GenericSession(BaseDecentrAIObject):
     self.__auto_configuration = auto_configuration
 
     self.log = log
-    
-    if name is None:
-      random_name = log.get_random_name()
-      default = EE_SDK_ALIAS_DEFAULT + '-' + random_name
-      name = os.environ.get(EE_SDK_ALIAS_ENV_KEY, default)
-      if EE_SDK_ALIAS_ENV_KEY not in os.environ:
-        self.P(f"Using default SDK alias: {name}. Writing the user config file...", color='y')
-        with open(get_user_config_file(), 'a') as f:
-          f.write(f"{EE_SDK_ALIAS_ENV_KEY}={name}")
-        #end with
-      #end if
-    #end name is None
-        
+          
     
     self.name = name
     self.silent = silent
@@ -308,6 +310,9 @@ class GenericSession(BaseDecentrAIObject):
       # use_home_folder allows us to use the home folder as the base folder
       local_cache_base_folder = str(get_user_folder())
     # end if
+
+    ## 1st config step before anything else - we prepare config via ~/.naeural/config or .env
+    self.__load_user_config(dotenv_path=self.__dotenv_path)
     
       
     super(GenericSession, self).__init__(
@@ -327,9 +332,7 @@ class GenericSession(BaseDecentrAIObject):
     return
   
 
-  def startup(self):    
-    ## 1st config step - we prepare config via ~/.naeural/config or .env
-    self.__load_user_config(dotenv_path=self.__dotenv_path)
+  def startup(self):        
 
     # TODO: needs refactoring - suboptimal design
     # start the blockchain engine assuming config is already set
@@ -344,7 +347,7 @@ class GenericSession(BaseDecentrAIObject):
       dauth_endp=None, # get from consts or env
       add_env=self.__auto_configuration,
       debug=False,
-      sender_alias='SDK'
+      sender_alias=self.name
     )
     # end bc_engine
     # END TODO
@@ -609,7 +612,10 @@ class GenericSession(BaseDecentrAIObject):
 
     def __request_pipelines_from_net_config_monitor(self, node_addr):
       """
-      Request the pipelines for a node from the net-config monitor plugin instance.
+      Request the pipelines for a node sending the payload to the 
+      the net-config monitor plugin instance of that given node or nodes.
+      
+      
       Parameters
       ----------
       node_addr : str or list
@@ -1355,7 +1361,7 @@ class GenericSession(BaseDecentrAIObject):
     
     def __load_user_config(self, dotenv_path):
       # if the ~/.naeural/config file exists, load the credentials from there else try to load them from .env
-      if not load_user_defined_config(verbose=not self.log.silent):        
+      if not load_user_defined_config(verbose=not self.silent):        
         # this method will search for the credentials in the environment variables
         # the path to env file, if not specified, will be search in the following order:
         #  1. current working directory
@@ -1363,14 +1369,33 @@ class GenericSession(BaseDecentrAIObject):
         load_dotenv(dotenv_path=dotenv_path, verbose=False)
         if not self.silent:
           keys = [k for k in os.environ if k.startswith("EE_")]
-          print("Loaded credentials from environment variables: {keys}", flush=True)
+          if not self.silent:
+            log_with_color(f"Loaded credentials from environment variables: {keys}", color='y')
         self.__user_config_loaded = False
       else:
         if not self.silent:
           keys = [k for k in os.environ if k.startswith("EE_")]
-          print(f"Loaded credentials from `{get_user_config_file()}`: {keys}.", flush=True)
+          if not self.silent:
+            log_with_color(f"Loaded credentials from `{get_user_config_file()}`: {keys}.", color='y')
         self.__user_config_loaded = True
       # endif config loading from ~ or ./.env      
+      
+      if self.name is None:
+        from naeural_client.logging.logger_mixins.utils_mixin import _UtilsMixin
+        random_name = _UtilsMixin.get_random_name()
+        default = EE_SDK_ALIAS_DEFAULT + '-' + random_name
+        self.name = os.environ.get(EE_SDK_ALIAS_ENV_KEY, default)
+        if EE_SDK_ALIAS_ENV_KEY not in os.environ:
+          if not self.silent:
+            log_with_color(f"Using default SDK alias: {self.name}. Writing the user config file...", color='y')
+            set_client_alias(self.name)
+          #end with
+        else:
+          if not self.silent:
+            log_with_color(f"SDK Alias (from env): {self.name}.", color='y')
+        #end if
+      #end name is None      
+      return self.__user_config_loaded
     
     def __fill_config(self, host, port, user, pwd, secured):
       """

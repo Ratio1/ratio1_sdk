@@ -5,7 +5,7 @@ from naeural_client.cli.nodes import (
 from naeural_client.cli.oracles import get_availability
 from naeural_client.utils.config import (
   show_config, reset_config, show_address, get_set_network,
-  get_apps, get_networks
+  get_apps, get_networks, get_set_alias, get_eth_addr
 )
 
 # Define the available commands
@@ -26,6 +26,13 @@ CLI_COMMANDS = {
         },
         "supervisors": {
             "func": get_supervisors, # DONE
+        },
+        "eth" : {
+            "func": get_eth_addr,
+            "description": "Get the ETH address given a node address",
+            "params": {
+                "node": "The node address to get the ETH address for"
+            }
         },
         "avail": {    
             "func": get_availability,
@@ -80,6 +87,14 @@ CLI_COMMANDS = {
                 "--set": "The network to set either 'mainnet' or 'testnet' (same as --new)",
             }
         },
+        
+        "alias" :{
+            "func": get_set_alias, # DONE
+            "description": "Show and sets the current client alias",
+            "params": {
+              "--set": "The alias to set for this SDK client",
+            }
+        }        
     },
     "restart": {
         "func": restart_node, # TODO

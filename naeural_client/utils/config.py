@@ -5,7 +5,7 @@ import shutil
 from pandas import DataFrame
 from datetime import datetime
 
-from naeural_client.const.base import BCct, dAuth
+from naeural_client.const.base import BCct, dAuth, EE_SDK_ALIAS_DEFAULT, EE_SDK_ALIAS_ENV_KEY 
 from naeural_client._ver import __VER__ as version
 
 from naeural_client.logging.base_logger import SDK_HOME, BaseLogger
@@ -22,6 +22,16 @@ EE_EVM_NET=testnet
 EE_TARGET_NODE=
 
 """
+
+def _create_bc_engine():
+  from naeural_client.bc import DefaultBlockEngine
+  from naeural_client import Logger
+  return DefaultBlockEngine(
+    name="default", 
+    log=Logger("CLI", silent=True),
+    user_config=True, # this is must to use the user config
+  )
+  
 
 def seconds_to_short_format(seconds):
   """
@@ -99,6 +109,25 @@ def get_user_config_file():
 def get_network():
   return os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
 
+def get_alias():
+  return os.environ.get(EE_SDK_ALIAS_ENV_KEY, EE_SDK_ALIAS_DEFAULT)
+
+def set_client_alias(alias : str):
+  config_file = get_user_config_file()
+  # open config_file and update EE_SDK_ALIAS
+  with config_file.open("r") as file:
+    lines = file.readlines()
+  with config_file.open("w") as file:
+    found = False
+    for line in lines:
+      if line.startswith(EE_SDK_ALIAS_ENV_KEY):
+        line = f"{EE_SDK_ALIAS_ENV_KEY}={alias}\n"
+        found = True
+      file.write(line)
+    if not found:
+      file.write(f"{EE_SDK_ALIAS_ENV_KEY}={alias}\n")
+  log_with_color(f"Alias set to {alias}", color='b')
+  return 
 
 def get_networks(args):
   """
@@ -131,6 +160,15 @@ def get_set_network(args):
         file.write(f"EE_EVM_NET={net}\n")
     log_with_color(f"Network set to {net}", color='b')
   return
+
+def get_set_alias(args):
+  alias = args.set
+  if alias is None:
+    log_with_color(f"Client v{version} alias: {get_alias()}", color='b')
+  else:
+    set_client_alias(alias)
+  return
+    
   
 
 def reset_config(*larg, keep_existing=False, **kwargs):
@@ -217,6 +255,8 @@ def show_version(silent=True):
   log_with_color(f"SDK ETH addr:   {sess.bc_engine.eth_address}", color='b')
   log_with_color(f"SDK alias:      {sess.name}", color='b')
   return
+
+
   
 
 def show_config(args):
@@ -341,3 +381,15 @@ def maybe_init_config():
       return False
     # config_file still does not exist even after attempting the migration.
   return load_user_defined_config()
+
+
+
+def get_eth_addr(args):
+  """
+  Gets the ETH address given a node address.
+  """
+  node = args.node
+  eng = _create_bc_engine()
+  eth_addr = eng.get_eth_address(node)
+  log_with_color(f"ETH address for node {node}: {eth_addr}", color='b')
+  return
