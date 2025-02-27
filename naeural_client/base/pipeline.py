@@ -40,6 +40,7 @@ class Pipeline(BaseCodeChecker):
     on_notification=None, 
     is_attached=False, 
     existing_config=None, 
+    plugins_statuses=None,
     debug=False,
     **kwargs
   ) -> None:
@@ -118,6 +119,9 @@ class Pipeline(BaseCodeChecker):
       self.proposed_config = self.__pop_ignored_keys_from_config(self.proposed_config)
     self.__staged_config = None
 
+
+    self._update_plugins_statuses(plugins_statuses)    
+
     self.__was_last_operation_successful = None
 
     self.proposed_remove_instances = []
@@ -172,6 +176,14 @@ class Pipeline(BaseCodeChecker):
       is_attached,
       debug=False,
     ):
+      """
+      This method is used to create a new instance of a plugin and add it to the pipeline.
+      
+      TODO: add info from plugin statuses via self._get_recent_plugin_instance_status to instance
+        - last seen
+        - last error      
+        
+      """
       instance_class = None
       str_signature = None
       if isinstance(signature, str):
@@ -202,8 +214,10 @@ class Pipeline(BaseCodeChecker):
       ----------
       plugins : List | None
         The list of plugins, as they are found in the pipeline configuration dictionary in the heartbeat.
+        
       is_attached : bool
         This is used internally to allow the user to create or attach to a pipeline, and then use the same objects in the same way.
+        
 
       """
       if plugins is None:
@@ -219,6 +233,16 @@ class Pipeline(BaseCodeChecker):
         # end for dct_instance
       # end for dct_signature_instances
       return
+    
+    def _update_plugins_statuses(self, plugins_statuses):
+      if plugins_statuses is not None:
+        self.last_plugins_statuses = plugins_statuses
+        self.last_plugins_statuses_time = time()
+      else:
+        self.last_plugins_statuses = None
+        self.last_plugins_statuses_time = 0
+      return
+      
 
     def __get_proposed_pipeline_config(self):
       """
@@ -464,8 +488,22 @@ class Pipeline(BaseCodeChecker):
       -------
       dict
           The configuration dictionary without the ignored keys.
+          
+      Observations
+      ------------
+      
+      Initially the ignored keys were:
+        [
+          "INITIATOR_ADDR", 
+          "INITIATOR_ID", 
+          "LAST_UPDATE_TIME", 
+          "MODIFIED_BY_ADDR", 
+          "MODIFIED_BY_ID"
+        ]
+      However these keys are essential for the pipeline configuration for app
+      monitoring purposes
       """
-      ignored_keys = ["INITIATOR_ADDR", "INITIATOR_ID", "LAST_UPDATE_TIME", "MODIFIED_BY_ADDR", "MODIFIED_BY_ID"]
+      ignored_keys = []
       return {k: v for k, v in config.items() if k not in ignored_keys}
 
     def __get_instance_object(self, signature, instance_id):
@@ -1492,13 +1530,43 @@ class Pipeline(BaseCodeChecker):
           **kwargs
         )
       return instance
+    
+    
+    def _get_recent_plugin_instance_status(self, signature, instance_id):
+      """
+      Get the most recent status of a plugin instance.
+      """
+      result = None
+      if self.last_plugins_statuses is not None:
+        for plugin_status in self.last_plugins_statuses:
+          if (
+            plugin_status['SIGNATURE'] == signature and 
+            plugin_status['INSTANCE_ID'] == instance_id and
+            plugin_status['PIPELINE_NAME'] == self.name
+          ):
+            result = plugin_status
+            break
+      return result
+    
+    
 
-    def _sync_configuration_with_remote(self, config={}):
+    def _sync_configuration_with_remote(self, config={}, plugins_statuses : list = None):
+      """
+      Given a configuration, update the pipeline configuration and the 
+      instances configuration.
+      
+      TODO: add info from plugin statuses via self._get_recent_plugin_instance_status to instance
+        - last seen
+        - last error
+      
+      """
       config.pop('NAME', None)
       config.pop('TYPE', None)
       plugins = config.pop('PLUGINS', {})
 
       self.config = {**self.config, **config}
+      
+      self._update_plugins_statuses(plugins_statuses)
 
       active_plugins = []
       for dct_signature_instances in plugins:
@@ -1509,9 +1577,10 @@ class Pipeline(BaseCodeChecker):
           active_plugins.append((signature, instance_id))
           instance_object = self.__get_instance_object(signature, instance_id)
           if instance_object is None:
-            self.__init_instance(signature, instance_id, dct_instance, None, None, is_attached=True)
+            self.__init_instance(signature, instance_id, dct_instance, None, None, is_attached=True) # here the plugin status is updated if data is available
           else:
-            instance_object._sync_configuration_with_remote(dct_instance)
+            instance_object._sync_configuration_with_remote(dct_instance) 
+            # TODO: update plugin status with data from plugin statuses
         # end for dct_instance
       # end for dct_signature_instances
 

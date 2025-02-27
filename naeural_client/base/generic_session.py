@@ -696,7 +696,7 @@ class GenericSession(BaseDecentrAIObject):
       self, 
       node_addr : str, 
       pipelines : list, 
-      plugin_statuses : list
+      plugins_statuses : list
     ):
       """
       Given a list of pipeline configurations, create or update the pipelines for a node
@@ -707,13 +707,20 @@ class GenericSession(BaseDecentrAIObject):
         self._dct_online_nodes_pipelines[node_addr] = {}
       for config in pipelines:
         pipeline_name = config[PAYLOAD_DATA.NAME]
-        pipeline: Pipeline = self._dct_online_nodes_pipelines[node_addr].get(pipeline_name, None)
+        pipeline: Pipeline = self._dct_online_nodes_pipelines[node_addr].get(
+          pipeline_name, None
+        )
         if pipeline is not None:
-          pipeline._sync_configuration_with_remote({k.upper(): v for k, v in config.items()})
+          pipeline._sync_configuration_with_remote(
+            config={k.upper(): v for k, v in config.items()},
+            plugins_statuses=plugins_statuses,
+          )
         else:
-          self._dct_online_nodes_pipelines[node_addr][pipeline_name] = self.__create_pipeline_from_config(
-            node_addr, config)
-          new_pipelines.append(self._dct_online_nodes_pipelines[node_addr][pipeline_name])
+          pipeline : Pipeline = self.__create_pipeline_from_config(
+            node_addr=node_addr, config=config, plugins_statuses=plugins_statuses
+          )
+          self._dct_online_nodes_pipelines[node_addr][pipeline_name] = pipeline
+          new_pipelines.append(pipeline)
       return new_pipelines
 
     def __on_heartbeat(self, dict_msg: dict, msg_node_addr, msg_pipeline, msg_signature, msg_instance):
@@ -724,12 +731,16 @@ class GenericSession(BaseDecentrAIObject):
       ----------
       dict_msg : dict
           The message received from the communication server
+
       msg_node_addr : str
           The address of the Naeural Edge Protocol edge node that sent the message.
+
       msg_pipeline : str
           The name of the pipeline that sent the message.
+
       msg_signature : str
           The signature of the plugin that sent the message.
+
       msg_instance : str
           The name of the instance that sent the message.
       """
@@ -1824,7 +1835,12 @@ class GenericSession(BaseDecentrAIObject):
         self.__open_transactions.append(transaction)
       return transaction
 
-    def __create_pipeline_from_config(self, node_addr, config):
+    def __create_pipeline_from_config(
+      self, 
+      node_addr : str, 
+      config : dict,
+      plugins_statuses : list = None,
+    ):
       pipeline_config = {k.lower(): v for k, v in config.items()}
       name = pipeline_config.pop('name', None)
       plugins = pipeline_config.pop('plugins', None)
@@ -1837,6 +1853,7 @@ class GenericSession(BaseDecentrAIObject):
         name=name,
         plugins=plugins,
         existing_config=pipeline_config,
+        plugins_statuses=plugins_statuses,
       )
 
       return pipeline
