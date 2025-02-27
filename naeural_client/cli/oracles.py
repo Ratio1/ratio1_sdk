@@ -133,11 +133,17 @@ def get_availability(args):
   # endif full
 
   tester = oracle_tester_init()
+  
+  if not tester.bc.is_valid_eth_address(node):
+    node = tester.bc.node_address_to_eth_address(node)
+  
   log_with_color("Checking {}availability of node <{}> from {} to {}.".format(
     "(DEBUG MODE) " if rounds > 1 else "", node, start,
     end if end else "last epoch"
     ), color='b'
   )
+    
+  
   res = tester.execute_command(
     node_eth_addr=node,
     start=start,

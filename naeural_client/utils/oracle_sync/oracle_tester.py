@@ -482,7 +482,7 @@ class OracleTester:
         msg = f"No data available for {node_eth_addr}. Please check the address or contact support."
       else:
         for epoch, avail, cert in zip(epochs, avails, certs):
-          msg += f"   - Epoch {f'#{epoch}':>4}: {avail:3} ({cert * 100:5.1f}%)\n"
+          msg += f"   - Epoch {f'#{epoch}':>4}: {avail:3} ({cert * 100:5.1f}% certainty)\n"
       # endif data available
       return msg
 
