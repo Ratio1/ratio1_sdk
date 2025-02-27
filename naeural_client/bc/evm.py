@@ -191,8 +191,17 @@ class _EVMMixin:
 
       """
       if EE_VPN_IMPL:
-        return "VPN"
+        return "VPN"        
       network = os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
+      
+      if not self._first_checks_done[dAuth.DAUTH_NET_ENV_KEY]:
+        if dAuth.DAUTH_NET_ENV_KEY not in os.environ:
+          self.P(f"Using default {network=}...", verbosity=2)
+        else:
+          self.P(f"Using {network=} from {dAuth.DAUTH_NET_ENV_KEY}...", verbosity=2)
+        self._first_checks_done[dAuth.DAUTH_NET_ENV_KEY] = True
+      # done first checks
+      
       if not hasattr(self, "current_evm_network") or self.current_evm_network != network:
         self.current_evm_network = network
         network_data = self.get_network_data(network)

@@ -215,6 +215,7 @@ def show_version(silent=True):
   log_with_color(f"Network Epoch:  {sess.bc_engine.get_current_epoch()}", color='b')
   log_with_color(f"SDK addr:       {sess.get_client_address()}", color='b')
   log_with_color(f"SDK ETH addr:   {sess.bc_engine.eth_address}", color='b')
+  log_with_color(f"SDK alias:      {sess.name}", color='b')
   return
   
 

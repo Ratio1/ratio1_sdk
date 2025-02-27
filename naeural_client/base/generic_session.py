@@ -44,6 +44,9 @@ from ..utils.config import (
 DEBUG_MQTT_SERVER = "r9092118.ala.eu-central-1.emqxsl.com"
 SDK_NETCONFIG_REQUEST_DELAY = 300
 
+EE_SDK_ALIAS_ENV_KEY = "EE_SDK_ALIAS"
+EE_SDK_ALIAS_DEFAULT = "R1SDK"
+
 
 class GenericSession(BaseDecentrAIObject):
   """
@@ -80,7 +83,7 @@ class GenericSession(BaseDecentrAIObject):
               user=None,
               pwd=None,
               secured=None,
-              name='R1SDK',
+              name=None,
               encrypt_comms=True,
               config={},
               filter_workers=None,
@@ -89,9 +92,9 @@ class GenericSession(BaseDecentrAIObject):
               on_notification=None,
               on_heartbeat=None,
               debug_silent=True,
-              debug=1,
-              silent=False,
+              debug=1,      # TODO: debug or verbosity - fix this
               verbosity=1,
+              silent=False,
               dotenv_path=None,
               show_commands=False,
               blockchain_config=BLOCKCHAIN_CONFIG,
@@ -191,11 +194,20 @@ class GenericSession(BaseDecentrAIObject):
         If True, the SDK will use the home folder as the base folder for the local cache.
         NOTE: if you need to use development style ./_local_cache, set this to False.
     """
+    
+    # TODO: clarify verbosity vs debug
+    
     debug = debug or not debug_silent
     if isinstance(debug, bool):
       debug = 2 if debug else 0
+      
+    if verbosity > 1 and debug <=1:
+      debug = 2
     
     self.__debug = int(debug) > 0
+    self._verbosity = verbosity
+    
+    ### END verbosity fix needed
     
     self.__at_least_one_node_peered = False
     self.__at_least_a_netmon_received = False
@@ -214,12 +226,25 @@ class GenericSession(BaseDecentrAIObject):
     self.__auto_configuration = auto_configuration
 
     self.log = log
+    
+    if name is None:
+      random_name = log.get_random_name()
+      default = EE_SDK_ALIAS_DEFAULT + '-' + random_name
+      name = os.environ.get(EE_SDK_ALIAS_ENV_KEY, default)
+      if EE_SDK_ALIAS_ENV_KEY not in os.environ:
+        self.P(f"Using default SDK alias: {name}. Writing the user config file...", color='y')
+        with open(get_user_config_file(), 'a') as f:
+          f.write(f"{EE_SDK_ALIAS_ENV_KEY}={name}")
+        #end with
+      #end if
+    #end name is None
+        
+    
     self.name = name
     self.silent = silent
     
     self.__eth_enabled = eth_enabled
 
-    self._verbosity = verbosity
     self.encrypt_comms = encrypt_comms
 
     self._dct_online_nodes_pipelines: dict[str, Pipeline] = {}
@@ -295,8 +320,8 @@ class GenericSession(BaseDecentrAIObject):
     )
     return
   
-  def Pd(self, *args, **kwargs):
-    if self.__debug:
+  def Pd(self, *args, verbosity=1, **kwargs):
+    if self.__debug and verbosity <= self._verbosity:
       kwargs["color"] = 'd' if kwargs.get("color") != 'r' else 'r'
       self.log.P(*args, **kwargs)
     return
@@ -888,7 +913,7 @@ class GenericSession(BaseDecentrAIObject):
         op = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {}).get(NET_CONFIG.OPERATION, "UNKNOWN")
         # drop any incoming request as we are not a net-config provider just a consumer
         if op == NET_CONFIG.REQUEST_COMMAND:
-          self.P(f"<NETCFG> Dropping request from <{short_sender_addr}> `{ee_id}`", color='d')
+          self.Pd(f"<NETCFG> Dropping request from <{short_sender_addr}> `{ee_id}`")
           return
         
         # check if I am allowed to see this payload
