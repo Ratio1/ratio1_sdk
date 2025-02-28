@@ -3265,6 +3265,9 @@ class GenericSession(BaseDecentrAIObject):
         pipeline_alias = pipeline.config.get("INITIATOR_ID")
         for instance in pipeline.lst_plugin_instances:
           instance_status = instance.get_status()
+          if len(instance_status) == 0:
+            # this instance is only present in config but is NOT loaded so ignore it
+            continue
           start_time = instance_status.get('INIT_TIMESTAMP')
           last_probe = instance_status.get('EXEC_TIMESTAMP')
           last_data = instance_status.get('LAST_PAYLOAD_TIME')
