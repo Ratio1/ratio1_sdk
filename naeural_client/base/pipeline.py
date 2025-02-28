@@ -120,7 +120,7 @@ class Pipeline(BaseCodeChecker):
     self.__staged_config = None
 
 
-    self._update_plugins_statuses(plugins_statuses)    
+    self.__update_plugins_statuses_data(plugins_statuses)    
 
     self.__was_last_operation_successful = None
 
@@ -229,12 +229,13 @@ class Pipeline(BaseCodeChecker):
         for dct_instance in instances:
           config = {k.upper(): v for k, v in dct_instance.items()}
           instance_id = config.pop('INSTANCE_ID')
-          self.__init_instance(signature, instance_id, config, None, None, is_attached=is_attached)
+          instance_object = self.__init_instance(signature, instance_id, config, None, None, is_attached=is_attached)
+          self._update_plugin_status(instance_object)
         # end for dct_instance
       # end for dct_signature_instances
       return
     
-    def _update_plugins_statuses(self, plugins_statuses):
+    def __update_plugins_statuses_data(self, plugins_statuses):
       if plugins_statuses is not None:
         self.last_plugins_statuses = plugins_statuses
         self.last_plugins_statuses_time = time()
@@ -242,7 +243,36 @@ class Pipeline(BaseCodeChecker):
         self.last_plugins_statuses = None
         self.last_plugins_statuses_time = 0
       return
-      
+
+
+    def __get_recent_plugin_instance_status(self, signature, instance_id):
+      """
+      Get the most recent status of a plugin instance.
+      """
+      result = None
+      if self.last_plugins_statuses is not None:
+        for plugin_status in self.last_plugins_statuses:
+          if (
+            plugin_status['SIGNATURE'] == signature and 
+            plugin_status['INSTANCE_ID'] == instance_id and
+            plugin_status['STREAM_ID'] == self.name
+          ):
+            result = plugin_status
+            break
+      return result
+    
+
+    def _update_plugin_status(self, instance_object : Instance):
+      """
+      Update the status of a plugin instance.
+      """
+      signature = instance_object.signature
+      instance_id = instance_object.instance_id
+      plugin_status = self.__get_recent_plugin_instance_status(signature, instance_id)
+      if plugin_status is not None:
+        instance_object.last_known_status = plugin_status
+      return
+
 
     def __get_proposed_pipeline_config(self):
       """
@@ -1532,24 +1562,6 @@ class Pipeline(BaseCodeChecker):
       return instance
     
     
-    def _get_recent_plugin_instance_status(self, signature, instance_id):
-      """
-      Get the most recent status of a plugin instance.
-      """
-      result = None
-      if self.last_plugins_statuses is not None:
-        for plugin_status in self.last_plugins_statuses:
-          if (
-            plugin_status['SIGNATURE'] == signature and 
-            plugin_status['INSTANCE_ID'] == instance_id and
-            plugin_status['PIPELINE_NAME'] == self.name
-          ):
-            result = plugin_status
-            break
-      return result
-    
-    
-
     def _sync_configuration_with_remote(self, config={}, plugins_statuses : list = None):
       """
       Given a configuration, update the pipeline configuration and the 
@@ -1566,7 +1578,7 @@ class Pipeline(BaseCodeChecker):
 
       self.config = {**self.config, **config}
       
-      self._update_plugins_statuses(plugins_statuses)
+      self.__update_plugins_statuses_data(plugins_statuses)
 
       active_plugins = []
       for dct_signature_instances in plugins:
@@ -1577,10 +1589,11 @@ class Pipeline(BaseCodeChecker):
           active_plugins.append((signature, instance_id))
           instance_object = self.__get_instance_object(signature, instance_id)
           if instance_object is None:
-            self.__init_instance(signature, instance_id, dct_instance, None, None, is_attached=True) # here the plugin status is updated if data is available
+            instance_object = self.__init_instance(signature, instance_id, dct_instance, None, None, is_attached=True) # here the plugin status is updated if data is available
           else:
             instance_object._sync_configuration_with_remote(dct_instance) 
-            # TODO: update plugin status with data from plugin statuses
+          # next we update the plugin status from known plugins statuses
+          self._update_plugin_status(instance_object)
         # end for dct_instance
       # end for dct_signature_instances
 

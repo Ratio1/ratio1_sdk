@@ -294,49 +294,18 @@ def get_apps(args):
   sess = Session(
     silent=not verbose
   )
-
-  # 2. Wait for node to appear online
-  found = sess.wait_for_node(node)
-  if not found:
-    log_with_color(f'Node {node} not found. Please check the configuration.', color='r')
-    return
-  # 3. Check if the node is peered with the client
-  is_allowed = sess.is_peered(node)
-  if not is_allowed:
-    log_with_color(f"Node {node} is not peered with the client. Please check the configuration.", color='r')
-    return
-  # 4. Wait for node to send the configuration.
-  sess.wait_for_node_configs(node)
-  apps = sess.get_active_pipelines(node)
-  if apps is None:
-    log_with_color(f"No apps found on node {node}. Client might not be authorized", color='r')
-    return
-  # 5. Maybe exclude admin application.
-  if not show_full:
-    apps = {k: v for k, v in apps.items() if str(k).lower() != 'admin_pipeline'}
-  # 6. Show the apps
+  
+  res = sess.get_node_apps(node, show_full=show_full, as_json=as_json)
   if as_json:
-    # Will print a big JSON with all the app configurations.
-    json_data = {k: v.get_full_config() for k, v in apps.items()}
-    log_with_color(json.dumps(json_data, indent=2))
+    log_with_color(json.dumps(res, indent=2))
   else:
-    lst_plugin_instance_data = []
-    for pipeline_name, pipeline in apps.items():
-      for instance in pipeline.lst_plugin_instances:
-        lst_plugin_instance_data.append({
-          'APP': pipeline_name,
-          'PLUGIN': instance.signature,
-          'ID': instance.instance_id
-        })
-      # endfor instances in app
-    # endfor apps
-    apps_df = DataFrame(lst_plugin_instance_data)
+    apps_df = DataFrame(res)
     last_seen = sess.get_last_seen_time(node)
     is_online = sess.check_node_online(node)
     node_status = 'Online' if is_online else 'Offline'
     last_seen_str = datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S') if last_seen else None
     log_with_color(f"Apps on node {node} [{node_status}| Last seen: {last_seen_str}]:\n{apps_df}", color='b')
-  # endif show as json
+  #end if as_json
   return
 
 def load_user_defined_config(verbose=False):

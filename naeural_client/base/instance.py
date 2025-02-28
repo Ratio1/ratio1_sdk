@@ -49,6 +49,7 @@ class Instance():
     self.log = log
     self.pipeline = pipeline
     self.instance_id = instance_id
+    self.last_known_status = None
     self.signature = signature.upper()
     self.config = {}
     self.__debug = debug
@@ -673,3 +674,40 @@ class Instance():
       self.temporary_detach(attachment)
 
       return result_payload
+
+  def get_status(self):
+    """
+    Get the status of the instance.
+    
+    Returns
+    -------
+    dict
+        The status of the instance with keys from `PLUGIN_INFO` class constants
+                
+    Example:
+    --------
+    ```json
+    {
+      "CURRENT_EXEC_ITERATION": 2147088,
+      "CURRENT_PROCESS_ITERATION": 0,
+      "EXEC_TIMESTAMP": "2025-02-28 07:06:40.612999",
+      "FIRST_ERROR_TIME": null,
+      "FREQUENCY": null,
+      "INFO": null,
+      "INIT_TIMESTAMP": "2025-02-27 10:24:56.622480",
+      "INSTANCE_ID": "RECE01_default",
+      "LAST_CONFIG_TIMESTAMP": "2025-02-27 10:24:56.622340",
+      "LAST_ERROR_TIME": null,
+      "LAST_PAYLOAD_TIME": "2025-02-27 10:24:56",
+      "OUTSIDE_WORKING_HOURS": false,
+      "PROCESS_DELAY": 1,
+      "SIGNATURE": "REST_CUSTOM_EXEC_01",
+      "STREAM_ID": "admin_pipeline",
+      "TOTAL_PAYLOAD_COUNT": 1
+    }
+    ```    
+    """
+    result = {} if self.last_known_status is None else self.last_known_status
+    if self.last_known_status is None:
+      self.Pd(f'Instance <{self.instance_id}> has no status yet')
+    return result

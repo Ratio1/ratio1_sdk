@@ -961,7 +961,7 @@ class GenericSession(BaseDecentrAIObject):
           self.D(f"<NETCFG> {ee_id} Netconfig data:\n{json.dumps(net_config_data, indent=2)}")
         new_pipelines = self.__process_node_pipelines(
           node_addr=sender_addr, pipelines=received_pipelines,
-          plugin_statuses=received_plugins
+          plugins_statuses=received_plugins
         )
         pipeline_names = [x.name for x in new_pipelines]
         if len(new_pipelines) > 0:
@@ -3216,3 +3216,70 @@ class GenericSession(BaseDecentrAIObject):
       if df_only:
         return dct_result[SESSION_CT.NETSTATS_REPORT]
       return dct_result
+
+
+  def get_node_apps(self, node, show_full=False, as_json=False):
+    """
+    Get the workload status of a node.
+    
+    Parameters
+    ----------
+    node : str
+        The address or name of the Ratio1 edge node.
+
+    Returns
+    -------
+    str
+        The workload status of the node.
+    """
+    # 2. Wait for node to appear online
+    found = self.wait_for_node(node)
+    if not found:
+      log_with_color(f'Node {node} not found. Please check the configuration.', color='r')
+      return
+    # 3. Check if the node is peered with the client
+    is_allowed = self.is_peered(node)
+    if not is_allowed:
+      log_with_color(f"Node {node} is not peered with the client. Please check the configuration.", color='r')
+      return
+    # 4. Wait for node to send the configuration.
+    self.wait_for_node_configs(node)
+    apps = self.get_active_pipelines(node)
+    if apps is None:
+      log_with_color(f"No apps found on node {node}. Client might not be authorized", color='r')
+      return
+    # 5. Maybe exclude admin application.
+    if not show_full:
+      apps = {k: v for k, v in apps.items() if str(k).lower() != 'admin_pipeline'}
+    # 6. Show the apps
+    if as_json:
+      # Will print a big JSON with all the app configurations.
+      json_data = {k: v.get_full_config() for k, v in apps.items()}
+      result = json_data
+    else:
+      lst_plugin_instance_data = []
+      for pipeline_name, pipeline in apps.items():
+        pipeline_owner = pipeline.config.get("INITIATOR_ADDR")
+        pipeline_alias = pipeline.config.get("INITIATOR_ID")
+        for instance in pipeline.lst_plugin_instances:
+          instance_status = instance.get_status()
+          start_time = instance_status.get('INIT_TIMESTAMP')
+          last_probe = instance_status.get('EXEC_TIMESTAMP')
+          last_data = instance_status.get('LAST_PAYLOAD_TIME')
+          # check if last payload is actually "0" date ie 1970-01-01
+          if last_data.startswith('1970'):
+            last_data = 'Never'
+          lst_plugin_instance_data.append({
+            'Owner' : pipeline_owner,
+            'Alias' : pipeline_alias,
+            'App': pipeline_name,
+            'Plugin': instance.signature,
+            'Id': instance.instance_id,
+            'Start' : start_time,
+            'Probe' : last_probe,
+            'Data' : last_data,
+          })
+        # endfor instances in app
+      # endfor apps
+      result = lst_plugin_instance_data
+    return result
