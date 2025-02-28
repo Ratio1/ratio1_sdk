@@ -3260,24 +3260,30 @@ class GenericSession(BaseDecentrAIObject):
       lst_plugin_instance_data = []
       for pipeline_name, pipeline in apps.items():
         pipeline_owner = pipeline.config.get("INITIATOR_ADDR")
+        if isinstance(pipeline_owner, str) and len(pipeline_owner) > 14:
+          pipeline_owner = pipeline_owner[:10] + '...' + pipeline_owner[-4:]
         pipeline_alias = pipeline.config.get("INITIATOR_ID")
         for instance in pipeline.lst_plugin_instances:
           instance_status = instance.get_status()
           start_time = instance_status.get('INIT_TIMESTAMP')
           last_probe = instance_status.get('EXEC_TIMESTAMP')
           last_data = instance_status.get('LAST_PAYLOAD_TIME')
-          # check if last payload is actually "0" date ie 1970-01-01
-          if last_data.startswith('1970'):
-            last_data = 'Never'
+          dates = [start_time, last_probe, last_data]
+          for i in range(len(dates)):
+            if isinstance(dates[i], str):
+              if dates[i].startswith('1970'):
+                dates[i] = 'Never'
+              elif '.' in dates[i]:
+                dates[i] = dates[i].split('.')[0]
           lst_plugin_instance_data.append({
             'Owner' : pipeline_owner,
             'Alias' : pipeline_alias,
             'App': pipeline_name,
             'Plugin': instance.signature,
             'Id': instance.instance_id,
-            'Start' : start_time,
-            'Probe' : last_probe,
-            'Data' : last_data,
+            'Start' : dates[0],
+            'Probe' : dates[1],
+            'Data' : dates[2],
           })
         # endfor instances in app
       # endfor apps

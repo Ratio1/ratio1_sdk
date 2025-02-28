@@ -13,6 +13,6 @@ if __name__ == '__main__':
   workload = sess.get_node_apps(node=node, show_full=True, as_json=False)
   
   df = pd.DataFrame(workload)
-  sess.P(df)
+  sess.P(f"Results:\n{df}", color='b')
     
   sess.wait(seconds=15, close_session=True)
