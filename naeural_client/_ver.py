@@ -1,4 +1,4 @@
-__VER__ = "3.1.5"
+__VER__ = "3.1.7"
 
 if __name__ == "__main__":
   with open("pyproject.toml", "rt") as fd:
