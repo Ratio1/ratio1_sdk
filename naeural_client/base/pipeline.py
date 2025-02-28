@@ -178,11 +178,7 @@ class Pipeline(BaseCodeChecker):
     ):
       """
       This method is used to create a new instance of a plugin and add it to the pipeline.
-      
-      TODO: add info from plugin statuses via self._get_recent_plugin_instance_status to instance
-        - last seen
-        - last error      
-        
+              
       """
       instance_class = None
       str_signature = None
@@ -230,6 +226,7 @@ class Pipeline(BaseCodeChecker):
           config = {k.upper(): v for k, v in dct_instance.items()}
           instance_id = config.pop('INSTANCE_ID')
           instance_object = self.__init_instance(signature, instance_id, config, None, None, is_attached=is_attached)
+          # now we update the status of the plugin instance with the last known status
           self._update_plugin_status(instance_object)
         # end for dct_instance
       # end for dct_signature_instances
@@ -264,7 +261,8 @@ class Pipeline(BaseCodeChecker):
 
     def _update_plugin_status(self, instance_object : Instance):
       """
-      Update the status of a plugin instance.
+      Update the status of a plugin instance using any existing last known status.
+      
       """
       signature = instance_object.signature
       instance_id = instance_object.instance_id
@@ -1566,11 +1564,7 @@ class Pipeline(BaseCodeChecker):
       """
       Given a configuration, update the pipeline configuration and the 
       instances configuration.
-      
-      TODO: add info from plugin statuses via self._get_recent_plugin_instance_status to instance
-        - last seen
-        - last error
-      
+            
       """
       config.pop('NAME', None)
       config.pop('TYPE', None)
