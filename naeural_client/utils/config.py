@@ -173,8 +173,8 @@ def get_set_alias(args):
 
 def reset_config(*larg, keep_existing=False, **kwargs):
   """
-  Resets the configuration by creating a ~/.naeural folder and populating
-  ~/.naeural/config with values from a local .env file, if it exists.
+  Resets the configuration by creating a ~/.ratio1 folder and populating
+  ~/.ratio1/config with values from a local .env file, if it exists.
   """
   log_with_color(f"Client v{version} resetting the configuration...", color='y')
   # Define the target config folder and file
@@ -184,13 +184,13 @@ def reset_config(*larg, keep_existing=False, **kwargs):
   local_pem = Path(LOCAL_PEM_PATH)
   target_pem = config_dir / BCct.USER_PEM_FILE
   
-  # Create the ~/.naeural folder if it doesn't exist
+  # Create the ~/.ratio1 folder if it doesn't exist
   config_dir.mkdir(parents=True, exist_ok=True)
 
   # Check if the current folder has a .env file
   current_env_file = Path(".env")
   if current_env_file.exists():
-    # Copy .env content to ~/.naeural/config
+    # Copy .env content to ~/.ratio1/config
     shutil.copy(current_env_file, config_file)
     log_with_color(
       f"Configuration has been reset using {current_env_file} into {config_file}", 
@@ -261,7 +261,7 @@ def show_version(silent=True):
 
 def show_config(args):
   """
-  Displays the current configuration from ~/.naeural/config.
+  Displays the current configuration from ~/.ratio1/config.
   """
   show_version(silent=not args.verbose)
   config_file = get_user_config_file()
@@ -288,6 +288,7 @@ def get_apps(args):
   node = args.node
   show_full = args.full
   as_json = args.json
+  owner = args.owner
 
   # 1. Init session
   from naeural_client import Session
@@ -295,22 +296,40 @@ def get_apps(args):
     silent=not verbose
   )
   
-  res = sess.get_node_apps(node, show_full=show_full, as_json=as_json)
+  res = sess.get_nodes_apps(
+    node=node, owner=owner, show_full=show_full, 
+    as_json=as_json, as_df=not as_json
+  )
   if as_json:
     log_with_color(json.dumps(res, indent=2))
   else:
-    apps_df = DataFrame(res)
-    last_seen = sess.get_last_seen_time(node)
-    is_online = sess.check_node_online(node)
-    node_status = 'Online' if is_online else 'Offline'
-    last_seen_str = datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S') if last_seen else None
-    log_with_color(f"Apps on node {node} [{node_status}| Last seen: {last_seen_str}]:\n{apps_df}", color='b')
+    df_apps = res
+    # remove Node column
+    if node is not None and owner is None:
+      df_apps.drop(columns=['Node'], inplace=True)
+    
+    if node is None and owner is not None:
+      df_apps.drop(columns=['Owner'], inplace=True)
+    
+    if node is not None:
+      last_seen = sess.get_last_seen_time(node)
+      last_seen_str = datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S') if last_seen else None
+      is_online = sess.check_node_online(node)    
+      node_status = 'Online' if is_online else 'Offline'
+    else:
+      last_seen_str = "N/A"
+      node_status = "N/A"
+    #end if node
+    if node == None:
+      node = "[All available]"
+    by_owner = f" by owner <{owner}>" if owner else ""
+    log_with_color(f"Apps on <{node}> [Status: {node_status}| Last seen: {last_seen_str}]{by_owner}:\n{df_apps}", color='b')
   #end if as_json
   return
 
 def load_user_defined_config(verbose=False):
   """
-  Loads the ~/.naeural/config file into the current environment.
+  Loads the ~/.ratio1/config file into the current environment.
   """
   config_file = get_user_config_file()
   result = False

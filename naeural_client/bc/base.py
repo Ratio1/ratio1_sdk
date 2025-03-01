@@ -328,7 +328,7 @@ class BaseBlockEngine(_EVMMixin):
       pem_name = config.get(BCct.K_PEM_FILE, BCct.DEFAULT_PEM_FILE)
       pem_folder = config.get(BCct.K_PEM_LOCATION, BCct.DEFAULT_PEM_LOCATION)
       pem_fn = os.path.join(log.get_target_folder(pem_folder), pem_name)
-    #endif pem is defined in ~/.naeural/ or in the data folder of the _local_cache
+    #endif pem is defined in ~/.ratio1/ or in the data folder of the _local_cache
     self.__pem_file = pem_fn
     self._init()
     return
@@ -416,7 +416,7 @@ class BaseBlockEngine(_EVMMixin):
     ### end Ethereum
     if self.__eth_enabled:
       self.P(
-        "Address: {} / ETH: {}".format(self.address, self.eth_address), boxed=True, verbosity=1,
+        "{} / ETH: {} ({})".format(self.address, self.eth_address, self.evm_network), boxed=True, verbosity=1,
         color='g'
       )
     else:

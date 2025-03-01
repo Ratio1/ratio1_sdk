@@ -7,10 +7,10 @@ if __name__ == '__main__':
     silent=False,
     verbosity=3,
   )
-  sess.P(sess.get_client_address(), color='g')
   
-  node = '0xai_AxLOEgr3I1SCi3wp1c3tYxgVEpZrfV_qpDoG3_J8Sc4e'
-  df = sess.get_node_apps(node=node, show_full=True, as_json=False, as_df=True)
+  addr = '0xai_A-TEw0kO3USyFBjyCaHP99trg3CmwIBuEZw37YyBJytK'
+  df = sess.get_nodes_apps(owner=addr, as_df=True)
+  
   sess.P(f"Results:\n{df}", color='b')
     
   sess.wait(seconds=15, close_session=True)

@@ -219,7 +219,8 @@ class GenericSession(BaseDecentrAIObject):
     self._verbosity = verbosity
     
     if self.__debug:
-      log_with_color(f"Debug mode enabled: {debug=}, {verbosity=}", color='y')
+      if not silent:
+        log_with_color(f"Debug mode enabled: {debug=}, {verbosity=}", color='y')
     
     ### END verbosity fix needed
     
@@ -311,7 +312,7 @@ class GenericSession(BaseDecentrAIObject):
       local_cache_base_folder = str(get_user_folder())
     # end if
 
-    ## 1st config step before anything else - we prepare config via ~/.naeural/config or .env
+    ## 1st config step before anything else - we prepare config via ~/.ratio1/config or .env
     self.__load_user_config(dotenv_path=self.__dotenv_path)
     
       
@@ -399,6 +400,13 @@ class GenericSession(BaseDecentrAIObject):
 
     self.__start_main_loop_thread()
     super(GenericSession, self).startup()
+
+
+  def _shorten_addr(self, addr: str) -> str:
+    if not isinstance(addr, str) or len(addr) < 15 or '...' in addr:
+      return addr
+    return addr[:11] + '...' + addr[-4:]
+
 
   # Message callbacks
   if True:
@@ -607,11 +615,11 @@ class GenericSession(BaseDecentrAIObject):
         **kwargs
       )
       self.bc_engine.sign(msg_to_send)
-      self.P(f'Sending encrypted payload to <{node_addr}>', color='d')
+      self.P(f'Sending encrypted payload to <{self._shorten_addr(node_addr)}>', color='d')
       self._send_payload(msg_to_send)
       return
 
-    def __request_pipelines_from_net_config_monitor(self, node_addr):
+    def __request_pipelines_from_net_config_monitor(self, node_addr=None):
       """
       Request the pipelines for a node sending the payload to the 
       the net-config monitor plugin instance of that given node or nodes.
@@ -619,10 +627,20 @@ class GenericSession(BaseDecentrAIObject):
       
       Parameters
       ----------
-      node_addr : str or list
+      node_addr : str or list (optional)
           The address or list of the edge node(s) that sent the message.
+          If None, the request will be sent to all nodes that are allowed to receive messages.
+          
+      OBSERVATION: 
+        This method should be called without node_addr(s) as it will get all the known peered nodes
+        and request the pipelines from them. Formely, this method was called following a netmon message
+        however, this was not the best approach as the netmon message might contain limited amount of
+        peer information is some cases.
 
       """
+      if node_addr is None:
+        node_addr = [k for k, v in self._dct_can_send_to_node.items() if v]
+      # end if
       assert node_addr is not None, "Node address cannot be None"
       payload = {
         NET_CONFIG.NET_CONFIG_DATA: {
@@ -635,17 +653,53 @@ class GenericSession(BaseDecentrAIObject):
       }
       if isinstance(node_addr, str):
         node_addr = [node_addr]
-      dest = [
-        f"<{x}> '{self.__dct_node_address_to_alias.get(x, None)}'"  for x in node_addr 
-      ]
-      self.D(f"<NETCFG> Sending request to:\n{json.dumps(dest, indent=2)}")
-      self.send_encrypted_payload(
-        node_addr=node_addr, payload=payload,
-        additional_data=additional_data
-      )
-      for node in node_addr:
-        self._dct_netconfig_pipelines_requests[node] = tm()      
+      
+      # now we filter only the nodes that have not been requested recently
+      node_addr = [x for x in node_addr if self.__needs_netconfig_request(x)]
+                  
+      if len(node_addr) > 0:
+        dest = [
+          f"<{x}> '{self.__dct_node_address_to_alias.get(x, None)}'"  for x in node_addr 
+        ]
+        self.D(f"<NC> Sending request to:\n{json.dumps(dest, indent=2)}")    
+            
+        self.send_encrypted_payload(
+          node_addr=node_addr, payload=payload,
+          additional_data=additional_data
+        )
+        for node in node_addr:
+          self._dct_netconfig_pipelines_requests[node] = tm()   
+      # end if   
       return
+    
+
+
+    def __needs_netconfig_request(self, node_addr : str) -> bool:
+      """
+      Check if a net-config request is needed for a node.
+
+      Parameters
+      ----------
+      node_addr : str
+          The address of the edge node.
+
+      Returns
+      -------
+      bool
+          True if a net-config request is needed, False otherwise
+      """
+      short_addr = self._shorten_addr(node_addr)
+      last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
+      elapsed = tm() - last_requested_by_netmon
+      str_elapsed = f"{elapsed:.0f}s ago" if elapsed < 9999999 else "never"
+      needs_netconfig_request = elapsed > SDK_NETCONFIG_REQUEST_DELAY
+      if needs_netconfig_request:
+        self.D(f"<NC> Node <{short_addr}> needs update as last request was {str_elapsed} > {SDK_NETCONFIG_REQUEST_DELAY}")
+      else:
+        self.D(f"<NC> Node <{short_addr}> does NOT need update as last request was {str_elapsed} < {SDK_NETCONFIG_REQUEST_DELAY}")
+      return needs_netconfig_request
+
+    
 
     def __track_allowed_node_by_netmon(self, node_addr, dict_msg):
       """
@@ -676,18 +730,13 @@ class GenericSession(BaseDecentrAIObject):
       client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
       can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr      
       self._dct_can_send_to_node[node_addr] = can_send
+      short_addr = self._shorten_addr(node_addr)
       if can_send:
         if node_online:
           # only attempt to request pipelines if the node is online and if not recently requested
-          last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
-          elapsed = tm() - last_requested_by_netmon
-          if elapsed > SDK_NETCONFIG_REQUEST_DELAY:
-            self.D(f"Node <{node_addr}> is online and last request was {elapsed}s ago > {SDK_NETCONFIG_REQUEST_DELAY}")
-            needs_netconfig = True
-          else:
-            self.D(f"Node <{node_addr}> is online but pipelines were recently requested")
+          needs_netconfig= self.__needs_netconfig_request(node_addr)
         else:
-          self.D(f"Node <{node_addr}> is offline thus NOT sending net-config request")
+          self.D(f"<NC> Node <{short_addr}> is OFFLINE thus NOT sending net-config request")
       # endif node seen for the first time
       return needs_netconfig
     
@@ -764,21 +813,24 @@ class GenericSession(BaseDecentrAIObject):
       )
 
       msg_active_configs = dict_msg.get(HB.CONFIG_STREAMS)
+      whitelist = dict_msg.get(HB.EE_WHITELIST, [])
+      is_allowed = self.bc_engine.contains_current_address(whitelist)
       if msg_active_configs is None:
         msg_active_configs = []      
       # at this point we dont return if no active configs are present
       # as the protocol should NOT send a heartbeat with active configs to
       # the entire network, only to the interested parties via net-config
-
-      self.D("<HB> Received {} with {} pipelines".format(
-        msg_node_addr, len(msg_active_configs)), verbosity=2
+      short_addr = self._shorten_addr(msg_node_addr)
+      self.D("<HB> Received {} with {} pipelines (wl: {}, allowed: {})".format(
+          short_addr, len(msg_active_configs), len(whitelist), is_allowed
+        ), verbosity=2
       )
 
       if len(msg_active_configs) > 0:
         # this is for legacy and custom implementation where heartbeats still contain
         # the pipeline configuration.
         pipeline_names = [x.get(PAYLOAD_DATA.NAME, None) for x in msg_active_configs]
-        self.D(f'<HB> Processing pipelines from <{msg_node_addr}>:{pipeline_names}', color='y')
+        self.D(f'<HB> Processing pipelines from <{short_addr}>:{pipeline_names}', color='y')
         self.__process_node_pipelines(msg_node_addr, msg_active_configs)
 
       # TODO: move this call in `__on_message_default_callback`
@@ -830,7 +882,7 @@ class GenericSession(BaseDecentrAIObject):
       self.D("Received notification {} from <{}/{}>: {}"
              .format(
                 notification_type,
-                msg_node_addr,
+                self._shorten_addr(msg_node_addr),
                 msg_pipeline,
                 notification),
              color=color,
@@ -879,7 +931,8 @@ class GenericSession(BaseDecentrAIObject):
           online_addresses = []
           all_addresses = []
           lst_netconfig_request = []
-          self.D(f"<NETMON> Processing {len(current_network)} from <{sender_addr}> `{ee_id}`")
+          short_addr = self._shorten_addr(sender_addr)
+          self.D(f"<NM> Processing {len(current_network)} from <{short_addr}> `{ee_id}`")
           for _ , node_data in current_network.items():
             needs_netconfig = False
             node_addr = node_data.get(PAYLOAD_DATA.NETMON_ADDRESS, None)
@@ -897,16 +950,22 @@ class GenericSession(BaseDecentrAIObject):
             if needs_netconfig:
               lst_netconfig_request.append(node_addr)
           # end for each node in network map
-          self.Pd(f"<NETMON> <{sender_addr}> `{ee_id}`:  {len(online_addresses)} online of total {len(all_addresses)} nodes")
-          if len(lst_netconfig_request) > 0:
-            self.D("<NETCFG> Requesting pipelines from net-config monitor")
-            self.__request_pipelines_from_net_config_monitor(lst_netconfig_request)
+          self.Pd(f"<NM> <{short_addr}> `{ee_id}`:  {len(online_addresses)} online of total {len(all_addresses)} nodes")
+          first_request = len(self._dct_netconfig_pipelines_requests) == 0
+          if len(lst_netconfig_request) > 0 or first_request:
+            str_msg = "First request for" if first_request else "Requesting"
+            msg = f"<NC> {str_msg} pipelines from at least {len(lst_netconfig_request)} nodes"
+            if first_request:
+              self.P(msg, color='y')
+            else:
+              self.Pd(msg, verbosity=2)            
+            self.__request_pipelines_from_net_config_monitor()
           # end if needs netconfig
           nr_peers = sum(self._dct_can_send_to_node.values())
           if nr_peers > 0 and not self.__at_least_one_node_peered:                
             self.__at_least_one_node_peered = True
             self.P(
-              f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
+              f"<NM> Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
               color='g'
             )
           # end for each node in network map
@@ -930,7 +989,7 @@ class GenericSession(BaseDecentrAIObject):
         sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
         short_sender_addr = sender_addr[:8] + '...' + sender_addr[-4:]
         if self.client_address == sender_addr:
-          self.D("<NETCFG> Ignoring message from self", color='d')
+          self.D("<NC> Ignoring message from self", color='d')
           return
         receiver = dict_msg.get(PAYLOAD_DATA.EE_DESTINATION, None)
         if not isinstance(receiver, list):
@@ -940,32 +999,32 @@ class GenericSession(BaseDecentrAIObject):
         op = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {}).get(NET_CONFIG.OPERATION, "UNKNOWN")
         # drop any incoming request as we are not a net-config provider just a consumer
         if op == NET_CONFIG.REQUEST_COMMAND:
-          self.Pd(f"<NETCFG> Dropping request from <{short_sender_addr}> `{ee_id}`")
+          self.Pd(f"<NC> Dropping request from <{short_sender_addr}> `{ee_id}`")
           return
         
         # check if I am allowed to see this payload
         if not self.bc_engine.contains_current_address(receiver):
-          self.P(f"<NETCFG> Received `{op}` from <{short_sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
+          self.P(f"<NC> Received `{op}` from <{short_sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
           return                
 
         # encryption check. By now all should be decrypted
         is_encrypted = dict_msg.get(PAYLOAD_DATA.EE_IS_ENCRYPTED, False)
         if not is_encrypted:
-          self.P(f"<NETCFG> Received from <{short_sender_addr}> `{ee_id}` but it is not encrypted", color='r')
+          self.P(f"<NC> Received from <{short_sender_addr}> `{ee_id}` but it is not encrypted", color='r')
           return
         net_config_data = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {})
         received_pipelines = net_config_data.get(NET_CONFIG.PIPELINES, [])
         received_plugins = net_config_data.get(NET_CONFIG.PLUGINS_STATUSES, [])
-        self.D(f"<NETCFG> Received {len(received_pipelines)} pipelines from <{sender_addr}> `{ee_id}`")
+        self.D(f"<NC> Received {len(received_pipelines)} pipelines from <{sender_addr}> `{ee_id}`")
         if self._verbosity > 2:
-          self.D(f"<NETCFG> {ee_id} Netconfig data:\n{json.dumps(net_config_data, indent=2)}")
+          self.D(f"<NC> {ee_id} Netconfig data:\n{json.dumps(net_config_data, indent=2)}")
         new_pipelines = self.__process_node_pipelines(
           node_addr=sender_addr, pipelines=received_pipelines,
           plugins_statuses=received_plugins
         )
         pipeline_names = [x.name for x in new_pipelines]
         if len(new_pipelines) > 0:
-          self.P(f'<NETCFG>   Received NEW pipelines from <{sender_addr}> `{ee_id}`:{pipeline_names}', color='y')
+          self.P(f'<NC>   Received NEW pipelines from <{sender_addr}> `{ee_id}`:{pipeline_names}', color='y')
       return True
       
 
@@ -1387,7 +1446,7 @@ class GenericSession(BaseDecentrAIObject):
   if True:
     
     def __load_user_config(self, dotenv_path):
-      # if the ~/.naeural/config file exists, load the credentials from there else try to load them from .env
+      # if the ~/.ratio1/config file exists, load the credentials from there else try to load them from .env
       if not load_user_defined_config(verbose=not self.silent):        
         # this method will search for the credentials in the environment variables
         # the path to env file, if not specified, will be search in the following order:
@@ -2371,9 +2430,9 @@ class GenericSession(BaseDecentrAIObject):
       bool
           True if the node is online, False otherwise.
       """
-
+      short_addr = self._shorten_addr(node)
       if verbose:
-        self.P("Waiting for node '{}' to appear online...".format(node))
+        self.Pd("Waiting for node '{}' to appear online...".format(short_addr))
 
       _start = tm()
       found = self.check_node_online(node)
@@ -2384,9 +2443,9 @@ class GenericSession(BaseDecentrAIObject):
 
       if verbose:
         if found:
-          self.P("Node '{}' is online.".format(node))
+          self.P("Node '{}' is online.".format(short_addr))
         else:
-          self.P("Node '{}' did not appear online in {:.1f}s.".format(node, tm() - _start), color='r')
+          self.P("Node '{}' did not appear online in {:.1f}s.".format(short_addr, tm() - _start), color='r')
       return found
 
     def wait_for_node_configs(
@@ -2411,8 +2470,8 @@ class GenericSession(BaseDecentrAIObject):
       bool
           True if the node has its configurations loaded, False otherwise.
       """
-
-      self.P("Waiting for node '{}' to have its configurations loaded...".format(node))
+      short_addr = self._shorten_addr(node)
+      self.P("Waiting for node '{}' to have its configurations loaded...".format(short_addr))
 
       _start = tm()
       found = self.check_node_config_received(node)
@@ -2422,7 +2481,7 @@ class GenericSession(BaseDecentrAIObject):
         sleep(0.1)
         found = self.check_node_config_received(node)
         if not found and not additional_request_sent and (tm() - _start) > request_time_thr and attempt_additional_requests:
-          self.P("Re-requesting configurations of node '{}'...".format(node), show=True)
+          self.P("Re-requesting configurations of node '{}'...".format(short_addr), show=True)
           node_addr = self.__get_node_address(node)
           self.__request_pipelines_from_net_config_monitor(node_addr)
           additional_request_sent = True
@@ -2430,9 +2489,9 @@ class GenericSession(BaseDecentrAIObject):
 
       if verbose:
         if found:
-          self.P(f"Received configurations of node '{node}'.")
+          self.P(f"Received configurations of node '{short_addr}'.")
         else:
-          self.P(f"Node '{node}' did not send configs in {(tm() - _start)}. Client might not be authorized!", color='r')
+          self.P(f"Node '{short_addr}' did not send configs in {(tm() - _start)}. Client might not be authorized!", color='r')
       return found
 
     def check_node_config_received(self, node):
@@ -3218,77 +3277,128 @@ class GenericSession(BaseDecentrAIObject):
       return dct_result
 
 
-  def get_node_apps(self, node, show_full=False, as_json=False):
+  def get_nodes_apps(
+    self, 
+    node=None, 
+    owner=None, 
+    show_full=False, 
+    as_json=False, 
+    show_errors=False, 
+    as_df=False
+  ):
     """
     Get the workload status of a node.
     
     Parameters
     ----------
-    node : str
-        The address or name of the Ratio1 edge node.
+
+    node : str, optional
+        The address or name of the Naeural Edge Protocol edge node. Defaults to None.
+    
+    owner : str, optional
+        The owner of the apps to filter. Defaults to None.
+        
+    show_full : bool, optional  
+        If True, will show the full configuration of the apps. Defaults to False.
+        
+    as_json : bool, optional
+        If True, will return the result as a JSON. Defaults to False.
+        
+    show_errors : bool, optional 
+        If True, will show the errors. Defaults to False.
+    
+    as_df : bool, optional  
+        If True, will return the result as a Pandas DataFrame. Defaults to False.
+ 
 
     Returns
     -------
-    str
-        The workload status of the node.
+
+    list
+        A list of dictionaries containing the workload status
+        of the specified node.
+        
+        
     """
-    # 2. Wait for node to appear online
-    found = self.wait_for_node(node)
-    if not found:
-      log_with_color(f'Node {node} not found. Please check the configuration.', color='r')
-      return
-    # 3. Check if the node is peered with the client
-    is_allowed = self.is_peered(node)
-    if not is_allowed:
-      log_with_color(f"Node {node} is not peered with the client. Please check the configuration.", color='r')
-      return
-    # 4. Wait for node to send the configuration.
-    self.wait_for_node_configs(node)
-    apps = self.get_active_pipelines(node)
-    if apps is None:
-      log_with_color(f"No apps found on node {node}. Client might not be authorized", color='r')
-      return
-    # 5. Maybe exclude admin application.
-    if not show_full:
-      apps = {k: v for k, v in apps.items() if str(k).lower() != 'admin_pipeline'}
-    # 6. Show the apps
-    if as_json:
-      # Will print a big JSON with all the app configurations.
-      json_data = {k: v.get_full_config() for k, v in apps.items()}
-      result = json_data
+    lst_plugin_instance_data = []    
+    if node is None:
+      nodes = self.get_active_nodes()
     else:
-      lst_plugin_instance_data = []
-      for pipeline_name, pipeline in apps.items():
-        pipeline_owner = pipeline.config.get("INITIATOR_ADDR")
-        if isinstance(pipeline_owner, str) and len(pipeline_owner) > 14:
-          pipeline_owner = pipeline_owner[:10] + '...' + pipeline_owner[-4:]
-        pipeline_alias = pipeline.config.get("INITIATOR_ID")
-        for instance in pipeline.lst_plugin_instances:
-          instance_status = instance.get_status()
-          if len(instance_status) == 0:
-            # this instance is only present in config but is NOT loaded so ignore it
+      nodes = [node]
+    found_nodes = []
+    for node in nodes:
+      short_addr = self._shorten_addr(node)      
+      # 2. Wait for node to appear online    
+      node_found = self.wait_for_node(node)
+      if node_found:
+        found_nodes.append(node)
+      
+      # 3. Check if the node is peered with the client
+      is_allowed = self.is_peered(node)
+      if not is_allowed:
+        if show_errors:
+          log_with_color(f"Node {short_addr} is not peered with this client. Skipping..", color='r')
+        continue
+      
+      # 4. Wait for node to send the configuration.
+      self.wait_for_node_configs(node)
+      apps = self.get_active_pipelines(node)
+      if apps is None:
+        if show_errors:
+          log_with_color(f"No apps found on node {short_addr}. Client might not be authorized", color='r')
+        continue
+      
+      # 5. Maybe exclude admin application.
+      if not show_full:
+        apps = {k: v for k, v in apps.items() if str(k).lower() != 'admin_pipeline'}
+        
+      # 6. Show the apps
+      if as_json:
+        # Will print a big JSON with all the app configurations.
+        lst_plugin_instance_data.append({k: v.get_full_config() for k, v in apps.items()})
+      else:
+        for pipeline_name, pipeline in apps.items():
+          pipeline_owner = pipeline.config.get("INITIATOR_ADDR")
+          if owner is not None and owner != pipeline_owner:
             continue
-          start_time = instance_status.get('INIT_TIMESTAMP')
-          last_probe = instance_status.get('EXEC_TIMESTAMP')
-          last_data = instance_status.get('LAST_PAYLOAD_TIME')
-          dates = [start_time, last_probe, last_data]
-          for i in range(len(dates)):
-            if isinstance(dates[i], str):
-              if dates[i].startswith('1970'):
-                dates[i] = 'Never'
-              elif '.' in dates[i]:
-                dates[i] = dates[i].split('.')[0]
-          lst_plugin_instance_data.append({
-            'Owner' : pipeline_owner,
-            'Alias' : pipeline_alias,
-            'App': pipeline_name,
-            'Plugin': instance.signature,
-            'Id': instance.instance_id,
-            'Start' : dates[0],
-            'Probe' : dates[1],
-            'Data' : dates[2],
-          })
-        # endfor instances in app
-      # endfor apps
-      result = lst_plugin_instance_data
-    return result
+          pipeline_alias = pipeline.config.get("INITIATOR_ID")
+          for instance in pipeline.lst_plugin_instances:
+            instance_status = instance.get_status()
+            if len(instance_status) == 0:
+              # this instance is only present in config but is NOT loaded so ignore it
+              continue
+            start_time = instance_status.get('INIT_TIMESTAMP')
+            last_probe = instance_status.get('EXEC_TIMESTAMP')
+            last_data = instance_status.get('LAST_PAYLOAD_TIME')
+            dates = [start_time, last_probe, last_data]
+            for i in range(len(dates)):
+              if isinstance(dates[i], str):
+                if dates[i].startswith('1970'):
+                  dates[i] = 'Never'
+                elif '.' in dates[i]:
+                  dates[i] = dates[i].split('.')[0]
+            lst_plugin_instance_data.append({
+              'Node'  : node,
+              'Owner' : pipeline_owner,
+              'Alias' : pipeline_alias,
+              'App': pipeline_name,
+              'Plugin': instance.signature,
+              'Id': instance.instance_id,
+              'Start' : dates[0],
+              'Probe' : dates[1],
+              'Data' : dates[2],
+            })
+          # endfor instances in app
+        # endfor apps
+      # endif as_json or as dict-for-df
+    # endfor nodes  
+    if len(found_nodes) == 0:
+      log_with_color(f'Node(s) {nodes} not found. Please check the configuration.', color='r')
+      return        
+    if as_df:
+      df = pd.DataFrame(lst_plugin_instance_data)
+      df['Node'] = df['Node'].apply(lambda x: self._shorten_addr(x))
+      df['Owner'] = df['Owner'].apply(lambda x: self._shorten_addr(x))
+      return df
+    return lst_plugin_instance_data
+  

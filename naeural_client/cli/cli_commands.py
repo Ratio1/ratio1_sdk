@@ -50,7 +50,8 @@ CLI_COMMANDS = {
             "func": get_apps,
             "description": "Get the apps running on a given node, if the client is allowed on that node.",
             "params": {
-                "node": "The ETH address or the specific address of the node to get the apps from",
+                "--node": "The ETH address or the specific address of the node to get the apps from",
+                "--owner" : "Get the apps for a particular owner/initiator",
                 "--full": "Include admin apps (flag)",
                 "--json": "Output the entire JSON config of applications (flag)",
             }

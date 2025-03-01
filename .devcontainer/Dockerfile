@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+    
 # Install the SDK requirements
 RUN pip install --no-cache-dir \
     pandas \ 
@@ -24,6 +25,7 @@ RUN pip install --no-cache-dir \
     python-dateutil \
     pyaml \ 
     web3
+
 
 # Set the default command to bash (optional)
 CMD ["bash"]

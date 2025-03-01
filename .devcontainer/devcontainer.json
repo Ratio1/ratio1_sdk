@@ -3,14 +3,14 @@
   "dockerFile" : "Dockerfile",
   // "image": "aidamian/image:tag",
 
-  
   "runArgs": [
     //"--gpus=all",
     "--hostname",
-    "sdk_dev"    
+    "sdk_dev",
+    
+    "--name",
+    "r1_devenv"
   ],
-
-  
 
   "customizations": {
     "vscode" : {
