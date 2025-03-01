@@ -322,8 +322,9 @@ def get_apps(args):
     #end if node
     if node == None:
       node = "[All available]"
-    by_owner = f" by owner <{owner}>" if owner else ""
-    log_with_color(f"\nApps on <{node}> [Status: {node_status}| Last seen: {last_seen_str}]{by_owner}:", color='b')
+    by_owner = f" by owner <{owner}>" if owner else ""    
+    log_with_color(f"Ratio1 client v{version}:\n", color='b')
+    log_with_color(f"Apps on <{node}> [Status: {node_status}| Last seen: {last_seen_str}]{by_owner}:", color='b')
     log_with_color(f"{df_apps}\n")
   #end if as_json
   return
