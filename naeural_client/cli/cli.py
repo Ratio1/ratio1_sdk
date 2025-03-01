@@ -105,6 +105,7 @@ def main():
   """
   # Register the SIGINT handler
   signal.signal(signal.SIGINT, handle_sigint)  
+  print("Processing...\r", end="", flush=True)
   
   try:
     # Initialize configuration if necessary
@@ -127,5 +128,4 @@ def main():
 
 
 if __name__ == "__main__":
-  print("Processing...\r", end="", flush=True)
   main()

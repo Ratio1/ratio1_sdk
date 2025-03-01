@@ -246,9 +246,8 @@ def show_version(silent=True):
   
   # TODO: get the epoch from the SDK  - AFTER moving get_epoch_id from core
   
-
+  log_with_color(f"Ratio1 client v{version}:\n", color='b')
   log_with_color(f"SDK folder:     {user_folder}", color='b')
-  log_with_color(f"SDK version:    {version}", color='b')
   log_with_color(f"Ratio1 network: {get_network()}", color='b')
   log_with_color(f"Network Epoch:  {sess.bc_engine.get_current_epoch()}", color='b')
   log_with_color(f"SDK addr:       {sess.get_client_address()}", color='b')
@@ -269,8 +268,9 @@ def show_config(args):
     keys = []
     with config_file.open("r") as file:
       lines = file.readlines()
-      keys = [line.strip().split("=")[0] for line in lines if "=" in line]
-    log_with_color(f"Current config {config_file} has {len(keys)} keys: {keys}", color='d')
+      keys = [line.strip().split("=")[0] for line in lines if "=" in line and not line.strip().startswith("#")]
+      commments = [line.strip() for line in lines if line.strip().startswith("#")]
+    log_with_color(f"Current config {config_file} has {len(keys)} keys and {len(commments)} comments\n", color='d')
   else:
     log_with_color(f"No configuration found at {config_file}. Please run `reset_config` first.", color="r")
   return
@@ -323,7 +323,8 @@ def get_apps(args):
     if node == None:
       node = "[All available]"
     by_owner = f" by owner <{owner}>" if owner else ""
-    log_with_color(f"Apps on <{node}> [Status: {node_status}| Last seen: {last_seen_str}]{by_owner}:\n{df_apps}", color='b')
+    log_with_color(f"\nApps on <{node}> [Status: {node_status}| Last seen: {last_seen_str}]{by_owner}:", color='b')
+    log_with_color(f"{df_apps}\n")
   #end if as_json
   return
 

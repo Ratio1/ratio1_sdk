@@ -2,7 +2,7 @@ import os
 from time import time
 from naeural_client.utils.config import log_with_color
 from naeural_client.const import SESSION_CT, COMMANDS, BASE_CT
-
+from naeural_client._ver import __VER__ as version
 
 def _get_netstats(
   silent=True,
@@ -75,10 +75,11 @@ def get_nodes(args):
   if supervisor == "ERROR":
     log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')
   else:
+    log_with_color(f"Ratio1 client v{version}:\n", color='b')
     log_with_color(f"<{network}> {prefix}odes reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s ({nr_supers} supervisors seen):", color='b')
     import pandas as pd
     pd.set_option('display.float_format', '{:.4f}'.format)
-    log_with_color(f"{df}")    
+    log_with_color(f"{df}\n")    
   return
   
   
