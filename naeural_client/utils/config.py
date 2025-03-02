@@ -2,8 +2,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-from pandas import DataFrame
-from datetime import datetime
 
 from naeural_client.const.base import BCct, dAuth, EE_SDK_ALIAS_DEFAULT, EE_SDK_ALIAS_ENV_KEY 
 from naeural_client._ver import __VER__ as version
@@ -275,59 +273,7 @@ def show_config(args):
     log_with_color(f"No configuration found at {config_file}. Please run `reset_config` first.", color="r")
   return
 
-def get_apps(args):
-  """
-  Shows the apps running on a given node, if the client is allowed on that node.
-  Parameters
-  ----------
-  args : argparse.Namespace
-      Arguments passed to the function.
 
-  """
-  verbose = args.verbose
-  node = args.node
-  show_full = args.full
-  as_json = args.json
-  owner = args.owner
-
-  # 1. Init session
-  from naeural_client import Session
-  sess = Session(
-    silent=not verbose
-  )
-  
-  res = sess.get_nodes_apps(
-    node=node, owner=owner, show_full=show_full, 
-    as_json=as_json, as_df=not as_json
-  )
-  if as_json:
-    log_with_color(json.dumps(res, indent=2))
-  else:
-    df_apps = res
-    # remove Node column
-    if node is not None and owner is None:
-      df_apps.drop(columns=['Node'], inplace=True)
-    
-    if node is None and owner is not None:
-      df_apps.drop(columns=['Owner'], inplace=True)
-    
-    if node is not None:
-      last_seen = sess.get_last_seen_time(node)
-      last_seen_str = datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S') if last_seen else None
-      is_online = sess.check_node_online(node)    
-      node_status = 'Online' if is_online else 'Offline'
-    else:
-      last_seen_str = "N/A"
-      node_status = "N/A"
-    #end if node
-    if node == None:
-      node = "[All available]"
-    by_owner = f" by owner <{owner}>" if owner else ""    
-    log_with_color(f"Ratio1 client v{version}:\n", color='b')
-    log_with_color(f"Apps on <{node}> [Status: {node_status}| Last seen: {last_seen_str}]{by_owner}:", color='b')
-    log_with_color(f"{df_apps}\n")
-  #end if as_json
-  return
 
 def load_user_defined_config(verbose=False):
   """

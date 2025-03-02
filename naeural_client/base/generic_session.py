@@ -3394,11 +3394,13 @@ class GenericSession(BaseDecentrAIObject):
     # endfor nodes  
     if len(found_nodes) == 0:
       log_with_color(f'Node(s) {nodes} not found. Please check the configuration.', color='r')
-      return        
+      return 
     if as_df:
       df = pd.DataFrame(lst_plugin_instance_data)
-      df['Node'] = df['Node'].apply(lambda x: self._shorten_addr(x))
-      df['Owner'] = df['Owner'].apply(lambda x: self._shorten_addr(x))
+      if not (df.empty or df.shape[0] == 0):
+        df['Node'] = df['Node'].apply(lambda x: self._shorten_addr(x))
+        df['Owner'] = df['Owner'].apply(lambda x: self._shorten_addr(x))
+      # end if not empty
       return df
     return lst_plugin_instance_data
   

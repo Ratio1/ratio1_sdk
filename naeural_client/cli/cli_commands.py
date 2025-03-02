@@ -1,11 +1,12 @@
 from naeural_client.cli.nodes import (
   get_nodes, get_supervisors, 
   restart_node, shutdown_node,
+  get_apps
 )
 from naeural_client.cli.oracles import get_availability
 from naeural_client.utils.config import (
   show_config, reset_config, show_address, get_set_network,
-  get_apps, get_networks, get_set_alias, get_eth_addr
+  get_networks, get_set_alias, get_eth_addr
 )
 
 # Define the available commands
