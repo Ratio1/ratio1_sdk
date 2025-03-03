@@ -41,11 +41,11 @@ class MQTTWrapper(object):
     self._config = config
     self._recv_buff = recv_buff
     self._mqttc = None
-    self.debug_errors = debug_errors
+    self.debug_errors = debug_errors if verbosity <=1 else True
     self._thread_name = None
     self.connected = False
     self.disconnected = False
-    self.__verbosity = verbosity
+    self.__verbosity = verbosity    
     self._send_to = None
     self._nr_full_retries = 0
     self.__nr_dropped_messages = 0
@@ -240,6 +240,8 @@ class MQTTWrapper(object):
     return
 
   def __create_mqttc_object(self, comtype, client_uid):
+    if self.__verbosity > 1:
+      self.P(f"Creating MQTT client: {self._connection_name} - {comtype} - {client_uid}")
     client_id = self._connection_name + '_' + comtype + '_' + client_uid
     if mqtt_version.startswith('2'):
       mqttc = mqtt.Client(

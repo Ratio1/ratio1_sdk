@@ -11,7 +11,7 @@ Installation is straightforward using `pip` so make sure you have python 3.9+ an
 pip install naeural_client
 ```
 
-Following the instalation make sure you edit `~/.naeural/config` file and put the correct mqtt broker credentials, particularly `EE_MQTT_USER` and `EE_MQTT` which are the username and password for the mqtt broker.
+Following the instalation make sure you edit `~/.ratio1/config` file and put the correct mqtt broker credentials, particularly `EE_MQTT_USER` and `EE_MQTT` which are the username and password for the mqtt broker.
 
 ```plaintext
 EE_MQTT_HOST=r9092118.ala.eu-central-1.emqxsl.com
@@ -179,9 +179,9 @@ Supervisors reported by <0xai_AleLPKqUHV-iPc-76-rUvDkRWW4dFMIGKW1xFVcy65nH>:
 
 ### `config show`
 ```plaintext
-NEP SDK folder: /root/.naeural
+NEP SDK folder: /root/.ratio1
 SDK Client address: 0xai_AjcIThkOqrPlp35-S8czHUOV-y4mnhksnLs8NGjTbmty
-Current configuration (/root/.naeural/config):
+Current configuration (/root/.ratio1/config):
 
 EE_MQTT_HOST=r9092118.ala.eu-central-1.emqxsl.com
 EE_MQTT_PORT=8883

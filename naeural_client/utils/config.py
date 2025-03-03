@@ -2,10 +2,8 @@ import json
 import os
 from pathlib import Path
 import shutil
-from pandas import DataFrame
-from datetime import datetime
 
-from naeural_client.const.base import BCct, dAuth
+from naeural_client.const.base import BCct, dAuth, EE_SDK_ALIAS_DEFAULT, EE_SDK_ALIAS_ENV_KEY 
 from naeural_client._ver import __VER__ as version
 
 from naeural_client.logging.base_logger import SDK_HOME, BaseLogger
@@ -22,6 +20,16 @@ EE_EVM_NET=testnet
 EE_TARGET_NODE=
 
 """
+
+def _create_bc_engine():
+  from naeural_client.bc import DefaultBlockEngine
+  from naeural_client import Logger
+  return DefaultBlockEngine(
+    name="default", 
+    log=Logger("CLI", silent=True),
+    user_config=True, # this is must to use the user config
+  )
+  
 
 def seconds_to_short_format(seconds):
   """
@@ -99,6 +107,25 @@ def get_user_config_file():
 def get_network():
   return os.environ.get(dAuth.DAUTH_NET_ENV_KEY, dAuth.DAUTH_SDK_NET_DEFAULT)
 
+def get_alias():
+  return os.environ.get(EE_SDK_ALIAS_ENV_KEY, EE_SDK_ALIAS_DEFAULT)
+
+def set_client_alias(alias : str):
+  config_file = get_user_config_file()
+  # open config_file and update EE_SDK_ALIAS
+  with config_file.open("r") as file:
+    lines = file.readlines()
+  with config_file.open("w") as file:
+    found = False
+    for line in lines:
+      if line.startswith(EE_SDK_ALIAS_ENV_KEY):
+        line = f"{EE_SDK_ALIAS_ENV_KEY}={alias}\n"
+        found = True
+      file.write(line)
+    if not found:
+      file.write(f"{EE_SDK_ALIAS_ENV_KEY}={alias}\n")
+  log_with_color(f"Alias set to {alias}", color='b')
+  return 
 
 def get_networks(args):
   """
@@ -131,12 +158,21 @@ def get_set_network(args):
         file.write(f"EE_EVM_NET={net}\n")
     log_with_color(f"Network set to {net}", color='b')
   return
+
+def get_set_alias(args):
+  alias = args.set
+  if alias is None:
+    log_with_color(f"Client v{version} alias: {get_alias()}", color='b')
+  else:
+    set_client_alias(alias)
+  return
+    
   
 
 def reset_config(*larg, keep_existing=False, **kwargs):
   """
-  Resets the configuration by creating a ~/.naeural folder and populating
-  ~/.naeural/config with values from a local .env file, if it exists.
+  Resets the configuration by creating a ~/.ratio1 folder and populating
+  ~/.ratio1/config with values from a local .env file, if it exists.
   """
   log_with_color(f"Client v{version} resetting the configuration...", color='y')
   # Define the target config folder and file
@@ -146,13 +182,13 @@ def reset_config(*larg, keep_existing=False, **kwargs):
   local_pem = Path(LOCAL_PEM_PATH)
   target_pem = config_dir / BCct.USER_PEM_FILE
   
-  # Create the ~/.naeural folder if it doesn't exist
+  # Create the ~/.ratio1 folder if it doesn't exist
   config_dir.mkdir(parents=True, exist_ok=True)
 
   # Check if the current folder has a .env file
   current_env_file = Path(".env")
   if current_env_file.exists():
-    # Copy .env content to ~/.naeural/config
+    # Copy .env content to ~/.ratio1/config
     shutil.copy(current_env_file, config_file)
     log_with_color(
       f"Configuration has been reset using {current_env_file} into {config_file}", 
@@ -208,19 +244,21 @@ def show_version(silent=True):
   
   # TODO: get the epoch from the SDK  - AFTER moving get_epoch_id from core
   
-
+  log_with_color(f"Ratio1 client v{version}:\n", color='b')
   log_with_color(f"SDK folder:     {user_folder}", color='b')
-  log_with_color(f"SDK version:    {version}", color='b')
   log_with_color(f"Ratio1 network: {get_network()}", color='b')
   log_with_color(f"Network Epoch:  {sess.bc_engine.get_current_epoch()}", color='b')
   log_with_color(f"SDK addr:       {sess.get_client_address()}", color='b')
   log_with_color(f"SDK ETH addr:   {sess.bc_engine.eth_address}", color='b')
+  log_with_color(f"SDK alias:      {sess.name}", color='b')
   return
+
+
   
 
 def show_config(args):
   """
-  Displays the current configuration from ~/.naeural/config.
+  Displays the current configuration from ~/.ratio1/config.
   """
   show_version(silent=not args.verbose)
   config_file = get_user_config_file()
@@ -228,79 +266,18 @@ def show_config(args):
     keys = []
     with config_file.open("r") as file:
       lines = file.readlines()
-      keys = [line.strip().split("=")[0] for line in lines if "=" in line]
-    log_with_color(f"Current config {config_file} has {len(keys)} keys: {keys}", color='d')
+      keys = [line.strip().split("=")[0] for line in lines if "=" in line and not line.strip().startswith("#")]
+      commments = [line.strip() for line in lines if line.strip().startswith("#")]
+    log_with_color(f"Current config {config_file} has {len(keys)} keys and {len(commments)} comments\n", color='d')
   else:
     log_with_color(f"No configuration found at {config_file}. Please run `reset_config` first.", color="r")
   return
 
-def get_apps(args):
-  """
-  Shows the apps running on a given node, if the client is allowed on that node.
-  Parameters
-  ----------
-  args : argparse.Namespace
-      Arguments passed to the function.
 
-  """
-  verbose = args.verbose
-  node = args.node
-  show_full = args.full
-  as_json = args.json
-
-  # 1. Init session
-  from naeural_client import Session
-  sess = Session(
-    silent=not verbose
-  )
-
-  # 2. Wait for node to appear online
-  found = sess.wait_for_node(node)
-  if not found:
-    log_with_color(f'Node {node} not found. Please check the configuration.', color='r')
-    return
-  # 3. Check if the node is peered with the client
-  is_allowed = sess.is_peered(node)
-  if not is_allowed:
-    log_with_color(f"Node {node} is not peered with the client. Please check the configuration.", color='r')
-    return
-  # 4. Wait for node to send the configuration.
-  sess.wait_for_node_configs(node)
-  apps = sess.get_active_pipelines(node)
-  if apps is None:
-    log_with_color(f"No apps found on node {node}. Client might not be authorized", color='r')
-    return
-  # 5. Maybe exclude admin application.
-  if not show_full:
-    apps = {k: v for k, v in apps.items() if str(k).lower() != 'admin_pipeline'}
-  # 6. Show the apps
-  if as_json:
-    # Will print a big JSON with all the app configurations.
-    json_data = {k: v.get_full_config() for k, v in apps.items()}
-    log_with_color(json.dumps(json_data, indent=2))
-  else:
-    lst_plugin_instance_data = []
-    for pipeline_name, pipeline in apps.items():
-      for instance in pipeline.lst_plugin_instances:
-        lst_plugin_instance_data.append({
-          'APP': pipeline_name,
-          'PLUGIN': instance.signature,
-          'ID': instance.instance_id
-        })
-      # endfor instances in app
-    # endfor apps
-    apps_df = DataFrame(lst_plugin_instance_data)
-    last_seen = sess.get_last_seen_time(node)
-    is_online = sess.check_node_online(node)
-    node_status = 'Online' if is_online else 'Offline'
-    last_seen_str = datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S') if last_seen else None
-    log_with_color(f"Apps on node {node} [{node_status}| Last seen: {last_seen_str}]:\n{apps_df}", color='b')
-  # endif show as json
-  return
 
 def load_user_defined_config(verbose=False):
   """
-  Loads the ~/.naeural/config file into the current environment.
+  Loads the ~/.ratio1/config file into the current environment.
   """
   config_file = get_user_config_file()
   result = False
@@ -340,3 +317,15 @@ def maybe_init_config():
       return False
     # config_file still does not exist even after attempting the migration.
   return load_user_defined_config()
+
+
+
+def get_eth_addr(args):
+  """
+  Gets the ETH address given a node address.
+  """
+  node = args.node
+  eng = _create_bc_engine()
+  eth_addr = eng.get_eth_address(node)
+  log_with_color(f"ETH address for node {node}: {eth_addr}", color='b')
+  return

@@ -91,9 +91,11 @@ class BaseDecentrAIObject(object):
     _r = self.log.P(msg, show_time=t, color=color, **kwargs)
     return _r
 
-  def D(self, s, t=False, color=None, prefix=False, **kwargs):
+  def D(self, s, t=False, color=None, prefix=False, forced_debug=False, **kwargs):
     _r = -1
-    if self.DEBUG:
+    if self.DEBUG or forced_debug:
+      if color is None:
+        color = 'd'
       if self.show_prefixes:
         msg = "[DEBUG] {}: {}".format(self.__name__, s)
       else:

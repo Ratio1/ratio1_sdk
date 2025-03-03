@@ -1,7 +1,13 @@
 import os
+import json
+
 from time import time
 from naeural_client.utils.config import log_with_color
 from naeural_client.const import SESSION_CT, COMMANDS, BASE_CT
+from naeural_client._ver import __VER__ as version
+
+from pandas import DataFrame
+from datetime import datetime
 
 
 def _get_netstats(
@@ -53,32 +59,41 @@ def get_nodes(args):
   4. Get the active nodes union via Session and display the nodes marking those peered vs non-peered.
   """
   supervisor_addr = args.supervisor
+  online = args.online
+  online = True # always online, flag deprecated
   wide = args.wide
   if args.verbose:
     log_with_color(f"Getting nodes from supervisor <{supervisor_addr}>...", color='b')
 
   res = _get_netstats(
     silent=not args.verbose,
-    online_only=args.online or args.peered,
+    online_only=online or args.peered,
     allowed_only=args.peered,
     supervisor=supervisor_addr,
     eth=args.eth,
     all_info=wide,
+    return_session=True,
   )
-  df, supervisor, super_alias, nr_supers, elapsed = res
+  df, supervisor, super_alias, nr_supers, elapsed, sess = res
   if args.online:
     FILTERED = ['State']
     df = df[[c for c in df.columns if c not in FILTERED]]
 
-  prefix = "Online n" if (args.online or args.peered) else "N"
-  network = os.environ.get(BASE_CT.dAuth.DAUTH_NET_ENV_KEY, BASE_CT.dAuth.DAUTH_SDK_NET_DEFAULT)
+  prefix = "Online n" if (online or args.peered) else "N"
+  # network = os.environ.get(BASE_CT.dAuth.DAUTH_NET_ENV_KEY, BASE_CT.dAuth.DAUTH_SDK_NET_DEFAULT)
+  network = sess.bc_engine.evm_network
   if supervisor == "ERROR":
     log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')
   else:
-    log_with_color(f"<{network}> {prefix}odes reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s ({nr_supers} supervisors seen):", color='b')
+    log_with_color(f"Ratio1 client v{version}:\n", color='b')
+    log_with_color(
+      "{}odes on '{}' reported by <{}> '{}' in {:.1f}s ({} supervisors seen):".format(
+      prefix, network, supervisor, super_alias, elapsed, nr_supers), 
+      color='b'
+    )
     import pandas as pd
     pd.set_option('display.float_format', '{:.4f}'.format)
-    log_with_color(f"{df}")    
+    log_with_color(f"{df}\n")    
   return
   
   
@@ -93,16 +108,93 @@ def get_supervisors(args):
     silent=not args.verbose,
     online_only=True,
     supervisors_only=True,
+    return_session=True,
   )
-  df, supervisor, super_alias, nr_supers, elapsed = res
+  df, supervisor, super_alias, nr_supers, elapsed, sess = res
   FILTERED = ['Oracle', 'State']
   df = df[[c for c in df.columns if c not in FILTERED]]
   
   if supervisor == "ERROR":
     log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')
   else:
-    log_with_color(f"Supervisors reported by <{supervisor}> '{super_alias}' in {elapsed:.1f}s", color='b')
+    log_with_color(
+      "Supervisors on '{}' reported by <{}> '{}' in {:.1f}s".format(
+      sess.bc_engine.evm_network, supervisor, super_alias, elapsed), 
+      color='b'
+    )
     log_with_color(f"{df}")
+  return
+
+
+def get_apps(args):
+  """
+  Shows the apps running on a given node, if the client is allowed on that node.
+  Parameters
+  ----------
+  args : argparse.Namespace
+      Arguments passed to the function.
+
+  """
+  verbose = args.verbose
+  node = args.node
+  show_full = args.full
+  as_json = args.json
+  owner = args.owner
+
+  # 1. Init session
+  from naeural_client import Session
+  sess = Session(
+    silent=not verbose
+  )
+  
+  res = sess.get_nodes_apps(
+    node=node, owner=owner, show_full=show_full, 
+    as_json=as_json, as_df=not as_json
+  )
+  if res is not None:
+    network = sess.bc_engine.evm_network
+    node_alias = sess.get_node_alias(node) if node else None
+    if as_json:
+      log_with_color(json.dumps(res, indent=2))
+    else:
+      df_apps = res
+      if df_apps.shape[0] == 0:
+        log_with_color(
+          "No user apps found on node <{}> '{}' of network '{}'".format(
+            node, node_alias, network            
+          ), 
+          color='r'
+        )
+        return
+      # remove Node column
+      if node is not None and owner is None:
+        df_apps.drop(columns=['Node'], inplace=True)
+      
+      if node is None and owner is not None:
+        df_apps.drop(columns=['Owner'], inplace=True)
+      
+      if node is not None:
+        last_seen = sess.get_last_seen_time(node)
+        last_seen_str = datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S') if last_seen else None
+        is_online = sess.check_node_online(node)    
+        node_status = 'Online' if is_online else 'Offline'
+      else:
+        last_seen_str = "N/A"
+        node_status = "N/A"
+      #end if node
+      if node == None:
+        node = "[All available]"
+      by_owner = f" by owner <{owner}>" if owner else ""    
+      log_with_color(f"Ratio1 client v{version}:\n", color='b')
+      log_with_color(
+        "Apps on <{}> ({}) [Status: {}| Last seen: {}]{}:".format(
+          node, network, node_status, last_seen_str, by_owner
+        ), 
+        color='b'
+      )
+      log_with_color(f"{df_apps}\n")
+    #end if as_json
+  #end if res is not None
   return
 
 def _send_command_to_node(args, command, ignore_not_found=False):

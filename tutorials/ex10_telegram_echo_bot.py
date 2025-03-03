@@ -3,14 +3,30 @@ import time
 
 from naeural_client import Session, CustomPluginTemplate, PLUGIN_TYPES
 
+
+def processor(plugin: CustomPluginTemplate):
+  """
+  This method will be continously called by the plugin to do any kind of required processing
+  without being triggered by a message. This is useful for example to check for new events in
+  a particular source or to do some kind of processing that is not directly related to a message
+  """
+  some_value = plugin.int_cache["app_counter"]
+  some_value += 1
+  if some_value > 1_000_000:
+    # arbitrary condition to reset the value
+    some_value = 0
+  plugin.int_cache["app_counter"] = some_value
+  return
+
 def reply(plugin: CustomPluginTemplate, message: str, user: str):
   """
   This function is used to reply to a message. The given parameters are mandatory
   """
   # for each user message we increase a counter
   plugin.int_cache[user] += 1 # int_cache is a default dict that allows persistence in the plugin
+  processor_value = plugin.int_cache["app_counter"]
   plugin.P(f"Replying to the {plugin.int_cache[user]} msg of '{user}' on message '{message}'")
-  result = f"The answer to your {plugin.int_cache[user]} question is in the question itself: {message}"
+  result = f"Processor at {processor_value}. The answer to your {plugin.int_cache[user]} question is in the question itself: '{message}'"
   return result
 
 
@@ -40,6 +56,7 @@ if __name__ == "__main__":
     name="telegram_bot_echo",
     # telegram_bot_token="your_token_goes_here",  # we use the token directly
     message_handler=reply,
+    processor_handler=processor,
   )
   
   pipeline.deploy() # we deploy the pipeline

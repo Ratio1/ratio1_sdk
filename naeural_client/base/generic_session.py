@@ -34,7 +34,9 @@ from .pipeline import Pipeline
 from .webapp_pipeline import WebappPipeline
 from .transaction import Transaction
 from ..utils.config import (
-  load_user_defined_config, get_user_config_file, get_user_folder, seconds_to_short_format
+  load_user_defined_config, get_user_config_file, get_user_folder, 
+  seconds_to_short_format, log_with_color, set_client_alias,
+  EE_SDK_ALIAS_ENV_KEY, EE_SDK_ALIAS_DEFAULT
 )
 
 # from ..default.instance import PLUGIN_TYPES # circular import
@@ -43,6 +45,8 @@ from ..utils.config import (
 
 DEBUG_MQTT_SERVER = "r9092118.ala.eu-central-1.emqxsl.com"
 SDK_NETCONFIG_REQUEST_DELAY = 300
+
+
 
 
 class GenericSession(BaseDecentrAIObject):
@@ -80,7 +84,7 @@ class GenericSession(BaseDecentrAIObject):
               user=None,
               pwd=None,
               secured=None,
-              name='R1SDK',
+              name=None,
               encrypt_comms=True,
               config={},
               filter_workers=None,
@@ -89,9 +93,9 @@ class GenericSession(BaseDecentrAIObject):
               on_notification=None,
               on_heartbeat=None,
               debug_silent=True,
-              debug=1,
-              silent=False,
+              debug=1,      # TODO: debug or verbosity - fix this
               verbosity=1,
+              silent=False,
               dotenv_path=None,
               show_commands=False,
               blockchain_config=BLOCKCHAIN_CONFIG,
@@ -114,32 +118,42 @@ class GenericSession(BaseDecentrAIObject):
     ----------
     host : str, optional
         The hostname of the server. If None, it will be retrieved from the environment variable AIXP_HOSTNAME
+        
     port : int, optional
         The port. If None, it will be retrieved from the environment variable AIXP_PORT
+        
     user : str, optional
         The user name. If None, it will be retrieved from the environment variable AIXP_USERNAME
+        
     pwd : str, optional
         The password. If None, it will be retrieved from the environment variable AIXP_PASSWORD
+        
     secured: bool, optional
         True if connection is secured, by default None
+        
     name : str, optional
         The name of this connection, used to identify owned pipelines on a specific Naeural Edge Protocol edge node.
         The name will be used as `INITIATOR_ID` and `SESSION_ID` when communicating with Naeural Edge Protocol edge nodes, by default 'pySDK'
+        
     config : dict, optional
         Configures the names of the channels this session will connect to.
         If using a Mqtt server, these channels are in fact topics.
         Modify this if you are absolutely certain of what you are doing.
         By default {}
+        
     filter_workers: list, optional
         If set, process the messages that come only from the nodes from this list.
         Defaults to None
+        
     show_commands : bool
         If True, will print the commands that are being sent to the Naeural Edge Protocol edge nodes.
         Defaults to False
+        
     log : Logger, optional
         A logger object which implements basic logging functionality and some other utils stuff. Can be ignored for now.
         In the future, the documentation for the Logger base class will be available and developers will be able to use
         custom-made Loggers.
+        
     on_payload : Callable[[Session, str, str, str, str, dict], None], optional
         Callback that handles all payloads received from this network.
         As arguments, it has a reference to this Session object, the node name, the pipeline, signature and instance, and the payload.
@@ -191,11 +205,24 @@ class GenericSession(BaseDecentrAIObject):
         If True, the SDK will use the home folder as the base folder for the local cache.
         NOTE: if you need to use development style ./_local_cache, set this to False.
     """
+    
+    # TODO: clarify verbosity vs debug
+    
     debug = debug or not debug_silent
     if isinstance(debug, bool):
       debug = 2 if debug else 0
+      
+    if verbosity > 1 and debug <=1:
+      debug = 2
     
     self.__debug = int(debug) > 0
+    self._verbosity = verbosity
+    
+    if self.__debug:
+      if not silent:
+        log_with_color(f"Debug mode enabled: {debug=}, {verbosity=}", color='y')
+    
+    ### END verbosity fix needed
     
     self.__at_least_one_node_peered = False
     self.__at_least_a_netmon_received = False
@@ -214,12 +241,13 @@ class GenericSession(BaseDecentrAIObject):
     self.__auto_configuration = auto_configuration
 
     self.log = log
+          
+    
     self.name = name
     self.silent = silent
     
     self.__eth_enabled = eth_enabled
 
-    self._verbosity = verbosity
     self.encrypt_comms = encrypt_comms
 
     self._dct_online_nodes_pipelines: dict[str, Pipeline] = {}
@@ -283,6 +311,9 @@ class GenericSession(BaseDecentrAIObject):
       # use_home_folder allows us to use the home folder as the base folder
       local_cache_base_folder = str(get_user_folder())
     # end if
+
+    ## 1st config step before anything else - we prepare config via ~/.ratio1/config or .env
+    self.__load_user_config(dotenv_path=self.__dotenv_path)
     
       
     super(GenericSession, self).__init__(
@@ -295,16 +326,15 @@ class GenericSession(BaseDecentrAIObject):
     )
     return
   
-  def Pd(self, *args, **kwargs):
-    if self.__debug:
+  def Pd(self, *args, verbosity=1, **kwargs):
+    if self.__debug and verbosity <= self._verbosity:
       kwargs["color"] = 'd' if kwargs.get("color") != 'r' else 'r'
-      self.log.P(*args, **kwargs)
+      kwargs['forced_debug'] = True
+      self.D(*args, **kwargs)
     return
   
 
-  def startup(self):    
-    ## 1st config step - we prepare config via ~/.naeural/config or .env
-    self.__load_user_config(dotenv_path=self.__dotenv_path)
+  def startup(self):        
 
     # TODO: needs refactoring - suboptimal design
     # start the blockchain engine assuming config is already set
@@ -319,7 +349,7 @@ class GenericSession(BaseDecentrAIObject):
       dauth_endp=None, # get from consts or env
       add_env=self.__auto_configuration,
       debug=False,
-      sender_alias='SDK'
+      sender_alias=self.name
     )
     # end bc_engine
     # END TODO
@@ -370,6 +400,13 @@ class GenericSession(BaseDecentrAIObject):
 
     self.__start_main_loop_thread()
     super(GenericSession, self).startup()
+
+
+  def _shorten_addr(self, addr: str) -> str:
+    if not isinstance(addr, str) or len(addr) < 15 or '...' in addr:
+      return addr
+    return addr[:11] + '...' + addr[-4:]
+
 
   # Message callbacks
   if True:
@@ -578,19 +615,32 @@ class GenericSession(BaseDecentrAIObject):
         **kwargs
       )
       self.bc_engine.sign(msg_to_send)
-      self.P(f'Sending encrypted payload to <{node_addr}>', color='d')
+      self.P(f'Sending encrypted payload to <{self._shorten_addr(node_addr)}>', color='d')
       self._send_payload(msg_to_send)
       return
 
-    def __request_pipelines_from_net_config_monitor(self, node_addr):
+    def __request_pipelines_from_net_config_monitor(self, node_addr=None):
       """
-      Request the pipelines for a node from the net-config monitor plugin instance.
+      Request the pipelines for a node sending the payload to the 
+      the net-config monitor plugin instance of that given node or nodes.
+      
+      
       Parameters
       ----------
-      node_addr : str or list
+      node_addr : str or list (optional)
           The address or list of the edge node(s) that sent the message.
+          If None, the request will be sent to all nodes that are allowed to receive messages.
+          
+      OBSERVATION: 
+        This method should be called without node_addr(s) as it will get all the known peered nodes
+        and request the pipelines from them. Formely, this method was called following a netmon message
+        however, this was not the best approach as the netmon message might contain limited amount of
+        peer information is some cases.
 
       """
+      if node_addr is None:
+        node_addr = [k for k, v in self._dct_can_send_to_node.items() if v]
+      # end if
       assert node_addr is not None, "Node address cannot be None"
       payload = {
         NET_CONFIG.NET_CONFIG_DATA: {
@@ -603,17 +653,53 @@ class GenericSession(BaseDecentrAIObject):
       }
       if isinstance(node_addr, str):
         node_addr = [node_addr]
-      dest = [
-        f"<{x}> '{self.__dct_node_address_to_alias.get(x, None)}'"  for x in node_addr 
-      ]
-      self.D(f"<NETCFG> Sending request to:\n{json.dumps(dest, indent=2)}", color='y')
-      self.send_encrypted_payload(
-        node_addr=node_addr, payload=payload,
-        additional_data=additional_data
-      )
-      for node in node_addr:
-        self._dct_netconfig_pipelines_requests[node] = tm()      
+      
+      # now we filter only the nodes that have not been requested recently
+      node_addr = [x for x in node_addr if self.__needs_netconfig_request(x)]
+                  
+      if len(node_addr) > 0:
+        dest = [
+          f"<{x}> '{self.__dct_node_address_to_alias.get(x, None)}'"  for x in node_addr 
+        ]
+        self.D(f"<NC> Sending request to:\n{json.dumps(dest, indent=2)}")    
+            
+        self.send_encrypted_payload(
+          node_addr=node_addr, payload=payload,
+          additional_data=additional_data
+        )
+        for node in node_addr:
+          self._dct_netconfig_pipelines_requests[node] = tm()   
+      # end if   
       return
+    
+
+
+    def __needs_netconfig_request(self, node_addr : str) -> bool:
+      """
+      Check if a net-config request is needed for a node.
+
+      Parameters
+      ----------
+      node_addr : str
+          The address of the edge node.
+
+      Returns
+      -------
+      bool
+          True if a net-config request is needed, False otherwise
+      """
+      short_addr = self._shorten_addr(node_addr)
+      last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
+      elapsed = tm() - last_requested_by_netmon
+      str_elapsed = f"{elapsed:.0f}s ago" if elapsed < 9999999 else "never"
+      needs_netconfig_request = elapsed > SDK_NETCONFIG_REQUEST_DELAY
+      if needs_netconfig_request:
+        self.D(f"<NC> Node <{short_addr}> needs update as last request was {str_elapsed} > {SDK_NETCONFIG_REQUEST_DELAY}")
+      else:
+        self.D(f"<NC> Node <{short_addr}> does NOT need update as last request was {str_elapsed} < {SDK_NETCONFIG_REQUEST_DELAY}")
+      return needs_netconfig_request
+
+    
 
     def __track_allowed_node_by_netmon(self, node_addr, dict_msg):
       """
@@ -643,38 +729,47 @@ class GenericSession(BaseDecentrAIObject):
       
       client_is_allowed = self.bc_engine.contains_current_address(node_whitelist)
       can_send = not node_secured or client_is_allowed or self.bc_engine.address == node_addr      
-      if node_addr not in self._dct_can_send_to_node and can_send:
+      self._dct_can_send_to_node[node_addr] = can_send
+      short_addr = self._shorten_addr(node_addr)
+      if can_send:
         if node_online:
           # only attempt to request pipelines if the node is online and if not recently requested
-          last_requested_by_netmon = self._dct_netconfig_pipelines_requests.get(node_addr, 0)
-          if tm() - last_requested_by_netmon > SDK_NETCONFIG_REQUEST_DELAY:
-            needs_netconfig = True
-          else:
-            self.D(f"Node <{node_addr}> is online but pipelines were recently requested", color='y')
+          needs_netconfig= self.__needs_netconfig_request(node_addr)
         else:
-          self.D(f"Node <{node_addr}> is offline thus NOT sending net-config request", color='y')
+          self.D(f"<NC> Node <{short_addr}> is OFFLINE thus NOT sending net-config request")
       # endif node seen for the first time
-
-      self._dct_can_send_to_node[node_addr] = can_send
       return needs_netconfig
     
     
-    def __process_node_pipelines(self, node_addr, pipelines):
+    def __process_node_pipelines(
+      self, 
+      node_addr : str, 
+      pipelines : list, 
+      plugins_statuses : list
+    ):
       """
-      Given a list of pipeline configurations, create or update the pipelines for a node.      
+      Given a list of pipeline configurations, create or update the pipelines for a node
+      including the liveness of the plugins required for app monitoring      
       """
       new_pipelines = []
       if node_addr not in self._dct_online_nodes_pipelines:
         self._dct_online_nodes_pipelines[node_addr] = {}
       for config in pipelines:
         pipeline_name = config[PAYLOAD_DATA.NAME]
-        pipeline: Pipeline = self._dct_online_nodes_pipelines[node_addr].get(pipeline_name, None)
+        pipeline: Pipeline = self._dct_online_nodes_pipelines[node_addr].get(
+          pipeline_name, None
+        )
         if pipeline is not None:
-          pipeline._sync_configuration_with_remote({k.upper(): v for k, v in config.items()})
+          pipeline._sync_configuration_with_remote(
+            config={k.upper(): v for k, v in config.items()},
+            plugins_statuses=plugins_statuses,
+          )
         else:
-          self._dct_online_nodes_pipelines[node_addr][pipeline_name] = self.__create_pipeline_from_config(
-            node_addr, config)
-          new_pipelines.append(self._dct_online_nodes_pipelines[node_addr][pipeline_name])
+          pipeline : Pipeline = self.__create_pipeline_from_config(
+            node_addr=node_addr, config=config, plugins_statuses=plugins_statuses
+          )
+          self._dct_online_nodes_pipelines[node_addr][pipeline_name] = pipeline
+          new_pipelines.append(pipeline)
       return new_pipelines
 
     def __on_heartbeat(self, dict_msg: dict, msg_node_addr, msg_pipeline, msg_signature, msg_instance):
@@ -685,12 +780,16 @@ class GenericSession(BaseDecentrAIObject):
       ----------
       dict_msg : dict
           The message received from the communication server
+
       msg_node_addr : str
           The address of the Naeural Edge Protocol edge node that sent the message.
+
       msg_pipeline : str
           The name of the pipeline that sent the message.
+
       msg_signature : str
           The signature of the plugin that sent the message.
+
       msg_instance : str
           The name of the instance that sent the message.
       """
@@ -714,21 +813,24 @@ class GenericSession(BaseDecentrAIObject):
       )
 
       msg_active_configs = dict_msg.get(HB.CONFIG_STREAMS)
+      whitelist = dict_msg.get(HB.EE_WHITELIST, [])
+      is_allowed = self.bc_engine.contains_current_address(whitelist)
       if msg_active_configs is None:
         msg_active_configs = []      
       # at this point we dont return if no active configs are present
       # as the protocol should NOT send a heartbeat with active configs to
       # the entire network, only to the interested parties via net-config
-
-      self.D("<HB> Received {} with {} pipelines".format(
-        msg_node_addr, len(msg_active_configs)), verbosity=2
+      short_addr = self._shorten_addr(msg_node_addr)
+      self.D("<HB> Received {} with {} pipelines (wl: {}, allowed: {})".format(
+          short_addr, len(msg_active_configs), len(whitelist), is_allowed
+        ), verbosity=2
       )
 
       if len(msg_active_configs) > 0:
         # this is for legacy and custom implementation where heartbeats still contain
         # the pipeline configuration.
         pipeline_names = [x.get(PAYLOAD_DATA.NAME, None) for x in msg_active_configs]
-        self.D(f'<HB> Processing pipelines from <{msg_node_addr}>:{pipeline_names}', color='y')
+        self.D(f'<HB> Processing pipelines from <{short_addr}>:{pipeline_names}', color='y')
         self.__process_node_pipelines(msg_node_addr, msg_active_configs)
 
       # TODO: move this call in `__on_message_default_callback`
@@ -780,7 +882,7 @@ class GenericSession(BaseDecentrAIObject):
       self.D("Received notification {} from <{}/{}>: {}"
              .format(
                 notification_type,
-                msg_node_addr,
+                self._shorten_addr(msg_node_addr),
                 msg_pipeline,
                 notification),
              color=color,
@@ -829,6 +931,8 @@ class GenericSession(BaseDecentrAIObject):
           online_addresses = []
           all_addresses = []
           lst_netconfig_request = []
+          short_addr = self._shorten_addr(sender_addr)
+          self.D(f"<NM> Processing {len(current_network)} from <{short_addr}> `{ee_id}`")
           for _ , node_data in current_network.items():
             needs_netconfig = False
             node_addr = node_data.get(PAYLOAD_DATA.NETMON_ADDRESS, None)
@@ -846,15 +950,22 @@ class GenericSession(BaseDecentrAIObject):
             if needs_netconfig:
               lst_netconfig_request.append(node_addr)
           # end for each node in network map
-          self.Pd(f"Net mon from <{sender_addr}> `{ee_id}`:  {len(online_addresses)}/{len(all_addresses)}")
-          if len(lst_netconfig_request) > 0:
-            self.__request_pipelines_from_net_config_monitor(lst_netconfig_request)
+          self.Pd(f"<NM> <{short_addr}> `{ee_id}`:  {len(online_addresses)} online of total {len(all_addresses)} nodes")
+          first_request = len(self._dct_netconfig_pipelines_requests) == 0
+          if len(lst_netconfig_request) > 0 or first_request:
+            str_msg = "First request for" if first_request else "Requesting"
+            msg = f"<NC> {str_msg} pipelines from at least {len(lst_netconfig_request)} nodes"
+            if first_request:
+              self.P(msg, color='y')
+            else:
+              self.Pd(msg, verbosity=2)            
+            self.__request_pipelines_from_net_config_monitor()
           # end if needs netconfig
           nr_peers = sum(self._dct_can_send_to_node.values())
           if nr_peers > 0 and not self.__at_least_one_node_peered:                
             self.__at_least_one_node_peered = True
             self.P(
-              f"Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
+              f"<NM> Received {PLUGIN_SIGNATURES.NET_MON_01} from {sender_addr}, so far {nr_peers} peers that allow me: {json.dumps(self._dct_can_send_to_node, indent=2)}", 
               color='g'
             )
           # end for each node in network map
@@ -878,7 +989,7 @@ class GenericSession(BaseDecentrAIObject):
         sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
         short_sender_addr = sender_addr[:8] + '...' + sender_addr[-4:]
         if self.client_address == sender_addr:
-          self.D("<NETCFG> Ignoring message from self", color='d')
+          self.D("<NC> Ignoring message from self", color='d')
           return
         receiver = dict_msg.get(PAYLOAD_DATA.EE_DESTINATION, None)
         if not isinstance(receiver, list):
@@ -888,26 +999,32 @@ class GenericSession(BaseDecentrAIObject):
         op = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {}).get(NET_CONFIG.OPERATION, "UNKNOWN")
         # drop any incoming request as we are not a net-config provider just a consumer
         if op == NET_CONFIG.REQUEST_COMMAND:
-          self.P(f"<NETCFG> Dropping request from <{short_sender_addr}> `{ee_id}`", color='d')
+          self.Pd(f"<NC> Dropping request from <{short_sender_addr}> `{ee_id}`")
           return
         
         # check if I am allowed to see this payload
         if not self.bc_engine.contains_current_address(receiver):
-          self.P(f"<NETCFG> Received `{op}` from <{short_sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
+          self.P(f"<NC> Received `{op}` from <{short_sender_addr}> `{ee_id}` but I am not in the receiver list: {receiver}", color='d')
           return                
 
         # encryption check. By now all should be decrypted
         is_encrypted = dict_msg.get(PAYLOAD_DATA.EE_IS_ENCRYPTED, False)
         if not is_encrypted:
-          self.P(f"<NETCFG> Received from <{short_sender_addr}> `{ee_id}` but it is not encrypted", color='r')
+          self.P(f"<NC> Received from <{short_sender_addr}> `{ee_id}` but it is not encrypted", color='r')
           return
         net_config_data = dict_msg.get(NET_CONFIG.NET_CONFIG_DATA, {})
-        received_pipelines = net_config_data.get('PIPELINES', [])
-        self.D(f"<NETCFG> Received {len(received_pipelines)} pipelines from <{sender_addr}> `{ee_id}`")
-        new_pipelines = self.__process_node_pipelines(sender_addr, received_pipelines)
+        received_pipelines = net_config_data.get(NET_CONFIG.PIPELINES, [])
+        received_plugins = net_config_data.get(NET_CONFIG.PLUGINS_STATUSES, [])
+        self.D(f"<NC> Received {len(received_pipelines)} pipelines from <{sender_addr}> `{ee_id}`")
+        if self._verbosity > 2:
+          self.D(f"<NC> {ee_id} Netconfig data:\n{json.dumps(net_config_data, indent=2)}")
+        new_pipelines = self.__process_node_pipelines(
+          node_addr=sender_addr, pipelines=received_pipelines,
+          plugins_statuses=received_plugins
+        )
         pipeline_names = [x.name for x in new_pipelines]
         if len(new_pipelines) > 0:
-          self.P(f'<NETCFG>   Received NEW pipelines from <{sender_addr}> `{ee_id}`:{pipeline_names}', color='y')
+          self.P(f'<NC>   Received NEW pipelines from <{sender_addr}> `{ee_id}`:{pipeline_names}', color='y')
       return True
       
 
@@ -1329,8 +1446,8 @@ class GenericSession(BaseDecentrAIObject):
   if True:
     
     def __load_user_config(self, dotenv_path):
-      # if the ~/.naeural/config file exists, load the credentials from there else try to load them from .env
-      if not load_user_defined_config(verbose=not self.log.silent):        
+      # if the ~/.ratio1/config file exists, load the credentials from there else try to load them from .env
+      if not load_user_defined_config(verbose=not self.silent):        
         # this method will search for the credentials in the environment variables
         # the path to env file, if not specified, will be search in the following order:
         #  1. current working directory
@@ -1338,14 +1455,33 @@ class GenericSession(BaseDecentrAIObject):
         load_dotenv(dotenv_path=dotenv_path, verbose=False)
         if not self.silent:
           keys = [k for k in os.environ if k.startswith("EE_")]
-          print("Loaded credentials from environment variables: {keys}", flush=True)
+          if not self.silent:
+            log_with_color(f"Loaded credentials from environment variables: {keys}", color='y')
         self.__user_config_loaded = False
       else:
         if not self.silent:
           keys = [k for k in os.environ if k.startswith("EE_")]
-          print(f"Loaded credentials from `{get_user_config_file()}`: {keys}.", flush=True)
+          if not self.silent:
+            log_with_color(f"Loaded credentials from `{get_user_config_file()}`: {keys}.", color='y')
         self.__user_config_loaded = True
       # endif config loading from ~ or ./.env      
+      
+      if self.name is None:
+        from naeural_client.logging.logger_mixins.utils_mixin import _UtilsMixin
+        random_name = _UtilsMixin.get_random_name()
+        default = EE_SDK_ALIAS_DEFAULT + '-' + random_name
+        self.name = os.environ.get(EE_SDK_ALIAS_ENV_KEY, default)
+        if EE_SDK_ALIAS_ENV_KEY not in os.environ:
+          if not self.silent:
+            log_with_color(f"Using default SDK alias: {self.name}. Writing the user config file...", color='y')
+            set_client_alias(self.name)
+          #end with
+        else:
+          if not self.silent:
+            log_with_color(f"SDK Alias (from env): {self.name}.", color='y')
+        #end if
+      #end name is None      
+      return self.__user_config_loaded
     
     def __fill_config(self, host, port, user, pwd, secured):
       """
@@ -1758,7 +1894,12 @@ class GenericSession(BaseDecentrAIObject):
         self.__open_transactions.append(transaction)
       return transaction
 
-    def __create_pipeline_from_config(self, node_addr, config):
+    def __create_pipeline_from_config(
+      self, 
+      node_addr : str, 
+      config : dict,
+      plugins_statuses : list = None,
+    ):
       pipeline_config = {k.lower(): v for k, v in config.items()}
       name = pipeline_config.pop('name', None)
       plugins = pipeline_config.pop('plugins', None)
@@ -1771,6 +1912,7 @@ class GenericSession(BaseDecentrAIObject):
         name=name,
         plugins=plugins,
         existing_config=pipeline_config,
+        plugins_statuses=plugins_statuses,
       )
 
       return pipeline
@@ -2288,9 +2430,9 @@ class GenericSession(BaseDecentrAIObject):
       bool
           True if the node is online, False otherwise.
       """
-
+      short_addr = self._shorten_addr(node)
       if verbose:
-        self.P("Waiting for node '{}' to appear online...".format(node))
+        self.Pd("Waiting for node '{}' to appear online...".format(short_addr))
 
       _start = tm()
       found = self.check_node_online(node)
@@ -2301,9 +2443,9 @@ class GenericSession(BaseDecentrAIObject):
 
       if verbose:
         if found:
-          self.P("Node '{}' is online.".format(node))
+          self.P("Node '{}' is online.".format(short_addr))
         else:
-          self.P("Node '{}' did not appear online in {:.1f}s.".format(node, tm() - _start), color='r')
+          self.P("Node '{}' did not appear online in {:.1f}s.".format(short_addr, tm() - _start), color='r')
       return found
 
     def wait_for_node_configs(
@@ -2328,8 +2470,8 @@ class GenericSession(BaseDecentrAIObject):
       bool
           True if the node has its configurations loaded, False otherwise.
       """
-
-      self.P("Waiting for node '{}' to have its configurations loaded...".format(node))
+      short_addr = self._shorten_addr(node)
+      self.P("Waiting for node '{}' to have its configurations loaded...".format(short_addr))
 
       _start = tm()
       found = self.check_node_config_received(node)
@@ -2339,7 +2481,7 @@ class GenericSession(BaseDecentrAIObject):
         sleep(0.1)
         found = self.check_node_config_received(node)
         if not found and not additional_request_sent and (tm() - _start) > request_time_thr and attempt_additional_requests:
-          self.P("Re-requesting configurations of node '{}'...".format(node), show=True)
+          self.P("Re-requesting configurations of node '{}'...".format(short_addr), show=True)
           node_addr = self.__get_node_address(node)
           self.__request_pipelines_from_net_config_monitor(node_addr)
           additional_request_sent = True
@@ -2347,9 +2489,9 @@ class GenericSession(BaseDecentrAIObject):
 
       if verbose:
         if found:
-          self.P(f"Received configurations of node '{node}'.")
+          self.P(f"Received configurations of node '{short_addr}'.")
         else:
-          self.P(f"Node '{node}' did not send configs in {(tm() - _start)}. Client might not be authorized!", color='r')
+          self.P(f"Node '{short_addr}' did not send configs in {(tm() - _start)}. Client might not be authorized!", color='r')
       return found
 
     def check_node_config_received(self, node):
@@ -2624,6 +2766,7 @@ class GenericSession(BaseDecentrAIObject):
       name,
       signature=PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01,
       message_handler=None,
+      processor_handler=None,
       telegram_bot_token=None,
       telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
       telegram_bot_name=None,
@@ -2647,6 +2790,10 @@ class GenericSession(BaseDecentrAIObject):
           
       message_handler : callable, optional  
           The message handler function that will be called when a message is received. Defaults to None.
+          
+      processor_handler : callable, optional
+          The processor handler function that will be called in a processing loop within the 
+          Telegram bot plugin in parallel with the message handler. Defaults to None.
           
       telegram_bot_token : str, optional  
           The Telegram bot token. Defaults to None.
@@ -2687,6 +2834,11 @@ class GenericSession(BaseDecentrAIObject):
       )
       
       func_name, func_args, func_base64_code = pipeline._get_method_data(message_handler)
+      
+      proc_func_args, proc_func_base64_code =[], None
+      if processor_handler is not None:
+        _, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processor_handler)
+      
       if len(func_args) != 2:
         raise ValueError("The message handler function must have exactly 3 arguments: `plugin`, `message` and `user`.")
       
@@ -2700,6 +2852,8 @@ class GenericSession(BaseDecentrAIObject):
         message_handler=func_base64_code,
         message_handler_args=func_args, # mandatory message and user
         message_handler_name=func_name, # not mandatory
+        processor_handler=proc_func_base64_code, # not mandatory
+        processor_handler_args=proc_func_args, # not mandatory
         **kwargs
       )      
       return pipeline, instance
@@ -3133,3 +3287,132 @@ class GenericSession(BaseDecentrAIObject):
       if df_only:
         return dct_result[SESSION_CT.NETSTATS_REPORT]
       return dct_result
+
+
+  def get_nodes_apps(
+    self, 
+    node=None, 
+    owner=None, 
+    show_full=False, 
+    as_json=False, 
+    show_errors=False, 
+    as_df=False
+  ):
+    """
+    Get the workload status of a node.
+    
+    Parameters
+    ----------
+
+    node : str, optional
+        The address or name of the Naeural Edge Protocol edge node. Defaults to None.
+    
+    owner : str, optional
+        The owner of the apps to filter. Defaults to None.
+        
+    show_full : bool, optional  
+        If True, will show the full configuration of the apps. Defaults to False.
+        
+    as_json : bool, optional
+        If True, will return the result as a JSON. Defaults to False.
+        
+    show_errors : bool, optional 
+        If True, will show the errors. Defaults to False.
+    
+    as_df : bool, optional  
+        If True, will return the result as a Pandas DataFrame. Defaults to False.
+ 
+
+    Returns
+    -------
+
+    list
+        A list of dictionaries containing the workload status
+        of the specified node.
+        
+        
+    """
+    lst_plugin_instance_data = []    
+    if node is None:
+      nodes = self.get_active_nodes()
+    else:
+      nodes = [node]
+    found_nodes = []
+    for node in nodes:
+      short_addr = self._shorten_addr(node)      
+      # 2. Wait for node to appear online    
+      node_found = self.wait_for_node(node)
+      if node_found:
+        found_nodes.append(node)
+      
+      # 3. Check if the node is peered with the client
+      is_allowed = self.is_peered(node)
+      if not is_allowed:
+        if show_errors:
+          log_with_color(f"Node {short_addr} is not peered with this client. Skipping..", color='r')
+        continue
+      
+      # 4. Wait for node to send the configuration.
+      self.wait_for_node_configs(node)
+      apps = self.get_active_pipelines(node)
+      if apps is None:
+        if show_errors:
+          log_with_color(f"No apps found on node {short_addr}. Client might not be authorized", color='r')
+        continue
+      
+      # 5. Maybe exclude admin application.
+      if not show_full:
+        apps = {k: v for k, v in apps.items() if str(k).lower() != 'admin_pipeline'}
+        
+      # 6. Show the apps
+      if as_json:
+        # Will print a big JSON with all the app configurations.
+        lst_plugin_instance_data.append({k: v.get_full_config() for k, v in apps.items()})
+      else:
+        for pipeline_name, pipeline in apps.items():
+          pipeline_owner = pipeline.config.get("INITIATOR_ADDR")
+          if owner is not None and owner != pipeline_owner:
+            continue
+          pipeline_alias = pipeline.config.get("INITIATOR_ID")
+          for instance in pipeline.lst_plugin_instances:
+            instance_status = instance.get_status()
+            if len(instance_status) == 0:
+              # this instance is only present in config but is NOT loaded so ignore it
+              continue
+            start_time = instance_status.get('INIT_TIMESTAMP')
+            last_probe = instance_status.get('EXEC_TIMESTAMP')
+            last_data = instance_status.get('LAST_PAYLOAD_TIME')
+            dates = [start_time, last_probe, last_data]
+            for i in range(len(dates)):
+              if isinstance(dates[i], str):
+                if dates[i].startswith('1970'):
+                  dates[i] = 'Never'
+                elif '.' in dates[i]:
+                  dates[i] = dates[i].split('.')[0]
+            lst_plugin_instance_data.append({
+              'Node'  : node,
+              'Owner' : pipeline_owner,
+              'Alias' : pipeline_alias,
+              'App': pipeline_name,
+              'Plugin': instance.signature,
+              'Id': instance.instance_id,
+              'Start' : dates[0],
+              'Probe' : dates[1],
+              'Data' : dates[2],
+            })
+          # endfor instances in app
+        # endfor apps
+      # endif as_json or as dict-for-df
+    # endfor nodes  
+    if len(found_nodes) == 0:
+      log_with_color(f'Node(s) {nodes} not found. Please check the configuration.', color='r')
+      return 
+    if as_df:
+      df = pd.DataFrame(lst_plugin_instance_data)
+      if not (df.empty or df.shape[0] == 0):
+        df['Node'] = df['Node'].apply(lambda x: self._shorten_addr(x))
+        df['Owner'] = df['Owner'].apply(lambda x: self._shorten_addr(x))
+      # end if not empty
+      return df
+    return lst_plugin_instance_data
+  

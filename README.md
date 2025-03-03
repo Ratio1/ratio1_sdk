@@ -65,18 +65,18 @@ Comprehensive documentation for the Ratio1 SDK is currently a work in progress. 
 
 Starting with version 2.6+, the Ratio1 SDK automatically performs self-configuration using **dAuth**—the Ratio1 decentralized self-authentication system. To begin integrating with the Ratio1 network, follow these steps:
 
-### 1. Start a Local Edge Node
+### 1. Start a Local Edge Node (testnet)
 
 Launch a local Ratio1 Edge Node using Docker:
 
 ```bash
-docker run -d --name=r1node naeural/edge_node:develop
+docker run -d --name=r1node naeural/edge_node:testnet
 ```
 
 if you want to have a persistent volume for the node, you can use the following command:
 
 ```bash
-docker run -d --name=r1node --rm --pull=always -v r1vol:/edge_node/_local_cache naeural/edge_node:develop
+docker run -d --name=r1node --rm --pull=always -v r1vol:/edge_node/_local_cache naeural/edge_node:testnet
 ```
 This way the node will store its data in the `r1vol` volume, and you can stop and start the node without losing data you might have stored in the node via deployed jobs from your SDK. We also added the `--pull=always` flag to ensure that the latest version of the node is always pulled from the Docker Hub.
 
