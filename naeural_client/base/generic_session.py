@@ -2835,9 +2835,9 @@ class GenericSession(BaseDecentrAIObject):
       
       func_name, func_args, func_base64_code = pipeline._get_method_data(message_handler)
       
-      proc_func_name, proc_func_args = None, []
+      proc_func_args, proc_func_base64_code =[], None
       if processor_handler is not None:
-        proc_func_name, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processor_handler)
+        _, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processor_handler)
       
       if len(func_args) != 2:
         raise ValueError("The message handler function must have exactly 3 arguments: `plugin`, `message` and `user`.")
@@ -2852,8 +2852,8 @@ class GenericSession(BaseDecentrAIObject):
         message_handler=func_base64_code,
         message_handler_args=func_args, # mandatory message and user
         message_handler_name=func_name, # not mandatory
-        processor_handler=proc_func_base64_code,
-        processor_handler_args=proc_func_args,
+        processor_handler=proc_func_base64_code, # not mandatory
+        processor_handler_args=proc_func_args, # not mandatory
         **kwargs
       )      
       return pipeline, instance
