@@ -2868,8 +2868,8 @@ class GenericSession(BaseDecentrAIObject):
       telegram_bot_token=None,
       telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
       telegram_bot_name=None,
-      telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,
-      
+      telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,      
+      processor_handler=None,            
       system_prompt=None,
       agent_type="API",
       api_token_env_key=ENVIRONMENT.TELEGRAM_API_AGENT_TOKEN_ENV_KEY,
@@ -2943,6 +2943,7 @@ class GenericSession(BaseDecentrAIObject):
         if telegram_bot_name is None:
           message = f"Warning! No Telegram bot name provided as via env {ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY} or explicitly as `telegram_bot_name` param."
           raise ValueError(message)
+
       
 
       pipeline: Pipeline = self.create_pipeline(
@@ -2950,6 +2951,10 @@ class GenericSession(BaseDecentrAIObject):
         name=name,
         # default TYPE is "Void"
       )
+
+      proc_func_args, proc_func_base64_code =[], None
+      if processor_handler is not None:
+        _, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processor_handler)
       
       
       obfuscated_token = telegram_bot_token[:4] + "*" * (len(telegram_bot_token) - 4)      
@@ -2957,8 +2962,13 @@ class GenericSession(BaseDecentrAIObject):
       instance = pipeline.create_plugin_instance(
         signature=signature,
         instance_id=self.log.get_unique_id(),
+
         telegram_bot_token=telegram_bot_token,
         telegram_bot_name=telegram_bot_name,
+
+        processor_handler=proc_func_base64_code, # not mandatory
+        processor_handler_args=proc_func_args, # not mandatory
+
         system_prompt=system_prompt,
         agent_type=agent_type,
         api_token=api_token,
