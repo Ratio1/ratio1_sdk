@@ -105,7 +105,7 @@ class GenericSession(BaseDecentrAIObject):
               local_cache_base_folder=None,
               local_cache_app_folder='_local_cache',
               use_home_folder=True,
-              eth_enabled=None,
+              eth_enabled=True,
               auto_configuration=True,
               **kwargs
             ) -> None:
