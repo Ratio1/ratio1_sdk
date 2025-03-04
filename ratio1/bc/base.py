@@ -1419,7 +1419,7 @@ class BaseBlockEngine(_EVMMixin):
     except:
       app_version = None
     try:
-      from ratio1_core.main.ver import __VER__ as core_version
+      from naeural_core.main.ver import __VER__ as core_version
     except:
       core_version = None
       
