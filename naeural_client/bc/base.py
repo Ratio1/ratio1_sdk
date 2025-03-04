@@ -319,7 +319,7 @@ class BaseBlockEngine(_EVMMixin):
     self.__config = config
     self.__ensure_ascii_payloads = ensure_ascii_payloads
     
-    self.__eth_enabled = eth_enabled
+    self._eth_enabled = eth_enabled
     
     if user_config:
       user_folder = get_user_folder()
@@ -350,12 +350,12 @@ class BaseBlockEngine(_EVMMixin):
   
   @property
   def eth_enabled(self):
-    return self.__eth_enabled
+    return self._eth_enabled
 
 
   def set_eth_flag(self, value):    
-    if value != self.__eth_enabled:
-      self.__eth_enabled = value
+    if value != self._eth_enabled:
+      self._eth_enabled = value
       self.log.P("Changed eth_enabled to {}".format(value), color='d')
     return
 
@@ -377,7 +377,7 @@ class BaseBlockEngine(_EVMMixin):
 
   def _init(self):
     self.P(
-      f"Initializing BC-engine (ETH_ENABLED={self.__eth_enabled})...", verbosity=1
+      f"Initializing BC-engine (ETH_ENABLED={self._eth_enabled})...", verbosity=1
     )
 
     if True:
@@ -414,7 +414,7 @@ class BaseBlockEngine(_EVMMixin):
     self.__eth_address = self._get_eth_address()
     self.__eth_account = self._get_eth_account()
     ### end Ethereum
-    if self.__eth_enabled:
+    if self._eth_enabled:
       self.P(
         "{} / ETH: {} ({})".format(self.address, self.eth_address, self.evm_network), boxed=True, verbosity=1,
         color='g'
@@ -1212,7 +1212,7 @@ class BaseBlockEngine(_EVMMixin):
       dct_data[BCct.SIGN] = result
       dct_data[BCct.SENDER] = self.address
       
-      if self.__eth_enabled:
+      if self._eth_enabled:
         dct_data[BCct.ETH_SENDER] = self.eth_address
         ### add eth signature
         dct_data[BCct.ETH_SIGN] = "0xBEEF"

@@ -246,7 +246,7 @@ class GenericSession(BaseDecentrAIObject):
     self.name = name
     self.silent = silent
 
-    self.__eth_enabled = eth_enabled
+    self._eth_enabled = eth_enabled
 
     self.encrypt_comms = encrypt_comms
 
@@ -1117,9 +1117,9 @@ class GenericSession(BaseDecentrAIObject):
         return
 
       try:
-        if EE_VPN_IMPL and self.__eth_enabled:
+        if EE_VPN_IMPL and self._eth_enabled:
           self.P("Disabling ETH for VPN implementation", color='r')
-          self.__eth_enabled = False
+          self._eth_enabled = False
         
         self.bc_engine = DefaultBlockEngine(
           log=self.log,
@@ -1127,13 +1127,13 @@ class GenericSession(BaseDecentrAIObject):
           config=blockchain_config,
           verbosity=self._verbosity,
           user_config=user_config,
-          eth_enabled=self.__eth_enabled, 
+          eth_enabled=self._eth_enabled, 
         )
       except:
         raise ValueError("Failure in private blockchain setup:\n{}".format(traceback.format_exc()))
       
       # extra setup flag for re-connections with same multiton instance
-      self.bc_engine.set_eth_flag(self.__eth_enabled)
+      self.bc_engine.set_eth_flag(self._eth_enabled)
       return
 
     def __start_main_loop_thread(self):
