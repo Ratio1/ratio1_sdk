@@ -19,7 +19,7 @@ from time import sleep
 from time import time as tm
 
 from ..base_decentra_object import BaseDecentrAIObject
-from ..bc import DefaultBlockEngine, _DotDict
+from ..bc import DefaultBlockEngine, _DotDict, EE_VPN_IMPL
 from ..const import (
   COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, 
   PLUGIN_SIGNATURES, DEFAULT_PIPELINES,
@@ -229,14 +229,10 @@ class GenericSession(BaseDecentrAIObject):
     
     # TODO: maybe read config from file?
     self._config = {**self.default_config, **config}
-
-    if root_topic is not None:
-      for key in self._config.keys():
-        if isinstance(self._config[key], dict) and 'TOPIC' in self._config[key]:
-          if isinstance(self._config[key]["TOPIC"], str) and self._config[key]["TOPIC"].startswith("{}"):
-            nr_empty = self._config[key]["TOPIC"].count("{}")
-            self._config[key]["TOPIC"] = self._config[key]["TOPIC"].format(root_topic, *(["{}"] * (nr_empty - 1)))
-    # end if root_topic
+    
+    
+    
+    self.comms_root_topic = root_topic
     
     self.__auto_configuration = auto_configuration
 
@@ -245,8 +241,8 @@ class GenericSession(BaseDecentrAIObject):
     
     self.name = name
     self.silent = silent
-    
-    self.__eth_enabled = eth_enabled
+
+    self._eth_enabled = eth_enabled
 
     self.encrypt_comms = encrypt_comms
 
@@ -353,6 +349,22 @@ class GenericSession(BaseDecentrAIObject):
     )
     # end bc_engine
     # END TODO
+    
+    
+    str_topic = os.environ.get(ENVIRONMENT.EE_ROOT_TOPIC_ENV_KEY, self.comms_root_topic)    
+    
+    if str_topic != self.comms_root_topic:
+      self.P(f"Changing root topic from '{self.comms_root_topic}' to '{str_topic}'", color='y')
+      self.comms_root_topic = str_topic
+
+    if self.comms_root_topic is not None:
+      for key in self._config.keys():
+        if isinstance(self._config[key], dict) and 'TOPIC' in self._config[key]:
+          if isinstance(self._config[key]["TOPIC"], str) and self._config[key]["TOPIC"].startswith("{}"):
+            nr_empty = self._config[key]["TOPIC"].count("{}")
+            self._config[key]["TOPIC"] = self._config[key]["TOPIC"].format(self.comms_root_topic, *(["{}"] * (nr_empty - 1)))
+    # end if root_topic
+
     
     ## last config step
     self.__fill_config(
@@ -830,8 +842,12 @@ class GenericSession(BaseDecentrAIObject):
         # this is for legacy and custom implementation where heartbeats still contain
         # the pipeline configuration.
         pipeline_names = [x.get(PAYLOAD_DATA.NAME, None) for x in msg_active_configs]
+        received_plugins = dict_msg.get(HB.ACTIVE_PLUGINS, [])
         self.D(f'<HB> Processing pipelines from <{short_addr}>:{pipeline_names}', color='y')
-        self.__process_node_pipelines(msg_node_addr, msg_active_configs)
+        new_pipeliens = self.__process_node_pipelines(
+          node_addr=msg_node_addr, pipelines=msg_active_configs,
+          plugins_statuses=received_plugins,
+        )
 
       # TODO: move this call in `__on_message_default_callback`
       if self.__maybe_ignore_message(msg_node_addr):
@@ -1113,19 +1129,23 @@ class GenericSession(BaseDecentrAIObject):
         return
 
       try:
+        if EE_VPN_IMPL and self._eth_enabled:
+          self.P("Disabling ETH for VPN implementation", color='r')
+          self._eth_enabled = False
+        
         self.bc_engine = DefaultBlockEngine(
           log=self.log,
           name=self.name,
           config=blockchain_config,
           verbosity=self._verbosity,
           user_config=user_config,
-          eth_enabled=self.__eth_enabled, 
+          eth_enabled=self._eth_enabled, 
         )
       except:
         raise ValueError("Failure in private blockchain setup:\n{}".format(traceback.format_exc()))
       
       # extra setup flag for re-connections with same multiton instance
-      self.bc_engine.set_eth_flag(self.__eth_enabled)
+      self.bc_engine.set_eth_flag(self._eth_enabled)
       return
 
     def __start_main_loop_thread(self):
