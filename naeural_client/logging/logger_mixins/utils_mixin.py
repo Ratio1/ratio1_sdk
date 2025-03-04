@@ -36,11 +36,11 @@ class ColorDataFrame(pd.DataFrame):
   Examples
   --------
   
-  >>> df = ColorDataFrame(
-        df,
-  ...   color_condition=lambda row: row['value'] > 9
-      )  
-  >>> print(df)
+  df = ColorDataFrame(
+    df,
+    color_condition=lambda row: row['value'] > 9
+  )
+  print(df)
   """
 
   _metadata = ['_color_condition']
