@@ -45,7 +45,7 @@ from ..utils.config import (
 
 DEBUG_MQTT_SERVER = "r9092118.ala.eu-central-1.emqxsl.com"
 SDK_NETCONFIG_REQUEST_DELAY = 300
-
+SHOW_PENDING_THRESHOLD = 3600
 
 
 
@@ -3319,6 +3319,50 @@ class GenericSession(BaseDecentrAIObject):
       return dct_result
 
 
+  def date_to_readable(self, date, check_none=False, start_time=None, pending_threshold=SHOW_PENDING_THRESHOLD):
+    """
+    Convert a date to a human-readable format.
+
+    Parameters
+    ----------
+
+    date : str
+        The date to convert.
+    check_none : bool, optional
+        If True, and the date is None it will check if too much time passed from the start time.
+        If too much time passed, it will return 'Error!', otherwise, it will return 'Pending'.
+        If False, it will return 'Never' if the date is None.
+        Defaults to False.
+    start_time : str, optional
+        The start time to compare with the date in case it is None. Defaults to None.
+    pending_threshold : int, optional
+        The threshold in seconds to consider a date as pending. Defaults to SHOW_PENDING_THRESHOLD.
+        If the time passed since start_time is greater than pending_threshold and
+        check_none is set to True, it will return 'Error!'.
+
+    Returns
+    -------
+
+    str
+        The human-readable date.
+    """
+    if date is None:
+      if not check_none or start_time is None:
+        return 'Never'
+      # endif not check_none
+      start_dt = self.log.str_to_date(start_time, fmt='%Y-%m-%d %H:%M:%S.%f')
+      since_start = (dt.now() - start_dt).total_seconds()
+      if since_start > pending_threshold:
+        return 'Error!'
+      return 'Pending'
+    # endif date is None
+    if date.startswith('1970'):
+      return 'Never'
+    if '.' in date:
+      date = date.split('.')[0]
+    return date
+
+
   def get_nodes_apps(
     self, 
     node=None, 
@@ -3409,16 +3453,18 @@ class GenericSession(BaseDecentrAIObject):
             if len(instance_status) == 0:
               # this instance is only present in config but is NOT loaded so ignore it
               continue
-            start_time = instance_status.get('INIT_TIMESTAMP')
-            last_probe = instance_status.get('EXEC_TIMESTAMP')
-            last_data = instance_status.get('LAST_PAYLOAD_TIME')
-            dates = [start_time, last_probe, last_data]
-            for i in range(len(dates)):
-              if isinstance(dates[i], str):
-                if dates[i].startswith('1970'):
-                  dates[i] = 'Never'
-                elif '.' in dates[i]:
-                  dates[i] = dates[i].split('.')[0]
+            start_time = instance_status.get(HB.ACTIVE_PLUGINS_INFO.INIT_TIMESTAMP)
+            last_probe = instance_status.get(HB.ACTIVE_PLUGINS_INFO.EXEC_TIMESTAMP)
+            last_data = instance_status.get(HB.ACTIVE_PLUGINS_INFO.LAST_PAYLOAD_TIME)
+            dates = [start_time, last_data]
+            error_dates = [
+              instance_status.get(HB.ACTIVE_PLUGINS_INFO.FIRST_ERROR_TIME),
+              instance_status.get(HB.ACTIVE_PLUGINS_INFO.LAST_ERROR_TIME),
+            ]
+            dates = [self.date_to_readable(x, check_none=False) for x in dates]
+            error_dates = [self.date_to_readable(x, check_none=False) for x in error_dates]
+            last_probe = self.date_to_readable(last_probe, check_none=True, start_time=start_time)
+
             lst_plugin_instance_data.append({
               'Node'  : node,
               'Owner' : pipeline_owner,
@@ -3427,8 +3473,9 @@ class GenericSession(BaseDecentrAIObject):
               'Plugin': instance.signature,
               'Id': instance.instance_id,
               'Start' : dates[0],
-              'Probe' : dates[1],
-              'Data' : dates[2],
+              'Probe' : last_probe,
+              'Data' : dates[1],
+              'LastError': error_dates[1],
             })
           # endfor instances in app
         # endfor apps
@@ -3438,7 +3485,8 @@ class GenericSession(BaseDecentrAIObject):
       log_with_color(f'Node(s) {nodes} not found. Please check the configuration.', color='r')
       return 
     if as_df:
-      df = pd.DataFrame(lst_plugin_instance_data)
+      color_condition = lambda x: (x['LastError'] != 'Never' or x['Probe'] == 'Error!')
+      df = self.log.colored_dataframe(lst_plugin_instance_data, color_condition=color_condition)
       if not (df.empty or df.shape[0] == 0):
         df['Node'] = df['Node'].apply(lambda x: self._shorten_addr(x))
         df['Owner'] = df['Owner'].apply(lambda x: self._shorten_addr(x))
