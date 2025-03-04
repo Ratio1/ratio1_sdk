@@ -1,5 +1,5 @@
 import pandas as pd
-from naeural_client import Session
+from ratio1 import Session
 
 
 if __name__ == '__main__':

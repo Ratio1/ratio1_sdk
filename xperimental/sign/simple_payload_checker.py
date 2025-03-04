@@ -1,5 +1,5 @@
-from naeural_client import Logger
-from naeural_client.bc import DefaultBlockEngine
+from ratio1 import Logger
+from ratio1.bc import DefaultBlockEngine
 
 
 if __name__ == '__main__':

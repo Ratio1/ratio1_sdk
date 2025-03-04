@@ -1,5 +1,5 @@
 import json
-from naeural_client import Instance, Payload, Pipeline, Session, PAYLOAD_DATA
+from ratio1 import Instance, Payload, Pipeline, Session, PAYLOAD_DATA
 
 class SimplePayloadHandler:
   """ Simple payload handler class build for convenience """

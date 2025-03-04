@@ -1,7 +1,7 @@
 import os
 from time import sleep, time
 
-from naeural_client import Payload, Pipeline, Session, load_dotenv
+from ratio1 import Payload, Pipeline, Session, load_dotenv
 
 
 boxes = {}

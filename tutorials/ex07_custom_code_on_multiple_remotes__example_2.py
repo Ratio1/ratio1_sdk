@@ -1,12 +1,12 @@
 """
-This is a simple example of how to use the naeural_client SDK.
+This is a simple example of how to use the ratio1 SDK.
 
 In this example, we connect to the network, choose a node and
     deploy a plugin with custom code that will run in real time.
     
 For this example, we search for prime numbers in parallel using more than one node.
 """
-from naeural_client import Session, CustomPluginTemplate
+from ratio1 import Session, CustomPluginTemplate
 
 
 def custom_code_remote_node(plugin: CustomPluginTemplate):

@@ -5,7 +5,7 @@ For this demo, we will use a custom webapp that resides at a public repository.
 
 """
 from os import environ
-from naeural_client import Session, PLUGIN_SIGNATURES
+from ratio1 import Session, PLUGIN_SIGNATURES
 
 
 if __name__ == "__main__":
@@ -42,7 +42,7 @@ if __name__ == "__main__":
   # Defining the assets of the application.
   assets = {
     'operation': "clone",
-    "url": "https://github.com/NaeuralEdgeProtocol/demo-deploy-nodejs",
+    "url": "https://github.com/ratio1EdgeProtocol/demo-deploy-nodejs",
   }
 
   # Defining the webapp run commands.

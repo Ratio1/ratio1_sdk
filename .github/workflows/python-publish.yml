@@ -34,7 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade build twine
       - name: Bump version
-        run: python naeural_client/_ver.py
+        run: python ratio1/_ver.py
 
       - name: Build package
         run: >-

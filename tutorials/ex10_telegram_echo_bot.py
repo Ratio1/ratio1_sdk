@@ -1,7 +1,7 @@
 import os
 import time
 
-from naeural_client import Session, CustomPluginTemplate, PLUGIN_TYPES
+from ratio1 import Session, CustomPluginTemplate, PLUGIN_TYPES
 
 
 def processor(plugin: CustomPluginTemplate):

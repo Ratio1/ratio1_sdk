@@ -1,7 +1,7 @@
 
 import os
 
-from naeural_client import Session, Payload
+from ratio1 import Session, Payload
 
 
 def instance_on_data(pipeline, custom_code_data: dict, data: Payload):

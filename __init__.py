@@ -1,14 +1,14 @@
-from .naeural_client import Payload, Pipeline, Session, Instance, CustomPluginTemplate
-from .naeural_client import base as naeural_client_base
-from .naeural_client import bc as naeural_client_bc
-from .naeural_client import comm as naeural_client_comm
-from .naeural_client import const as naeural_client_const
-from .naeural_client import io_formatter as naeural_client_io_formatter
-from .naeural_client import utils as naeural_client_utils
-from .naeural_client import load_dotenv
-from .naeural_client import __version__
-from .naeural_client import BaseDecentrAIObject, _PluginsManagerMixin, Logger
-from .naeural_client import BaseCodeChecker
-from .naeural_client import PLUGIN_SIGNATURES
-from .naeural_client import PLUGIN_TYPES
+from .ratio1 import Payload, Pipeline, Session, Instance, CustomPluginTemplate
+from .ratio1 import base as ratio1_base
+from .ratio1 import bc as ratio1_bc
+from .ratio1 import comm as ratio1_comm
+from .ratio1 import const as ratio1_const
+from .ratio1 import io_formatter as ratio1_io_formatter
+from .ratio1 import utils as ratio1_utils
+from .ratio1 import load_dotenv
+from .ratio1 import __version__
+from .ratio1 import BaseDecentrAIObject, _PluginsManagerMixin, Logger
+from .ratio1 import BaseCodeChecker
+from .ratio1 import PLUGIN_SIGNATURES
+from .ratio1 import PLUGIN_TYPES
 

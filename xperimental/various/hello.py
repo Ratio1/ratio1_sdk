@@ -1,4 +1,4 @@
-from naeural_client import Session
+from ratio1 import Session
 
 
 def on_hb(session: Session, node_addr: str, data: dict):

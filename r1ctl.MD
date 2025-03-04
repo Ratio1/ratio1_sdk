@@ -1,14 +1,14 @@
 # NepCTL Manual
 
 ## Overview
-**NepCTL** (Naeural Edge Protocol Command-Line Tool) is a CLI utility for interacting with a decentralized network of nodes running Naeural Edge Protocol. It provides commands to query network nodes, configure the client, and manage nodes directly from the terminal.
+**NepCTL** (ratio1 Edge Protocol Command-Line Tool) is a CLI utility for interacting with a decentralized network of nodes running ratio1 Edge Protocol. It provides commands to query network nodes, configure the client, and manage nodes directly from the terminal.
 
 ## Installation
 
 Installation is straightforward using `pip` so make sure you have python 3.9+ and pip installed on your system.
 
 ```bash
-pip install naeural_client
+pip install ratio1
 ```
 
 Following the instalation make sure you edit `~/.ratio1/config` file and put the correct mqtt broker credentials, particularly `EE_MQTT_USER` and `EE_MQTT` which are the username and password for the mqtt broker.
@@ -185,7 +185,7 @@ Current configuration (/root/.ratio1/config):
 
 EE_MQTT_HOST=r9092118.ala.eu-central-1.emqxsl.com
 EE_MQTT_PORT=8883
-EE_MQTT_USER=coreenaeural
+EE_MQTT_USER=coreeratio1
 EE_MQTT=<password>
 ...
 ```

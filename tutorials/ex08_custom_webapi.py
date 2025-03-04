@@ -1,9 +1,9 @@
 import os
-from naeural_client import CustomPluginTemplate, Session, PLUGIN_TYPES
+from ratio1 import CustomPluginTemplate, Session, PLUGIN_TYPES
 
 
 
-def hello_world(plugin, name: str = "naeural_developer"):
+def hello_world(plugin, name: str = "ratio1_developer"):
   # name is a query parameter
   plugin.P("Running hello endpoint...")
   return f"Hello, {name}! I am {plugin.e2_addr}"
@@ -51,7 +51,7 @@ if __name__ == "__main__":
   instance: PLUGIN_TYPES.CUSTOM_WEBAPI_01
   pipeline, instance = session.create_web_app(
     node=node,
-    name="naeural_predict_app",   
+    name="ratio1_predict_app",   
     signature=PLUGIN_TYPES.CUSTOM_WEBAPI_01, 
     # by default ngrok_edge_label should not be provided as a unique URL will be generated
     # othwerwise, you can provide a custom ngrok_edge_label that should be preconfigured via ngrok dashboard
@@ -86,7 +86,7 @@ if __name__ == "__main__":
   )
 
   # we could have added the endpoints one by one
-  # # GET request on <domain>/hello_world?name=naeural_developer
+  # # GET request on <domain>/hello_world?name=ratio1_developer
   # instance.add_new_endpoint(hello_world)
 
   # # GET request on <domain>/get_uuid

@@ -1,4 +1,4 @@
-from naeural_client import Payload, Pipeline, Session
+from ratio1 import Payload, Pipeline, Session
 
 
 val = 0

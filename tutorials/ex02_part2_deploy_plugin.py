@@ -1,11 +1,11 @@
 """
-This is a simple example of how to use the naeural_client SDK.
+This is a simple example of how to use the ratio1 SDK.
 
 In this example, we connect to the network, choose a node and
     deploy a plugin that will extract frames from a video stream.
 """
 
-from naeural_client import Instance, Payload, Pipeline, Session
+from ratio1 import Instance, Payload, Pipeline, Session
 
 
 def instance_on_data(pipeline: Pipeline, data: Payload):

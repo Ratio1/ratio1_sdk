@@ -1,7 +1,7 @@
 import os
 import time
 
-from naeural_client import Session, CustomPluginTemplate
+from ratio1 import Session, CustomPluginTemplate
 
 def reply(plugin, message: str, user: str):
   # Define the deck of cards and their values

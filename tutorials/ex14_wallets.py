@@ -21,8 +21,8 @@ import os
 import time
 import numpy as np
 
-from naeural_client.bc import DefaultBlockEngine
-from naeural_client import Logger
+from ratio1.bc import DefaultBlockEngine
+from ratio1 import Logger
 
 
 

@@ -1,6 +1,6 @@
 # Ratio1 SDK
 
-Welcome to the **Ratio1 SDK** repository, formerly known as the **naeural_client SDK**. The Ratio1 SDK is a crucial component of the Ratio1 ecosystem, designed to facilitate interactions, development, and deployment of jobs within the Ratio1 network. By enabling low-code development, the SDK allows developers to build and deploy end-to-end AI (and beyond) cooperative application pipelines seamlessly within the Ratio1 Edge Nodes ecosystem.
+Welcome to the **Ratio1 SDK** repository, formerly known as the **ratio1 SDK**. The Ratio1 SDK is a crucial component of the Ratio1 ecosystem, designed to facilitate interactions, development, and deployment of jobs within the Ratio1 network. By enabling low-code development, the SDK allows developers to build and deploy end-to-end AI (and beyond) cooperative application pipelines seamlessly within the Ratio1 Edge Nodes ecosystem.
 
 ## Overview
 
@@ -70,13 +70,13 @@ Starting with version 2.6+, the Ratio1 SDK automatically performs self-configura
 Launch a local Ratio1 Edge Node using Docker:
 
 ```bash
-docker run -d --name=r1node naeural/edge_node:testnet
+docker run -d --name=r1node ratio1/edge_node:testnet
 ```
 
 if you want to have a persistent volume for the node, you can use the following command:
 
 ```bash
-docker run -d --name=r1node --rm --pull=always -v r1vol:/edge_node/_local_cache naeural/edge_node:testnet
+docker run -d --name=r1node --rm --pull=always -v r1vol:/edge_node/_local_cache ratio1/edge_node:testnet
 ```
 This way the node will store its data in the `r1vol` volume, and you can stop and start the node without losing data you might have stored in the node via deployed jobs from your SDK. We also added the `--pull=always` flag to ensure that the latest version of the node is always pulled from the Docker Hub.
 
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     sleep(15)
 
     # Retrieve and select an online node
-    node = "0xai_A8SY7lEqBtf5XaGyB6ipdk5C30vSf3HK4xELp3iplwLe"  # naeural-1
+    node = "0xai_A8SY7lEqBtf5XaGyB6ipdk5C30vSf3HK4xELp3iplwLe"  # ratio1-1
 ```
 
 #### 3. Deploy the Distributed Job
@@ -291,7 +291,7 @@ If you use the Ratio1 SDK in your research or projects, please cite it as follow
   author       = {Ratio1.AI},
   title        = {Ratio1 SDK},
   year         = {2024-2025},
-  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/naeural_client}},
+  howpublished = {\url{https://github.com/ratio1EdgeProtocol/ratio1}},
 }
 ```
 
@@ -300,6 +300,6 @@ If you use the Ratio1 SDK in your research or projects, please cite it as follow
   author = {Ratio1.AI},
   title = {Ratio1: Edge Node},
   year = {2024-2025},
-  howpublished = {\url{https://github.com/NaeuralEdgeProtocol/edge_node}},
+  howpublished = {\url{https://github.com/ratio1EdgeProtocol/edge_node}},
 }
 ```

@@ -1,5 +1,5 @@
-from naeural_client import Session, CustomPluginTemplate, Pipeline
-from naeural_client import DistributedCustomCodePresets as Presets
+from ratio1 import Session, CustomPluginTemplate, Pipeline
+from ratio1 import DistributedCustomCodePresets as Presets
 
 
 def local_brute_force_prime_number_generator():

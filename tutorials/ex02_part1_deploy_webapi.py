@@ -1,4 +1,4 @@
-from naeural_client import Session, CustomPluginTemplate, PLUGIN_TYPES
+from ratio1 import Session, CustomPluginTemplate, PLUGIN_TYPES
 
 def run_predict(plugin: CustomPluginTemplate, inputs: list[int], nr_steps: int) -> list:
   """

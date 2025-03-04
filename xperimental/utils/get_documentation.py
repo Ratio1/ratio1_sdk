@@ -3,10 +3,10 @@ import inspect
 import os
 import importlib
 
-from naeural_client import BaseDecentrAIObject, _PluginsManagerMixin
+from ratio1 import BaseDecentrAIObject, _PluginsManagerMixin
 
-from naeural_core.core_logging.full_logger import Logger, SBLogger
-from naeural_core.main.entrypoint import main
+from ratio1_core.core_logging.full_logger import Logger, SBLogger
+from ratio1_core.main.entrypoint import main
 
 
 class Utils(BaseDecentrAIObject, _PluginsManagerMixin):
@@ -103,5 +103,5 @@ def create_stub_file(log:Logger, source_filename, destination_filename):
     
 # Example usage
 log = SBLogger()
-full_path = os.path.join('naeural_core', 'business', 'default', 'custom_exec_01.py')
+full_path = os.path.join('ratio1_core', 'business', 'default', 'custom_exec_01.py')
 create_stub_file(log, full_path, 'plugin_template.py')

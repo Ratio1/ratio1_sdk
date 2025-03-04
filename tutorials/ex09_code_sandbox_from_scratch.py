@@ -1,10 +1,10 @@
-from naeural_client import CustomPluginTemplate, Session, PLUGIN_TYPES
+from ratio1 import CustomPluginTemplate, Session, PLUGIN_TYPES
 
 # this tutorial can be run only on the local edge node
 # because it uses ngrok to expose the fastapi server
 # and this requires a ngrok auth token
 
-# See https://naeural-001.ngrok.app/docs
+# See https://ratio1-001.ngrok.app/docs
 
 
 def remote_execute(plugin: CustomPluginTemplate, code: str):
@@ -24,10 +24,10 @@ if __name__ == "__main__":
   instance: PLUGIN_TYPES.CUSTOM_WEBAPI_01
   pipeline, instance = session.create_web_app(
     node=node,
-    name="naeural_code_sandbox_copycat_app",
+    name="ratio1_code_sandbox_copycat_app",
     signature=PLUGIN_TYPES.CUSTOM_WEBAPI_01, # not mandatory as it is the default value
 
-    ngrok_edge_label="edghts_2jSQ4nm5TuzGgHh8I0wlfDz3Vr0",  # https://naeural-001.ngrok.app
+    ngrok_edge_label="edghts_2jSQ4nm5TuzGgHh8I0wlfDz3Vr0",  # https://ratio1-001.ngrok.app
     use_ngrok=True,
   )
 

@@ -3,16 +3,15 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "naeural_client"
-version = "2.5.21"
+name = "ratio1"
+version = "3.2.3"
 authors = [
-  { name="Andrei Ionut Damian", email="andrei.damian@me.com" },
-  { name="Cristan Bleotiu", email="cristibleotiu@gmail.com" },
-  { name="Stefan Saraev", email="saraevstefan@gmail.com" },
+  { name="Andrei Ionut Damian", email="andrei.damian@ratio1.ai" },
+  { name="Cristan Bleotiu", email="cristian.bleotiu@ratio1.ai" },
 ]
-description = "`naeural_client` is the Python SDK required for client app development for the Naeural Edge Protocol Edge Protocol framework"
+description = "`ratio1` or Ration1 SDK is the Python SDK required for client app development for the Ratio1 ecosystem"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -31,10 +30,9 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/NaeuralEdgeProtocol/naeural_client"
-"Bug Tracker" = "https://github.com/NaeuralEdgeProtocol/naeural_client/issues"
+"Homepage" = "https://github.com/Ratio1/ratio1_sdk"
+"Bug Tracker" = "https://github.com/Ratio1/ratio1_sdk/issues"
 
 
 [project.scripts]
-nepctl = "naeural_client.cli.cli:main"
-r1ctl  = "naeural_client.cli.cli:main"
+r1ctl  = "ratio1.cli.cli:main"

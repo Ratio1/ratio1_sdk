@@ -1,4 +1,4 @@
-from naeural_client import Logger
+from ratio1 import Logger
 
 if __name__ == "__main__":
   l = Logger("DT")
