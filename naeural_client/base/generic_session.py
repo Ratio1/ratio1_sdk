@@ -229,14 +229,10 @@ class GenericSession(BaseDecentrAIObject):
     
     # TODO: maybe read config from file?
     self._config = {**self.default_config, **config}
-
-    if root_topic is not None:
-      for key in self._config.keys():
-        if isinstance(self._config[key], dict) and 'TOPIC' in self._config[key]:
-          if isinstance(self._config[key]["TOPIC"], str) and self._config[key]["TOPIC"].startswith("{}"):
-            nr_empty = self._config[key]["TOPIC"].count("{}")
-            self._config[key]["TOPIC"] = self._config[key]["TOPIC"].format(root_topic, *(["{}"] * (nr_empty - 1)))
-    # end if root_topic
+    
+    
+    
+    self.comms_root_topic = root_topic
     
     self.__auto_configuration = auto_configuration
 
@@ -353,6 +349,22 @@ class GenericSession(BaseDecentrAIObject):
     )
     # end bc_engine
     # END TODO
+    
+    
+    str_topic = os.environ.get(ENVIRONMENT.EE_ROOT_TOPIC_ENV_KEY, self.comms_root_topic)    
+    
+    if str_topic != self.comms_root_topic:
+      self.P(f"Changing root topic from '{self.comms_root_topic}' to '{str_topic}'", color='y')
+      self.comms_root_topic = str_topic
+
+    if self.comms_root_topic is not None:
+      for key in self._config.keys():
+        if isinstance(self._config[key], dict) and 'TOPIC' in self._config[key]:
+          if isinstance(self._config[key]["TOPIC"], str) and self._config[key]["TOPIC"].startswith("{}"):
+            nr_empty = self._config[key]["TOPIC"].count("{}")
+            self._config[key]["TOPIC"] = self._config[key]["TOPIC"].format(self.comms_root_topic, *(["{}"] * (nr_empty - 1)))
+    # end if root_topic
+
     
     ## last config step
     self.__fill_config(
