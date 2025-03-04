@@ -19,7 +19,7 @@ from time import sleep
 from time import time as tm
 
 from ..base_decentra_object import BaseDecentrAIObject
-from ..bc import DefaultBlockEngine, _DotDict
+from ..bc import DefaultBlockEngine, _DotDict, EE_VPN_IMPL
 from ..const import (
   COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, 
   PLUGIN_SIGNATURES, DEFAULT_PIPELINES,
@@ -105,7 +105,7 @@ class GenericSession(BaseDecentrAIObject):
               local_cache_base_folder=None,
               local_cache_app_folder='_local_cache',
               use_home_folder=True,
-              eth_enabled=True,
+              eth_enabled=None,
               auto_configuration=True,
               **kwargs
             ) -> None:
@@ -245,7 +245,7 @@ class GenericSession(BaseDecentrAIObject):
     
     self.name = name
     self.silent = silent
-    
+
     self.__eth_enabled = eth_enabled
 
     self.encrypt_comms = encrypt_comms
@@ -830,8 +830,12 @@ class GenericSession(BaseDecentrAIObject):
         # this is for legacy and custom implementation where heartbeats still contain
         # the pipeline configuration.
         pipeline_names = [x.get(PAYLOAD_DATA.NAME, None) for x in msg_active_configs]
+        received_plugins = dict_msg.get(HB.ACTIVE_PLUGINS, [])
         self.D(f'<HB> Processing pipelines from <{short_addr}>:{pipeline_names}', color='y')
-        self.__process_node_pipelines(msg_node_addr, msg_active_configs)
+        new_pipeliens = self.__process_node_pipelines(
+          node_addr=msg_node_addr, pipelines=msg_active_configs,
+          plugins_statuses=received_plugins,
+        )
 
       # TODO: move this call in `__on_message_default_callback`
       if self.__maybe_ignore_message(msg_node_addr):
@@ -1113,6 +1117,10 @@ class GenericSession(BaseDecentrAIObject):
         return
 
       try:
+        if EE_VPN_IMPL and self.__eth_enabled:
+          self.P("Disabling ETH for VPN implementation", color='r')
+          self.__eth_enabled = False
+        
         self.bc_engine = DefaultBlockEngine(
           log=self.log,
           name=self.name,
