@@ -31,7 +31,7 @@ if __name__ == "__main__":
   port = 3000
   env_vars = {
     'APP_PORT': port,
-    'LOCAL_ADDRESS': '/edge_node/_local_cache/_data/local_address.txt'
+    'LOCAL_ADDRESS': '/edge_node/_local_cache/_data/local_info.json'
   }
 
   # Defining the webapp setup commands.
@@ -42,7 +42,7 @@ if __name__ == "__main__":
   # Defining the assets of the application.
   assets = {
     'operation': "clone",
-    "url": "https://github.com/ratio1EdgeProtocol/demo-deploy-nodejs",
+    "url": "https://github.com/ratio1/demo-deploy-nodejs",
   }
 
   # Defining the webapp run commands.
