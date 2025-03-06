@@ -1,3 +1,15 @@
+"""
+ex02_part3_deploy_r1fs_test.py
+---------------------
+
+This is a simple example of how to use the ratio1 SDK to deploy a pipeline on several target nodes
+that runs a demo plugin that showcases both the decentralized file sytem API as well as the multi-worker
+syncronization (ChainDist) capabilities based on the decentralized in-memory system (ChainStorage or CSTORE).
+
+The demo plugin isntances create and share with their peers arbitrary yaml files and send periodically
+to the SDK client the work status.
+"""
+
 import json
 from ratio1 import Instance, Payload, Pipeline, Session, PAYLOAD_DATA
 

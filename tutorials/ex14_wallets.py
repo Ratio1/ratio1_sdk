@@ -1,4 +1,7 @@
 """
+ex14_wallets.py
+----------------
+
 This demo showcases the SDK's ability to enable the sending and receiving of both ETH and $R1 tokens. 
 The script checks balances, waits until some ETH and $R1 are available for distribution, and then 
 proceeds to distribute randomized amounts of ETH and $R1 to multiple peers. 

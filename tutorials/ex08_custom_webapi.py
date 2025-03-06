@@ -1,3 +1,13 @@
+"""
+ex08_custom_webapi.py
+---------------------------------
+
+This is a simple example of how to use the ratio1 SDK.
+In this example, we connect to the network, choose a node and
+    deploy a plugin with custom code that will run in real time.
+
+"""
+
 import os
 from ratio1 import CustomPluginTemplate, Session, PLUGIN_TYPES
 

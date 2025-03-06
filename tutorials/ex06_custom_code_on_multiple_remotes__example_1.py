@@ -1,3 +1,11 @@
+"""
+ex06_custom_code_on_multiple_remotes__example_1.py
+---------------------------------
+
+This is a simple example of how to use the ratio1 SDK in order to run custom code on 
+multiple remote nodes.
+
+"""
 from ratio1 import Session, CustomPluginTemplate, Pipeline
 from ratio1 import DistributedCustomCodePresets as Presets
 

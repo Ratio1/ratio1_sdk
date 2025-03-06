@@ -1,3 +1,11 @@
+"""
+ex02_part1_deploy_webapi.py
+---------------------
+
+This is a basic example of how to use the ratio1 SDK for a simple web API deployment that uses Ratio1
+Edge Node shallow machine learning internal (API) capabilities.
+
+"""
 from ratio1 import Session, CustomPluginTemplate, PLUGIN_TYPES
 
 def run_predict(plugin: CustomPluginTemplate, inputs: list[int], nr_steps: int) -> list:

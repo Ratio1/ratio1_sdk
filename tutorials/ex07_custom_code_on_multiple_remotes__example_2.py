@@ -1,4 +1,7 @@
 """
+ex07_custom_code_on_multiple_remotes__example_2.py
+---------------------------------
+
 This is a simple example of how to use the ratio1 SDK.
 
 In this example, we connect to the network, choose a node and

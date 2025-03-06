@@ -1,4 +1,6 @@
 """
+ex01_part2_filter.py
+---------------------
 This is a simple example of how to use the ratio1 SDK.
 
 In this example:

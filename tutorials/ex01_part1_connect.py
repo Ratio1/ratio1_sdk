@@ -1,4 +1,6 @@
 """
+ex01_part1_connect.py
+---------------------
 This is a simple example of how to use the ratio1 SDK.
 
 In this example, we connect to the network, listen for heartbeats from 

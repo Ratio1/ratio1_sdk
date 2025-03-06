@@ -1,7 +1,15 @@
 """
+ex13_launch_repo_based_webapp.py
+-------------------------------
 
-This demo starts a generic webapp and generates a dynamic URL that can be used to access the webapp.
-For this demo, we will use a custom webapp that resides at a public repository.
+This script demonstrates how to create and deploy a webapp based on a public repository using ngrok
+edge definition. The script will create a webapp based on a public repository and deploy it to the 
+target Ratio1 Edge Node and assing it the same ngrok edge label. 
+
+TODO:
+This will be modified so that it will start a generic webapp and generates a dynamic URL that can 
+be used to access the webapp. For this demo, we will use a custom webapp that resides at a 
+public repository location.
 
 """
 from os import environ

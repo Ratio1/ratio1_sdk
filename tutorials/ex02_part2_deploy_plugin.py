@@ -1,4 +1,7 @@
 """
+ex02_part2_deploy_plugin.py
+---------------------
+
 This is a simple example of how to use the ratio1 SDK.
 
 In this example, we connect to the network, choose a node and

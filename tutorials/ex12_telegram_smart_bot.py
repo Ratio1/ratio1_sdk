@@ -1,3 +1,13 @@
+"""
+ex12_telegram_smart_bot.py
+==========================
+
+
+This example demonstrates how to create a simple echo bot using the Ratio SDK.
+
+
+"""
+
 import os
 from ratio1 import Session
 
