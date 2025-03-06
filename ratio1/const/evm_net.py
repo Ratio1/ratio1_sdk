@@ -3,6 +3,7 @@ class EvmNetData:
   DAUTH_ND_ADDR_KEY = 'EE_DAUTH_ND_ADDR'
   DAUTH_RPC_KEY = 'EE_DAUTH_RPC'
   DAUTH_R1_ADDR_KEY = 'EE_DAUTH_R1_ADDR'
+  DAUTH_MND_ADDR_KEY = 'EE_DAUTH_MND_ADDR'
   
   EE_GENESIS_EPOCH_DATE_KEY = 'EE_GENESIS_EPOCH_DATE'
   EE_EPOCH_INTERVALS_KEY = 'EE_EPOCH_INTERVALS'
@@ -17,6 +18,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_URL_KEY                    : "https://dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0xE20198EE2B76eED916A568a47cdea9681f7c79BF",
     EvmNetData.DAUTH_R1_ADDR_KEY                : "0xc992DcaB6D3F8783fBf0c935E7bCeB20aa50A6f1",
+    EvmNetData.DAUTH_MND_ADDR_KEY               : "0xfD52a7958088dF734D523d618e583e4d53cD7420",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-mainnet.public.blastapi.io",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-02-05 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
@@ -29,6 +31,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_URL_KEY                    : "https://testnet-dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0xE20198EE2B76eED916A568a47cdea9681f7c79BF",
     EvmNetData.DAUTH_R1_ADDR_KEY                : "0xc992DcaB6D3F8783fBf0c935E7bCeB20aa50A6f1",
+    EvmNetData.DAUTH_MND_ADDR_KEY               : "0xfD52a7958088dF734D523d618e583e4d53cD7420",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",      
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-02-05 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
@@ -42,6 +45,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_URL_KEY                    : "https://devnet-dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0x9f49fc29366F1C8285d42e7E82cA0bb668B32CeA",
     EvmNetData.DAUTH_R1_ADDR_KEY                : "0xEF38a3d84D3E3111fb7b794Ba3240187b8B32825", 
+    EvmNetData.DAUTH_MND_ADDR_KEY               : "0x909d33Ab74d5A85F1fc963ae63af7B97eAe76f40",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-02-12 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 1,
