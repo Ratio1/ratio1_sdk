@@ -24,6 +24,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   GRID_WIDTH = 10
   GRID_HEIGHT = 10
   START_HEALTH = 10  # Increased from 5 for better gameplay
+  # XP requirements for each level
+  LEVEL_XP_REQUIREMENTS = [0, 10, 25, 45, 70, 100, 140, 190, 250, 320]
+  # Stats increase per level
+  HEALTH_PER_LEVEL = 2
+  DAMAGE_REDUCTION_PER_LEVEL = 0.05  # 5% damage reduction per level
+  MAX_LEVEL = 10
 
   # --------------------------------------------------
   # HELPER FUNCTIONS
@@ -32,26 +38,84 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     """Creates a 10x10 map with random 'COIN', 'TRAP', 'MONSTER', 'HEALTH', or 'EMPTY' tiles."""
     plugin.np.random.seed(sum(ord(char) for char in user))  # Create a seed based on user_id
     new_map = []
-    for _ in plugin.np.arange(0, GRID_HEIGHT):
+    for y in plugin.np.arange(0, GRID_HEIGHT):
       row = []
-      for _ in plugin.np.arange(0, GRID_WIDTH):
-        # Add HEALTH potions and adjust probabilities
-        tile_type = plugin.np.random.choice(["COIN", "EMPTY", "TRAP", "MONSTER", "HEALTH", "EMPTY", "EMPTY"], 
-                                           p=[0.15, 0.4, 0.1, 0.1, 0.05, 0.2, 0.0])
-        row.append({"type": tile_type, "visible": False})
+      for x in plugin.np.arange(0, GRID_WIDTH):
+        # Deeper parts of the map have stronger monsters and better rewards
+        distance_from_start = ((x)**2 + (y)**2)**0.5
+        depth_factor = min(distance_from_start / 14, 1.0)  # Normalized 0-1
+        
+        # Adjust probabilities based on depth
+        coin_prob = 0.15 + (0.05 * depth_factor)  # More coins deeper
+        trap_prob = 0.1 + (0.05 * depth_factor)  # More traps deeper
+        monster_prob = 0.1 + (0.1 * depth_factor)  # More monsters deeper
+        health_prob = 0.05
+        empty_prob = 1 - (coin_prob + trap_prob + monster_prob + health_prob)
+        
+        tile_type = plugin.np.random.choice(
+            ["COIN", "TRAP", "MONSTER", "HEALTH", "EMPTY"], 
+            p=[coin_prob, trap_prob, monster_prob, health_prob, empty_prob]
+        )
+        
+        # Set monster level based on map depth
+        monster_level = 1
+        if tile_type == "MONSTER":
+            base_level = max(1, int(depth_factor * 5))
+            variation = plugin.np.random.randint(-1, 2)
+            monster_level = max(1, base_level + variation)
+        
+        row.append({
+            "type": tile_type, 
+            "visible": False, 
+            "monster_level": monster_level if tile_type == "MONSTER" else 0
+        })
       new_map.append(row)
     # Starting position is always safe
-    new_map[0][0] = {"type": "EMPTY", "visible": True}
+    new_map[0][0] = {"type": "EMPTY", "visible": True, "monster_level": 0}
     return new_map
 
   def create_new_player():
     """Creates a new player dict with default stats."""
-    return {"position": (0, 0), "coins": 0, "health": START_HEALTH, "level": 1, "kills": 0}
+    return {
+        "position": (0, 0), 
+        "coins": 0, 
+        "health": START_HEALTH, 
+        "level": 1, 
+        "max_health": START_HEALTH,
+        "xp": 0,
+        "next_level_xp": LEVEL_XP_REQUIREMENTS[1],
+        "kills": 0,
+        "damage_reduction": 0
+    }
 
   def check_health(player):
     """Checks if the player's health is below 0 and returns a restart message if true."""
     if player["health"] <= 0:
       return True, "You have died! Game over.\nUse /start to play again."
+    return False, ""
+    
+  def check_level_up(player):
+    """Checks if player has enough XP to level up and applies level up benefits."""
+    if player["level"] >= MAX_LEVEL:
+        return False, ""
+        
+    if player["xp"] >= player["next_level_xp"]:
+        player["level"] += 1
+        old_max_health = player["max_health"]
+        player["max_health"] += HEALTH_PER_LEVEL
+        player["health"] += HEALTH_PER_LEVEL  # Heal on level up
+        player["damage_reduction"] += DAMAGE_REDUCTION_PER_LEVEL
+        
+        # Set next level XP requirement
+        if player["level"] < len(LEVEL_XP_REQUIREMENTS):
+            player["next_level_xp"] = LEVEL_XP_REQUIREMENTS[player["level"]]
+        else:
+            # For levels beyond our predefined table, increase by 30%
+            player["next_level_xp"] = int(player["next_level_xp"] * 1.3)
+            
+        return True, f"LEVEL UP! You are now level {player['level']}!\n" \
+                    f"Max Health: {old_max_health} → {player['max_health']}\n" \
+                    f"Damage Reduction: {int((player['damage_reduction'] - DAMAGE_REDUCTION_PER_LEVEL) * 100)}% → {int(player['damage_reduction'] * 100)}%"
     return False, ""
 
   def reveal_surroundings(player, game_map):
@@ -80,7 +144,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           elif tile_type == "TRAP":
             map_view += "🔥 "
           elif tile_type == "MONSTER":
-            map_view += "👹 "
+            # Different monster emoji based on level
+            monster_level = game_map[ny][nx]["monster_level"]
+            if monster_level <= 2:
+                map_view += "👹 "  # Regular monster
+            elif monster_level <= 4:
+                map_view += "👺 "  # Stronger monster
+            else:
+                map_view += "👿 "  # Boss monster
           elif tile_type == "HEALTH":
             map_view += "❤️ "
           else:
@@ -114,28 +185,52 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     reveal_surroundings(player, game_map)
 
     msg = f"You moved {direction} to ({x},{y}). "
+    level_up_msg = ""
+    
     if tile["type"] == "COIN":
-      coins_found = plugin.np.random.randint(1, 3)
+      coins_found = plugin.np.random.randint(1, 3 + player["level"] // 2)
       player["coins"] += coins_found
       tile["type"] = "EMPTY"
       msg += f"You found {coins_found} coin(s)! "
+      
     elif tile["type"] == "TRAP":
-      damage = plugin.np.random.randint(1, 3)
+      base_damage = plugin.np.random.randint(1, 3)
+      # Apply damage reduction from level
+      damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
       player["health"] -= damage
       msg += f"You triggered a trap! Health -{damage}. "
+      
     elif tile["type"] == "MONSTER":
-      monster_level = min(player["level"] + plugin.np.random.randint(-1, 2), 1)
-      damage = plugin.np.random.randint(1, 2 + monster_level)
+      monster_level = tile["monster_level"]
+      # Monster deals damage based on its level
+      base_damage = plugin.np.random.randint(1, 2 + monster_level)
+      # Apply damage reduction from player level
+      damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
       player["health"] -= damage
+      
+      # XP gained based on monster level
+      xp_gained = monster_level * 3 + plugin.np.random.randint(0, 3)
+      player["xp"] += xp_gained
       player["kills"] += 1
-      if player["kills"] % 3 == 0:
-        player["level"] += 1
-        msg += f"Level up! You are now level {player['level']}. "
-      msg += f"A level {monster_level} monster attacked you! Health -{damage}. "
+      
+      # Check for level up
+      did_level_up, level_up_message = check_level_up(player)
+      if did_level_up:
+          level_up_msg = level_up_message + "\n"
+      
+      monster_emoji = "👹"
+      if monster_level > 2 and monster_level <= 4:
+          monster_emoji = "👺"
+      elif monster_level > 4:
+          monster_emoji = "👿"
+          
+      msg += f"A level {monster_level} monster {monster_emoji} attacked you! Health -{damage}. " \
+             f"You gained {xp_gained} XP!"
       tile["type"] = "EMPTY"
+      
     elif tile["type"] == "HEALTH":
       heal_amount = plugin.np.random.randint(2, 5)
-      player["health"] += heal_amount
+      player["health"] = min(player["max_health"], player["health"] + heal_amount)
       msg += f"You found a health potion! Health +{heal_amount}. "
       tile["type"] = "EMPTY"
 
@@ -144,8 +239,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       return death_msg
 
     map_view = visualize_map(player, game_map)
-    stats = f"Coins: {player['coins']}, Health: {player['health']}, Level: {player['level']}"
-    return f"{map_view}\n{msg}\n{stats}"
+    stats = f"Health: {player['health']}/{player['max_health']}, Coins: {player['coins']}\n" \
+           f"Level: {player['level']}, XP: {player['xp']}/{player['next_level_xp']}"
+    return f"{map_view}\n{level_up_msg}{msg}\n{stats}"
 
   # --------------------------------------------------
   try:
@@ -179,10 +275,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   parts = text.split()
   if not parts:
     return ("Available Commands:\n" 
-            "/start  - Restart the game\n" 
-            "/move <up|down|left|right> - Move your character in a direction (or use WSAD keys)\n" 
-            "/status - Display your current stats (position, health, coins, level, kills)\n" 
-            "/map    - Reveal your current surroundings on the map")
+            "/start  - Restart the game and start a new adventure\n" 
+            "/move <up|down|left|right> - Move your character (WSAD keys also supported)\n" 
+            "/status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
+            "/map    - Reveal the map of your surroundings")
 
   command = parts[0]
 
@@ -210,7 +306,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   elif command == "/status":
     x, y = player["position"]
-    return f"Position: ({x},{y})\nCoins: {player['coins']}\nHealth: {player['health']}\nLevel: {player['level']}\nKills: {player['kills']}"
+    return f"Position: ({x},{y})\n" \
+           f"Health: {player['health']}/{player['max_health']}\n" \
+           f"Coins: {player['coins']}\n" \
+           f"Level: {player['level']} ({player['xp']}/{player['next_level_xp']} XP)\n" \
+           f"Damage Reduction: {int(player['damage_reduction'] * 100)}%\n" \
+           f"Kills: {player['kills']}"
 
   elif command == "/map":
     map_view = visualize_map(player, game_map)
