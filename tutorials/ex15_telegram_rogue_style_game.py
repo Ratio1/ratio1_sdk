@@ -30,6 +30,50 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   HEALTH_PER_LEVEL = 2
   DAMAGE_REDUCTION_PER_LEVEL = 0.05  # 5% damage reduction per level
   MAX_LEVEL = 10
+  
+  # Shop items configuration
+  SHOP_ITEMS = {
+    "health_potion": {
+      "name": "Health Potion 🧪",
+      "description": "Restores 5 health points",
+      "price": 5,
+      "type": "consumable"
+    },
+    "sword": {
+      "name": "Sword ⚔️",
+      "description": "Increases your attack by 1 (reduces monster damage)",
+      "price": 15,
+      "type": "weapon",
+      "attack_bonus": 1
+    },
+    "shield": {
+      "name": "Shield 🛡️",
+      "description": "Adds 10% damage reduction",
+      "price": 20,
+      "type": "armor",
+      "damage_reduction_bonus": 0.1
+    },
+    "amulet": {
+      "name": "Magic Amulet 🔮",
+      "description": "Increases max health by 3",
+      "price": 25,
+      "type": "accessory",
+      "max_health_bonus": 3
+    },
+    "boots": {
+      "name": "Speed Boots 👢",
+      "description": "5% chance to avoid all damage",
+      "price": 30,
+      "type": "accessory",
+      "dodge_chance": 0.05
+    },
+    "map_scroll": {
+      "name": "Map Scroll 📜",
+      "description": "Reveals more of the map when used",
+      "price": 10,
+      "type": "consumable"
+    }
+  }
 
   # --------------------------------------------------
   # HELPER FUNCTIONS
@@ -85,7 +129,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         "xp": 0,
         "next_level_xp": LEVEL_XP_REQUIREMENTS[1],
         "kills": 0,
-        "damage_reduction": 0
+        "damage_reduction": 0,
+        "attack": 0,
+        "dodge_chance": 0,
+        "inventory": {
+            "health_potion": 0,
+            "map_scroll": 0
+        },
+        "equipment": {
+            "weapon": None,
+            "armor": None,
+            "accessory": []
+        }
     }
 
   def check_health(player):
@@ -123,6 +178,15 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     x, y = player["position"]
     for dy in range(-1, 2):
       for dx in range(-1, 2):
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
+          game_map[ny][nx]["visible"] = True
+          
+  def reveal_extended_map(player, game_map):
+    """Reveals a larger portion of the map (used by map scroll)."""
+    x, y = player["position"]
+    for dy in range(-3, 4):
+      for dx in range(-3, 4):
         nx, ny = x + dx, y + dy
         if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
           game_map[ny][nx]["visible"] = True
@@ -194,19 +258,36 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       msg += f"You found {coins_found} coin(s)! "
       
     elif tile["type"] == "TRAP":
-      base_damage = plugin.np.random.randint(1, 3)
-      # Apply damage reduction from level
-      damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
-      player["health"] -= damage
-      msg += f"You triggered a trap! Health -{damage}. "
+      # Check for dodge chance from equipment
+      if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
+          msg += "You nimbly avoided a trap! "
+      else:
+          base_damage = plugin.np.random.randint(1, 3)
+          # Apply damage reduction from level and equipment
+          damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
+          player["health"] -= damage
+          msg += f"You triggered a trap! Health -{damage}. "
       
     elif tile["type"] == "MONSTER":
       monster_level = tile["monster_level"]
-      # Monster deals damage based on its level
-      base_damage = plugin.np.random.randint(1, 2 + monster_level)
-      # Apply damage reduction from player level
-      damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
-      player["health"] -= damage
+      
+      # Check for dodge chance from equipment
+      if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
+          msg += f"You dodged the monster's attack! "
+      else:
+          # Monster deals damage based on its level, reduced by player's attack
+          effective_monster_level = max(1, monster_level - player["attack"])
+          base_damage = plugin.np.random.randint(1, 2 + effective_monster_level)
+          
+          # Apply damage reduction from player level and equipment
+          damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
+          player["health"] -= damage
+          
+          # Include attack info in message
+          if player["attack"] > 0:
+              msg += f"Your attack reduced monster effectiveness! "
+              
+          msg += f"A level {monster_level} monster attacked you! Health -{damage}. "
       
       # XP gained based on monster level
       xp_gained = monster_level * 3 + plugin.np.random.randint(0, 3)
@@ -224,8 +305,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       elif monster_level > 4:
           monster_emoji = "👿"
           
-      msg += f"A level {monster_level} monster {monster_emoji} attacked you! Health -{damage}. " \
-             f"You gained {xp_gained} XP!"
+      msg += f"You killed a level {monster_level} monster {monster_emoji}! You gained {xp_gained} XP!"
       tile["type"] = "EMPTY"
       
     elif tile["type"] == "HEALTH":
@@ -242,6 +322,108 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     stats = f"Health: {player['health']}/{player['max_health']}, Coins: {player['coins']}\n" \
            f"Level: {player['level']}, XP: {player['xp']}/{player['next_level_xp']}"
     return f"{map_view}\n{level_up_msg}{msg}\n{stats}"
+
+  def display_shop(player):
+    """Displays the shop menu with available items."""
+    shop_text = "🏪 SHOP 🏪\n\n"
+    shop_text += f"Your coins: {player['coins']} 💰\n\n"
+    shop_text += "Available Items:\n"
+    
+    for item_id, item in SHOP_ITEMS.items():
+      can_afford = "✅" if player["coins"] >= item["price"] else "❌"
+      shop_text += f"{item['name']} - {item['price']} coins {can_afford}\n"
+      shop_text += f"  {item['description']}\n"
+    
+    shop_text += "\nTo purchase an item, use /buy <item_name>"
+    shop_text += "\nAvailable items: health_potion, sword, shield, amulet, boots, map_scroll"
+    return shop_text
+    
+  def buy_item(player, item_id):
+    """Process the purchase of an item."""
+    if item_id not in SHOP_ITEMS:
+      return f"Item '{item_id}' not found in the shop."
+    
+    item = SHOP_ITEMS[item_id]
+    
+    # Check if player has enough coins
+    if player["coins"] < item["price"]:
+      return f"You don't have enough coins. You need {item['price']} coins but only have {player['coins']}."
+    
+    # Process the purchase based on item type
+    if item["type"] == "consumable":
+      player["inventory"][item_id] += 1
+      msg = f"You purchased {item['name']}. It's in your inventory."
+    
+    elif item["type"] == "weapon":
+      # Replace existing weapon
+      old_weapon = player["equipment"]["weapon"]
+      if old_weapon:
+        # Remove old weapon bonuses
+        player["attack"] -= SHOP_ITEMS[old_weapon]["attack_bonus"]
+      
+      player["equipment"]["weapon"] = item_id
+      player["attack"] += item["attack_bonus"]
+      msg = f"You equipped {item['name']}! Your attack is now {player['attack']}."
+    
+    elif item["type"] == "armor":
+      # Replace existing armor
+      old_armor = player["equipment"]["armor"]
+      if old_armor:
+        # Remove old armor bonuses
+        player["damage_reduction"] -= SHOP_ITEMS[old_armor]["damage_reduction_bonus"]
+      
+      player["equipment"]["armor"] = item_id
+      player["damage_reduction"] += item["damage_reduction_bonus"]
+      msg = f"You equipped {item['name']}! Your damage reduction is now {int(player['damage_reduction'] * 100)}%."
+    
+    elif item["type"] == "accessory":
+      # Add to accessories (allowing multiple)
+      if item_id in player["equipment"]["accessory"]:
+        return f"You already have {item['name']}."
+      
+      player["equipment"]["accessory"].append(item_id)
+      
+      # Apply accessory bonuses
+      if "max_health_bonus" in item:
+        player["max_health"] += item["max_health_bonus"]
+        msg = f"You equipped {item['name']}! Your max health is now {player['max_health']}."
+      elif "dodge_chance" in item:
+        player["dodge_chance"] += item["dodge_chance"]
+        msg = f"You equipped {item['name']}! Your dodge chance is now {int(player['dodge_chance'] * 100)}%."
+      else:
+        msg = f"You equipped {item['name']}!"
+    
+    # Deduct coins
+    player["coins"] -= item["price"]
+    
+    return f"{msg}\nYou have {player['coins']} coins remaining."
+    
+  def use_item(player, item_id, game_map):
+    """Use a consumable item from inventory."""
+    if item_id not in player["inventory"] or player["inventory"][item_id] <= 0:
+      return f"You don't have any {item_id} in your inventory."
+    
+    if item_id == "health_potion":
+      if player["health"] >= player["max_health"]:
+        return "Your health is already full!"
+      
+      # Use health potion
+      heal_amount = 5
+      old_health = player["health"]
+      player["health"] = min(player["max_health"], player["health"] + heal_amount)
+      player["inventory"][item_id] -= 1
+      
+      return f"You used a Health Potion. Health: {old_health} → {player['health']}"
+    
+    elif item_id == "map_scroll":
+      # Use map scroll to reveal a larger area
+      reveal_extended_map(player, game_map)
+      player["inventory"][item_id] -= 1
+      
+      map_view = visualize_map(player, game_map)
+      return f"You used a Map Scroll and revealed more of the map!\n\n{map_view}"
+    
+    return f"Cannot use {item_id}."
 
   # --------------------------------------------------
   try:
@@ -278,7 +460,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "/start  - Restart the game and start a new adventure\n" 
             "/move <up|down|left|right> - Move your character (WSAD keys also supported)\n" 
             "/status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
-            "/map    - Reveal the map of your surroundings")
+            "/map    - Reveal the map of your surroundings\n"
+            "/shop   - Visit the shop to buy upgrades and items\n"
+            "/buy <item_name> - Purchase an item from the shop\n"
+            "/use <item_name> - Use a consumable item from your inventory")
 
   command = parts[0]
 
@@ -287,7 +472,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     plugin.obj_cache["shared_map"] = generate_map()
     plugin.obj_cache[user_id] = create_new_player()
     map_view = visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
-    return f"Welcome to the Ratio1 Roguelike!\nUse /move <up|down|left|right> to explore.\nUse /status to check your stats.\n\n{map_view}"
+    return f"Welcome to the Ratio1 Roguelike!\nUse /move <up|down|left|right> to explore.\nUse /status to check your stats.\nUse /shop to spend your coins on upgrades.\n\n{map_view}"
 
   elif command == "/move":
     if len(parts) < 2:
@@ -306,23 +491,84 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   elif command == "/status":
     x, y = player["position"]
-    return f"Position: ({x},{y})\n" \
+    status = f"Position: ({x},{y})\n" \
            f"Health: {player['health']}/{player['max_health']}\n" \
            f"Coins: {player['coins']}\n" \
-           f"Level: {player['level']} ({player['xp']}/{player['next_level_xp']} XP)\n" \
-           f"Damage Reduction: {int(player['damage_reduction'] * 100)}%\n" \
-           f"Kills: {player['kills']}"
+           f"Level: {player['level']} ({player['xp']}/{player['next_level_xp']} XP)\n"
+    
+    # Add combat stats
+    status += f"Attack: {player['attack']}\n" \
+             f"Damage Reduction: {int(player['damage_reduction'] * 100)}%\n"
+    
+    if player["dodge_chance"] > 0:
+      status += f"Dodge Chance: {int(player['dodge_chance'] * 100)}%\n"
+    
+    status += f"Kills: {player['kills']}\n\n"
+    
+    # Equipment
+    status += "Equipment:\n"
+    if player["equipment"]["weapon"]:
+      status += f"- Weapon: {SHOP_ITEMS[player['equipment']['weapon']]['name']}\n"
+    else:
+      status += "- Weapon: None\n"
+      
+    if player["equipment"]["armor"]:
+      status += f"- Armor: {SHOP_ITEMS[player['equipment']['armor']]['name']}\n"
+    else:
+      status += "- Armor: None\n"
+    
+    if player["equipment"]["accessory"]:
+      status += "- Accessories:\n"
+      for acc in player["equipment"]["accessory"]:
+        status += f"  - {SHOP_ITEMS[acc]['name']}\n"
+    else:
+      status += "- Accessories: None\n"
+    
+    # Inventory
+    status += "\nInventory:\n"
+    has_items = False
+    for item_id, count in player["inventory"].items():
+      if count > 0:
+        status += f"- {SHOP_ITEMS[item_id]['name']}: {count}\n"
+        has_items = True
+    
+    if not has_items:
+      status += "No items\n"
+      
+    status += "\nUse /shop to buy equipment and items!"
+    
+    return status
 
   elif command == "/map":
     map_view = visualize_map(player, game_map)
     return f"Your surroundings:\n{map_view}"
+    
+  elif command == "/shop":
+    return display_shop(player)
+    
+  elif command == "/buy":
+    if len(parts) < 2:
+      return "Usage: /buy <item_name>\nUse /shop to see available items."
+    
+    item_id = parts[1].lower()
+    return buy_item(player, item_id)
+    
+  elif command == "/use":
+    if len(parts) < 2:
+      return "Usage: /use <item_name>\nItems you can use: health_potion, map_scroll"
+    
+    item_id = parts[1].lower()
+    return use_item(player, item_id, game_map)
 
   else:
     return ("Commands:\n"
-            "/start  - Restart the game\n"
-            "/move <up|down|left|right> - Move your character (or use WSAD keys)\n"
-            "/status - Show your stats\n"
-            "/map    - Show your surroundings")
+            "/start  - Restart the game and start a new adventure\n" 
+            "/move <up|down|left|right> - Move your character (WSAD keys also supported)\n" 
+            "/status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
+            "/map    - Reveal the map of your surroundings\n"
+            "/shop   - Visit the shop to buy upgrades and items\n"
+            "/buy <item_name> - Purchase an item from the shop\n"
+            "/use <item_name> - Use a consumable item from your inventory")
 
 # --------------------------------------------------
 # MAIN FUNCTION (BOT STARTUP)
