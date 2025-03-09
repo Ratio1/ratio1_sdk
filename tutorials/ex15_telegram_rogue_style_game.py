@@ -23,25 +23,73 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # --------------------------------------------------
   GRID_WIDTH = 10
   GRID_HEIGHT = 10
+  START_HEALTH = 10  # Increased from 5 for better gameplay
 
   # --------------------------------------------------
   # HELPER FUNCTIONS
   # --------------------------------------------------
   def generate_map():
-    """Creates a 5x5 map with random 'COIN', 'TRAP', 'MONSTER', or 'EMPTY' tiles."""
-    seed = sum(ord(char) for char in user)  # Create a seed based on user_id
+    """Creates a 10x10 map with random 'COIN', 'TRAP', 'MONSTER', 'HEALTH', or 'EMPTY' tiles."""
+    plugin.np.random.seed(sum(ord(char) for char in user))  # Create a seed based on user_id
     new_map = []
     for _ in plugin.np.arange(0, GRID_HEIGHT):
       row = []
       for _ in plugin.np.arange(0, GRID_WIDTH):
-        tile_type = ["COIN", "EMPTY", "TRAP", "MONSTER", "EMPTY"][plugin.np.random.randint(0, 5)]
-        row.append({"type": tile_type})
+        # Add HEALTH potions and adjust probabilities
+        tile_type = plugin.np.random.choice(["COIN", "EMPTY", "TRAP", "MONSTER", "HEALTH", "EMPTY", "EMPTY"], 
+                                           p=[0.15, 0.4, 0.1, 0.1, 0.05, 0.2, 0.0])
+        row.append({"type": tile_type, "visible": False})
       new_map.append(row)
+    # Starting position is always safe
+    new_map[0][0] = {"type": "EMPTY", "visible": True}
     return new_map
-  print(generate_map())
+
   def create_new_player():
     """Creates a new player dict with default stats."""
-    return {"position": (0, 0), "coins": 0, "health": 5}
+    return {"position": (0, 0), "coins": 0, "health": START_HEALTH, "level": 1, "kills": 0}
+
+  def check_health(player):
+    """Checks if the player's health is below 0 and returns a restart message if true."""
+    if player["health"] <= 0:
+      return True, "You have died! Game over.\nUse /start to play again."
+    return False, ""
+
+  def reveal_surroundings(player, game_map):
+    """Reveals the tiles around the player."""
+    x, y = player["position"]
+    for dy in range(-1, 2):
+      for dx in range(-1, 2):
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
+          game_map[ny][nx]["visible"] = True
+
+  def visualize_map(player, game_map):
+    """Creates a visual representation of the nearby map."""
+    x, y = player["position"]
+    view_distance = 2
+    map_view = ""
+    
+    for ny in range(max(0, y - view_distance), min(GRID_HEIGHT, y + view_distance + 1)):
+      for nx in range(max(0, x - view_distance), min(GRID_WIDTH, x + view_distance + 1)):
+        if (nx, ny) == (x, y):
+          map_view += "🧙 "  # Player
+        elif game_map[ny][nx]["visible"]:
+          tile_type = game_map[ny][nx]["type"]
+          if tile_type == "COIN":
+            map_view += "💰 "
+          elif tile_type == "TRAP":
+            map_view += "🔥 "
+          elif tile_type == "MONSTER":
+            map_view += "👹 "
+          elif tile_type == "HEALTH":
+            map_view += "❤️ "
+          else:
+            map_view += "⬜ "  # Empty
+        else:
+          map_view += "⬛ "  # Unexplored
+      map_view += "\n"
+    
+    return map_view
 
   def move_player(player, direction, game_map):
     """
@@ -63,25 +111,47 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     player["position"] = (x, y)
     tile = game_map[y][x]
     tile_type = tile["type"]
+    tile["visible"] = True
+    reveal_surroundings(player, game_map)
 
     msg = f"You moved {direction} to ({x},{y}). "
     if tile_type == "COIN":
-      player["coins"] += 1
+      coins_found = plugin.np.random.randint(1, 3)
+      player["coins"] += coins_found
       tile["type"] = "EMPTY"
-      msg += "You found a coin! "
+      msg += f"You found {coins_found} coin(s)! "
     elif tile_type == "TRAP":
-      player["health"] -= 1
-      msg += "You triggered a trap! Health -1. "
+      damage = plugin.np.random.randint(1, 3)
+      player["health"] -= damage
+      msg += f"You triggered a trap! Health -{damage}. "
     elif tile_type == "MONSTER":
-      player["health"] -= 2
-      msg += "A monster attacked you! Health -2. "
+      monster_level = min(player["level"] + plugin.np.random.randint(-1, 2), 1)
+      damage = plugin.np.random.randint(1, 2 + monster_level)
+      player["health"] -= damage
+      player["kills"] += 1
+      if player["kills"] % 3 == 0:
+        player["level"] += 1
+        msg += f"Level up! You are now level {player['level']}. "
+      msg += f"A level {monster_level} monster attacked you! Health -{damage}. "
+      tile["type"] = "EMPTY"
+    elif tile_type == "HEALTH":
+      heal_amount = plugin.np.random.randint(2, 5)
+      player["health"] += heal_amount
+      msg += f"You found a health potion! Health +{heal_amount}. "
+      tile["type"] = "EMPTY"
 
-    msg += f"Coins: {player['coins']}, Health: {player['health']}."
-    return msg
+    is_dead, death_msg = check_health(player)
+    if is_dead:
+      return death_msg
+
+    map_view = visualize_map(player, game_map)
+    stats = f"Coins: {player['coins']}, Health: {player['health']}, Level: {player['level']}"
+    return f"{map_view}\n{msg}\n{stats}"
+
   # --------------------------------------------------
   try:
-    a = plugin.np.arange(0, GRID_HEIGHT)
-    print(a)
+    # Remove debug code
+    pass
   except Exception as e:
     print(e)
 
@@ -109,13 +179,16 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # ---------------------------
   parts = text.split()
   if not parts:
-    return "Commands:\n/start - Start the game\n/move <up|down|left|right>\n/status - Show stats"
+    return "Commands:\n/start - Start the game\n/move <up|down|left|right>\n/status - Show stats\n/map - Show your surroundings"
 
   command = parts[0]
 
   if command == "/start":
+    # Generate new map for new game
+    plugin.obj_cache["shared_map"] = generate_map()
     plugin.obj_cache[user_id] = create_new_player()
-    return "Welcome to the Ratio1 Roguelike!\nUse /move <up|down|left|right> to explore.\nUse /status to check your stats."
+    map_view = visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
+    return f"Welcome to the Ratio1 Roguelike!\nUse /move <up|down|left|right> to explore.\nUse /status to check your stats.\n\n{map_view}"
 
   elif command == "/move":
     if len(parts) < 2:
@@ -125,11 +198,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   elif command == "/status":
     x, y = player["position"]
-    return f"Position: ({x},{y})\nCoins: {player['coins']}\nHealth: {player['health']}"
+    return f"Position: ({x},{y})\nCoins: {player['coins']}\nHealth: {player['health']}\nLevel: {player['level']}\nKills: {player['kills']}"
+
+  elif command == "/map":
+    map_view = visualize_map(player, game_map)
+    return f"Your surroundings:\n{map_view}"
 
   else:
-    return "Commands:\n/start - Start the game\n/move <up|down|left|right>\n/status - Show stats"
-
+    return "Commands:\n/start - Start the game\n/move <up|down|left|right>\n/status - Show stats\n/map - Show your surroundings"
 
 # --------------------------------------------------
 # MAIN FUNCTION (BOT STARTUP)
