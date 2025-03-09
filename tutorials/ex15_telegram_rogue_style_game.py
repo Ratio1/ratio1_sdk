@@ -110,21 +110,20 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     player["position"] = (x, y)
     tile = game_map[y][x]
-    tile_type = tile["type"]
     tile["visible"] = True
     reveal_surroundings(player, game_map)
 
     msg = f"You moved {direction} to ({x},{y}). "
-    if tile_type == "COIN":
+    if tile["type"] == "COIN":
       coins_found = plugin.np.random.randint(1, 3)
       player["coins"] += coins_found
       tile["type"] = "EMPTY"
       msg += f"You found {coins_found} coin(s)! "
-    elif tile_type == "TRAP":
+    elif tile["type"] == "TRAP":
       damage = plugin.np.random.randint(1, 3)
       player["health"] -= damage
       msg += f"You triggered a trap! Health -{damage}. "
-    elif tile_type == "MONSTER":
+    elif tile["type"] == "MONSTER":
       monster_level = min(player["level"] + plugin.np.random.randint(-1, 2), 1)
       damage = plugin.np.random.randint(1, 2 + monster_level)
       player["health"] -= damage
@@ -134,7 +133,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         msg += f"Level up! You are now level {player['level']}. "
       msg += f"A level {monster_level} monster attacked you! Health -{damage}. "
       tile["type"] = "EMPTY"
-    elif tile_type == "HEALTH":
+    elif tile["type"] == "HEALTH":
       heal_amount = plugin.np.random.randint(2, 5)
       player["health"] += heal_amount
       msg += f"You found a health potion! Health +{heal_amount}. "
@@ -179,7 +178,11 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # ---------------------------
   parts = text.split()
   if not parts:
-    return "Commands:\n/start - Start the game\n/move <up|down|left|right>\n/status - Show stats\n/map - Show your surroundings"
+    return ("Available Commands:\n" 
+            "/start  - Restart the game\n" 
+            "/move <up|down|left|right> - Move your character in a direction (or use WSAD keys)\n" 
+            "/status - Display your current stats (position, health, coins, level, kills)\n" 
+            "/map    - Reveal your current surroundings on the map")
 
   command = parts[0]
 
@@ -192,9 +195,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   elif command == "/move":
     if len(parts) < 2:
-      return "Usage: /move <up|down|left|right>"
-    direction = parts[1]
+      return "Usage: /move <up|down|left|right> (or you can use WSAD keys)"
+    direction_input = parts[1]
+    if direction_input in ["w", "a", "s", "d"]:
+      mapping = {"w": "up", "a": "left", "s": "down", "d": "right"}
+      direction = mapping[direction_input]
+    else:
+      direction = direction_input
     return move_player(player, direction, game_map)
+
+  elif command in ["w", "a", "s", "d"]:
+    mapping = {"w": "up", "a": "left", "s": "down", "d": "right"}
+    return move_player(player, mapping[command], game_map)
 
   elif command == "/status":
     x, y = player["position"]
@@ -205,7 +217,11 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     return f"Your surroundings:\n{map_view}"
 
   else:
-    return "Commands:\n/start - Start the game\n/move <up|down|left|right>\n/status - Show stats\n/map - Show your surroundings"
+    return ("Commands:\n"
+            "/start  - Restart the game\n"
+            "/move <up|down|left|right> - Move your character (or use WSAD keys)\n"
+            "/status - Show your stats\n"
+            "/map    - Show your surroundings")
 
 # --------------------------------------------------
 # MAIN FUNCTION (BOT STARTUP)
