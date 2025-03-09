@@ -30,6 +30,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   HEALTH_PER_LEVEL = 2
   DAMAGE_REDUCTION_PER_LEVEL = 0.05  # 5% damage reduction per level
   MAX_LEVEL = 10
+  # Dungeon progression
+  EXPLORATION_THRESHOLD = 70  # Percentage of map that needs to be explored for exit to appear
+  COIN_RETENTION = 0.7  # Percentage of coins kept when advancing to next dungeon
   
   # Shop items configuration
   SHOP_ITEMS = {
@@ -140,7 +143,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "weapon": None,
             "armor": None,
             "accessory": []
-        }
+        },
+        "dungeon_level": 1,
+        "dungeons_completed": 0
     }
 
   def check_health(player):
@@ -191,6 +196,34 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
           game_map[ny][nx]["visible"] = True
 
+  def check_exploration_progress(game_map):
+    """Calculates the percentage of the map that has been explored."""
+    total_tiles = GRID_WIDTH * GRID_HEIGHT
+    visible_tiles = sum(1 for row in game_map for tile in row if tile["visible"])
+    return (visible_tiles / total_tiles) * 100
+
+  def create_exit_portal(game_map):
+    """Creates an exit portal at the furthest unexplored point from the start."""
+    # Find the farthest point from the start (0,0)
+    max_distance = 0
+    portal_pos = (GRID_WIDTH-1, GRID_HEIGHT-1)  # Default to bottom-right
+    
+    for y in range(GRID_HEIGHT):
+      for x in range(GRID_WIDTH):
+        distance = ((x)**2 + (y)**2)**0.5
+        if distance > max_distance and game_map[y][x]["type"] != "PORTAL":
+          max_distance = distance
+          portal_pos = (x, y)
+    
+    # Place the portal
+    game_map[portal_pos[1]][portal_pos[0]] = {
+      "type": "PORTAL",
+      "visible": True,  # Make it immediately visible
+      "monster_level": 0
+    }
+    
+    return portal_pos
+
   def visualize_map(player, game_map):
     """Creates a visual representation of the nearby map."""
     x, y = player["position"]
@@ -218,6 +251,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                 map_view += "👿 "  # Boss monster
           elif tile_type == "HEALTH":
             map_view += "❤️ "
+          elif tile_type == "PORTAL":
+            map_view += "🌀 "  # Portal to next dungeon
           else:
             map_view += "⬜ "  # Empty
         else:
@@ -225,6 +260,39 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       map_view += "\n"
     
     return map_view
+
+  def enter_next_dungeon(player, game_map):
+    """Advances the player to the next dungeon level."""
+    # Save player progress
+    old_dungeon_level = player["dungeon_level"]
+    player["dungeon_level"] += 1
+    player["dungeons_completed"] += 1
+    
+    # Reset player position
+    player["position"] = (0, 0)
+    
+    # Retain a percentage of coins
+    player["coins"] = int(player["coins"] * COIN_RETENTION)
+    
+    # Heal player to full
+    player["health"] = player["max_health"]
+    
+    # Generate a new, more difficult map
+    new_map = generate_map()
+    
+    # Scale monster difficulty based on dungeon level
+    for y in range(GRID_HEIGHT):
+      for x in range(GRID_WIDTH):
+        if new_map[y][x]["type"] == "MONSTER":
+          # Increase monster level based on dungeon level
+          base_level = new_map[y][x]["monster_level"]
+          level_bonus = max(0, player["dungeon_level"] - 1)
+          new_map[y][x]["monster_level"] = base_level + level_bonus
+    
+    # Start point is always visible and safe
+    new_map[0][0] = {"type": "EMPTY", "visible": True, "monster_level": 0}
+    
+    return new_map, f"You entered dungeon level {player['dungeon_level']}! Monsters will be stronger, but rewards will be greater."
 
   def move_player(player, direction, game_map):
     """
@@ -252,7 +320,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     level_up_msg = ""
     
     if tile["type"] == "COIN":
-      coins_found = plugin.np.random.randint(1, 3 + player["level"] // 2)
+      # Increase coin rewards based on dungeon level
+      dungeon_bonus = (player["dungeon_level"] - 1) * 0.5  # 50% more coins per dungeon level
+      base_coins = plugin.np.random.randint(1, 3 + player["level"] // 2)
+      coins_found = int(base_coins * (1 + dungeon_bonus))
       player["coins"] += coins_found
       tile["type"] = "EMPTY"
       msg += f"You found {coins_found} coin(s)! "
@@ -262,11 +333,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
           msg += "You nimbly avoided a trap! "
       else:
-          base_damage = plugin.np.random.randint(1, 3)
-          # Apply damage reduction from level and equipment
-          damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
-          player["health"] -= damage
-          msg += f"You triggered a trap! Health -{damage}. "
+        # Traps get stronger in higher dungeons
+        dungeon_factor = 1 + (player["dungeon_level"] - 1) * 0.3  # 30% stronger per dungeon
+        base_damage = plugin.np.random.randint(1, 3)
+        base_damage = int(base_damage * dungeon_factor)
+        # Apply damage reduction from level and equipment
+        damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
+        player["health"] -= damage
+        msg += f"You triggered a trap! Health -{damage}. "
       
     elif tile["type"] == "MONSTER":
       monster_level = tile["monster_level"]
@@ -313,14 +387,32 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       player["health"] = min(player["max_health"], player["health"] + heal_amount)
       msg += f"You found a health potion! Health +{heal_amount}. "
       tile["type"] = "EMPTY"
+      
+    elif tile["type"] == "PORTAL":
+      # Create a new dungeon level and move the player there
+      new_map, dungeon_msg = enter_next_dungeon(player, game_map)
+      plugin.obj_cache["shared_map"] = new_map
+      map_view = visualize_map(player, new_map)
+      return f"{dungeon_msg}\n\n{map_view}\n"
 
     is_dead, death_msg = check_health(player)
     if is_dead:
       return death_msg
 
+    # Check if we need to spawn the exit portal
+    exploration = check_exploration_progress(game_map)
+    if exploration >= EXPLORATION_THRESHOLD:
+      # Check if there's already a portal
+      has_portal = any(tile["type"] == "PORTAL" for row in game_map for tile in row)
+      if not has_portal:
+        portal_pos = create_exit_portal(game_map)
+        msg += f"\n🌀 A portal to the next dungeon has appeared in the distance! Find it to advance to a more challenging area with better rewards."
+
     map_view = visualize_map(player, game_map)
     stats = f"Health: {player['health']}/{player['max_health']}, Coins: {player['coins']}\n" \
            f"Level: {player['level']}, XP: {player['xp']}/{player['next_level_xp']}"
+    # Add dungeon level info
+    stats += f"\nDungeon Level: {player['dungeon_level']}, Exploration: {int(exploration)}%"
     return f"{map_view}\n{level_up_msg}{msg}\n{stats}"
 
   def display_shop(player):
@@ -435,6 +527,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- Collect coins and visit the shop (/shop) to buy upgrades using /buy.\n"
                  "- Use consumable items from your inventory with /use.\n"
                  "- View the map with /map.\n"
+                 "- Explore the map to find the portal (🌀) to the next dungeon level.\n"
+                 "- Each new dungeon has tougher monsters but better rewards.\n"
                  "\nAvailable Commands:\n"
                  "1. /start  - Restart the game and begin your epic adventure.\n"
                  "2. /move <up|down|left|right> - Move your character (WSAD keys supported).\n"
@@ -496,6 +590,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     map_view = visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
     return ("Welcome to the Ratio1 Roguelike!\n" 
             "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
+            "Your goal is to explore the dungeon, find the portal to the next level, and see how deep you can go!\n"
             "Use /move <up|down|left|right> to explore, /status to check your stats, and /shop to buy upgrades.\n" 
             "For more detailed instructions, use /help.\n\n" 
             f"{map_view}")
@@ -524,12 +619,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     
     # Add combat stats
     status += f"Attack: {player['attack']}\n" \
-             f"Damage Reduction: {int(player['damage_reduction'] * 100)}%\n"
+              f"Damage Reduction: {int(player['damage_reduction'] * 100)}%\n"
     
     if player["dodge_chance"] > 0:
       status += f"Dodge Chance: {int(player['dodge_chance'] * 100)}%\n"
     
-    status += f"Kills: {player['kills']}\n\n"
+    status += f"Kills: {player['kills']}\n"
+    status += f"Dungeon Level: {player['dungeon_level']}\n"
+    status += f"Dungeons Completed: {player['dungeons_completed']}\n\n"
     
     # Equipment
     status += "Equipment:\n"
@@ -567,7 +664,17 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   elif command == "/map":
     map_view = visualize_map(player, game_map)
-    return f"Your surroundings:\n{map_view}"
+    exploration = check_exploration_progress(game_map)
+    
+    # Check if we need to tell the player about the portal
+    has_portal = any(tile["type"] == "PORTAL" for row in game_map for tile in row)
+    portal_msg = ""
+    if has_portal:
+      portal_msg = "\n🌀 Portal to next dungeon is visible on the map!"
+    elif exploration >= EXPLORATION_THRESHOLD:
+      portal_msg = "\n🌀 A portal to the next dungeon has appeared somewhere!"
+      
+    return f"Your surroundings:\n{map_view}\nExploration: {int(exploration)}%{portal_msg}"
     
   elif command == "/shop":
     return display_shop(player)
