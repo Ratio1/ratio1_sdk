@@ -425,6 +425,27 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     
     return f"Cannot use {item_id}."
 
+  def display_help():
+    """Returns extended help instructions."""
+    help_text = ("Welcome to the Ratio1 Roguelike!\n"
+                 "Instructions:\n"
+                 "- Explore the dungeon using /move (or WSAD keys).\n"
+                 "- Check your stats with /status to see health, coins, XP, level, attack, and equipment.\n"
+                 "- Defeat monsters to earn XP and level up.\n"
+                 "- Collect coins and visit the shop (/shop) to buy upgrades using /buy.\n"
+                 "- Use consumable items from your inventory with /use.\n"
+                 "- View the map with /map.\n"
+                 "\nAvailable Commands:\n"
+                 "1. /start  - Restart the game and begin your epic adventure.\n"
+                 "2. /move <up|down|left|right> - Move your character (WSAD keys supported).\n"
+                 "3. /status - Display your current stats.\n"
+                 "4. /map    - View your surroundings on the map.\n"
+                 "5. /shop   - Browse the shop and buy upgrades/items.\n"
+                 "6. /buy <item_name> - Purchase an item from the shop.\n"
+                 "7. /use <item_name> - Use a consumable from your inventory.\n"
+                 "8. /help   - Display this help message.")
+    return help_text
+
   # --------------------------------------------------
   try:
     # Remove debug code
@@ -457,13 +478,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   parts = text.split()
   if not parts:
     return ("Available Commands:\n" 
-            "/start  - Restart the game and start a new adventure\n" 
-            "/move <up|down|left|right> - Move your character (WSAD keys also supported)\n" 
-            "/status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
-            "/map    - Reveal the map of your surroundings\n"
-            "/shop   - Visit the shop to buy upgrades and items\n"
-            "/buy <item_name> - Purchase an item from the shop\n"
-            "/use <item_name> - Use a consumable item from your inventory")
+            "1. /start  - Restart the game and begin your epic adventure.\n" 
+            "2. /move <up|down|left|right> - Move your character in the specified direction (WSAD keys supported).\n" 
+            "3. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n" 
+            "4. /map    - View the map of your surroundings.\n" 
+            "5. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
+            "6. /buy <item_name> - Purchase an item from the shop.\n" 
+            "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n" 
+            "8. /help   - Display help information.")
 
   command = parts[0]
 
@@ -472,7 +494,11 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     plugin.obj_cache["shared_map"] = generate_map()
     plugin.obj_cache[user_id] = create_new_player()
     map_view = visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
-    return f"Welcome to the Ratio1 Roguelike!\nUse /move <up|down|left|right> to explore.\nUse /status to check your stats.\nUse /shop to spend your coins on upgrades.\n\n{map_view}"
+    return ("Welcome to the Ratio1 Roguelike!\n" 
+            "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
+            "Use /move <up|down|left|right> to explore, /status to check your stats, and /shop to buy upgrades.\n" 
+            "For more detailed instructions, use /help.\n\n" 
+            f"{map_view}")
 
   elif command == "/move":
     if len(parts) < 2:
@@ -560,15 +586,19 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     item_id = parts[1].lower()
     return use_item(player, item_id, game_map)
 
+  elif command == "/help":
+    return display_help()
+
   else:
     return ("Commands:\n"
             "/start  - Restart the game and start a new adventure\n" 
             "/move <up|down|left|right> - Move your character (WSAD keys also supported)\n" 
             "/status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
             "/map    - Reveal the map of your surroundings\n"
-            "/shop   - Visit the shop to buy upgrades and items\n"
-            "/buy <item_name> - Purchase an item from the shop\n"
-            "/use <item_name> - Use a consumable item from your inventory")
+            "/shop   - Visit the shop to buy upgrades and items\n" 
+            "/buy <item_name> - Purchase an item from the shop\n" 
+            "/use <item_name> - Use a consumable item from your inventory\n" 
+            "/help   - Display this help message")
 
 # --------------------------------------------------
 # MAIN FUNCTION (BOT STARTUP)
