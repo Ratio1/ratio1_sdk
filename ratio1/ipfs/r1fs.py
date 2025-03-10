@@ -1,5 +1,5 @@
 """
-Ratio1 base IPFS utility functions.
+R1FS - Ratio1 base IPFS utility functions.
 
 
 NOTE: 
@@ -47,6 +47,8 @@ Installation:
     sudo systemctl start ipfs
     ./show.sh
     ```
+    
+Documentation url: https://docs.ipfs.tech/reference/kubo/cli/#ipfs
 
 """
 import subprocess
@@ -463,7 +465,14 @@ class R1FSEngine:
 
 
   @require_ipfs_started
-  def get_file(self, cid: str, local_folder: str = None, pin=True) -> str:
+  def get_file(
+    self, 
+    cid: str, 
+    local_folder: str = None, 
+    timeout: int = None,
+    pin=True, 
+    raise_on_error: bool = False
+  ) -> str:
     """
     Get a file from IPFS by CID and save it to a local folder.
     If no local folder is provided, the default downloads directory is used.
@@ -476,6 +485,10 @@ class R1FSEngine:
         
     local_folder : str
         The local folder to save the
+        
+    timeout : int
+        The maximum time to wait for the download to complete.
+        Default `None` means the timeout is set by the IPFSCt.TIMEOUT (90s by default)
             
     """
     if pin:
@@ -488,12 +501,16 @@ class R1FSEngine:
       
     self.Pd(f"Downloading file {cid} to {local_folder}")
     start_time = time.time()
-    self.__run_command(["ipfs", "get", cid, "-o", local_folder])
+    self.__run_command(["ipfs", "get", cid, "-o", local_folder], timeout=timeout)
     elapsed_time = time.time() - start_time
     # now we need to get the file from the folder
     folder_contents = os.listdir(local_folder)
     if len(folder_contents) != 1:
-      raise Exception(f"Expected one file in {local_folder}, found {folder_contents}")
+      msg = f"Expected one file in {local_folder}, found {folder_contents}"
+      if raise_on_error:
+        raise Exception(msg)
+      else:
+        self.P(msg, color='r')
     # get the full path of the file
     out_local_filename = os.path.join(local_folder, folder_contents[0])
     self.P(f"Downloaded in {elapsed_time:.1f}s <{cid}> to {out_local_filename}")
@@ -520,7 +537,31 @@ class R1FSEngine:
       if len(parts) > 0:
         pinned_cids.append(parts[0])
     return pinned_cids
-
+  
+  
+  @require_ipfs_started
+  def is_cid_available(self, cid: str, max_wait=3) -> bool:
+    """
+    Check if a CID is available on IPFS.
+    Returns True if the CID is available, False otherwise.
+    
+    Parameters
+    ----------
+    cid : str
+        The CID to check.
+        
+    max_wait : int
+        The maximum time to wait for the CID to be found.
+        
+    """
+    CMD = ["ipfs", "block", "stat", cid]  
+    result = True
+    try:
+      res = self.__run_command(CMD, timeout=max_wait)
+      self.Pd(f"{cid} is available:\n{res}")
+    except Exception as e:
+      result = False
+    return result
 
   
 
@@ -561,20 +602,23 @@ class R1FSEngine:
     self.__base64_swarm_key = base64_swarm_key
     self.__ipfs_relay = ipfs_relay
     hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
+    
+    
+    ipfs_repo = os.path.join(self.logger.base_folder, ".ipfs/")
+    os.makedirs(ipfs_repo, exist_ok=True)
+    
+    config_path = os.path.join(ipfs_repo, "config")
+    swarm_key_path = os.path.join(ipfs_repo, "swarm.key")
+
     msg = f"Starting R1FS <{self.__name}>:"
     msg += f"\n  Relay:    {self.__ipfs_relay}"
     msg += f"\n  Download: {self.__downloads_dir}"
     msg += f"\n  Upload:   {self.__uploads_dir}"
     msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
     msg += f"\n  Debug:    {self.__debug}"
+    msg += f"\n  Repo:     {ipfs_repo}"
     self.P(msg, color='d')
     
-    ipfs_repo = os.path.expanduser("~/.ipfs")
-    os.makedirs(ipfs_repo, exist_ok=True)
-    config_path = os.path.join(ipfs_repo, "config")
-    swarm_key_path = os.path.join(ipfs_repo, "swarm.key")
-    
-    # TODO: maybe here we need to update swarm.key if the ~/.ipfs is volume mounted
 
     if not os.path.isfile(config_path):
       # Repository is not initialized; write the swarm key and init.
