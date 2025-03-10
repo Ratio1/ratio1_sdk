@@ -329,33 +329,59 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     if player_encounters:
       result += "\n" + "\n".join(player_encounters)
+    
+    # Check if exit portal exists anywhere in the map
+    has_portal = any(tile["type"] == "PORTAL" for row in game_map for tile in row)
+    
+    # If portal exists, count players at exit and show advancement status after every move
+    if has_portal:
+      # Find the portal position
+      portal_pos = None
+      for y_idx in range(len(game_map)):
+        for x_idx in range(len(game_map[y_idx])):
+          if game_map[y_idx][x_idx]["type"] == "PORTAL":
+            portal_pos = (x_idx, y_idx)
+            break
+        if portal_pos:
+          break
+      
+      if portal_pos:
+        # Count players at the portal
+        players_on_exit = 0
+        total_players = len(room["players"])
+        player_names_on_exit = []
+        
+        for pid, p in room["players"].items():
+          if p["position"] == portal_pos:
+            players_on_exit += 1
+            player_names_on_exit.append(f"Player at {portal_pos}")
+        
+        # Always show portal status after each move when portal exists
+        if players_on_exit == total_players:
+          # All players are on the exit, advance to next dungeon
+          for p in room["players"].values():
+            enter_next_dungeon(p, game_map)
 
-    # Check if all players are on the exit portal and ready to advance
-    if game_map[y][x].get("type") == "EXIT":
-      players_on_exit = 0
-      total_players = len(room["players"])
+          # Generate new map for the next dungeon
+          room["map"] = generate_map()
+          room["dungeon_level"] += 1
+          room["dungeon_completion"] = 0
 
-      for p in room["players"].values():
-        if p["position"] == (x, y):
-          players_on_exit += 1
+          result += f"\nAll players have reached the exit portal! Advancing to dungeon level {room['dungeon_level']}."
 
-      if players_on_exit == total_players:
-        # All players are on the exit, advance to next dungeon
-        for p in room["players"].values():
-          enter_next_dungeon(p, game_map)
-
-        # Generate new map for the next dungeon
-        room["map"] = generate_map()
-        room["dungeon_level"] += 1
-        room["dungeon_completion"] = 0
-
-        result += f"\nAll players have reached the exit portal! Advancing to dungeon level {room['dungeon_level']}."
-
-        # Update everyone's map view
-        map_view = visualize_multiplayer_map(room, player_id)
-        result += f"\n\n{map_view}"
-      else:
-        result += f"\n{players_on_exit}/{total_players} players are at the exit portal. All players must be at the exit to advance."
+          # Update everyone's map view
+          map_view = visualize_multiplayer_map(room, player_id)
+          result += f"\n\n{map_view}"
+        else:
+          # Show portal status info
+          if players_on_exit > 0:
+            players_at_exit_str = ", ".join(player_names_on_exit)
+            result += f"\n🌀 Portal Status: {players_on_exit}/{total_players} players at the exit."
+            result += f"\n   Players at exit: {players_at_exit_str}"
+            result += f"\n   All players must reach the exit portal at ({portal_pos[0]}, {portal_pos[1]}) to advance!"
+          else:
+            result += f"\n🌀 Portal Status: Nobody has reached the exit portal yet."
+            result += f"\n   All players must reach the exit portal at ({portal_pos[0]}, {portal_pos[1]}) to advance!"
 
     return result
 
@@ -672,30 +698,34 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     elif tile["type"] == "MONSTER":
       monster_level = tile["monster_level"]
 
-      # Check for dodge chance from equipment
-      if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
-          msg += f"You dodged the monster's attack! "
-      else:
-          # Monster deals damage based on its level, reduced by player's attack
-          effective_monster_level = max(1, monster_level - player["attack"])
-          base_damage = plugin.np.random.randint(1, 2 + effective_monster_level)
-
-          # Apply damage reduction from player level and equipment
-          damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
-          player["health"] -= damage
-
-          # Include attack info in message
-          if player["attack"] > 0:
-              msg += f"Your attack reduced monster effectiveness! "
-
-          msg += f"A level {monster_level} monster attacked you! Health -{damage}. "
-
-      # XP gained based on monster level
-      xp_gained = monster_level * 3 + plugin.np.random.randint(0, 3)
+      # Calculate XP based on monster level and dungeon level
+      base_xp = 5 + (monster_level * 2)
+      dungeon_bonus = (player["dungeon_level"] - 1) * 0.2  # 20% more XP per dungeon level
+      xp_gained = int(base_xp * (1 + dungeon_bonus))
       player["xp"] += xp_gained
       player["kills"] += 1
 
-      # Check for level up
+      # Calculate damage based on monster level, with damage reduction
+      dungeon_factor = 1 + (player["dungeon_level"] - 1) * 0.3  # 30% stronger per dungeon
+      base_damage = plugin.np.random.randint(1, 3) + monster_level
+      base_damage = int(base_damage * dungeon_factor)
+      
+      # Player attack reduces monster damage
+      damage_after_attack = max(1, base_damage - player["attack"])
+      
+      # Apply damage reduction from level and equipment
+      final_damage = max(1, int(damage_after_attack * (1 - player["damage_reduction"])))
+      
+      # Check for dodge
+      if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
+        msg += f"You dodged the monster's attack! "
+        final_damage = 0
+        
+      # Apply damage if not dodged
+      if final_damage > 0:
+        player["health"] -= final_damage
+        msg += f"You took {final_damage} damage. "
+
       did_level_up, level_up_message = check_level_up(player)
       if did_level_up:
           level_up_msg = level_up_message + "\n"
@@ -726,14 +756,39 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     if is_dead:
       return death_msg
 
-    # Check if we need to spawn the exit portal
+    # Check exploration progress and portal status
     exploration = check_exploration_progress(game_map)
-    if exploration >= EXPLORATION_THRESHOLD:
-      # Check if there's already a portal
-      has_portal = any(tile["type"] == "PORTAL" for row in game_map for tile in row)
-      if not has_portal:
-        portal_pos = create_exit_portal(game_map)
-        msg += f"\n🌀 A portal to the next dungeon has appeared in the distance! Find it to advance to a more challenging area with better rewards."
+    
+    # Check for existing portal
+    has_portal = any(tile["type"] == "PORTAL" for row in game_map for tile in row)
+    
+    # If no portal yet but we've hit the threshold, create one
+    if exploration >= EXPLORATION_THRESHOLD and not has_portal:
+      portal_pos = create_exit_portal(game_map)
+      msg += f"\n🌀 A portal to the next dungeon has appeared in the distance! Find it to advance to a more challenging area with better rewards."
+      has_portal = True  # We just created a portal
+    
+    # If there's a portal, always show its status
+    if has_portal:
+      # Find the portal position
+      portal_pos = None
+      for y_idx in range(len(game_map)):
+        for x_idx in range(len(game_map[y_idx])):
+          if game_map[y_idx][x_idx]["type"] == "PORTAL":
+            portal_pos = (x_idx, y_idx)
+            break
+        if portal_pos:
+          break
+      
+      if portal_pos:
+        # Check if the portal is visible to the player
+        if game_map[portal_pos[1]][portal_pos[0]].get("visible", False):
+          portal_status = f"\n🌀 Portal Status: Exit portal is located at ({portal_pos[0]}, {portal_pos[1]}). Reach it to advance to the next dungeon!"
+        else:
+          portal_status = f"\n🌀 Portal Status: A portal has appeared somewhere on the map. Keep exploring to find it!"
+        
+        # Add portal status to the message
+        msg += portal_status
 
     map_view = visualize_map(player, game_map)
     stats = f"Health: {player['health']}/{player['max_health']}, Coins: {player['coins']}\n" \
