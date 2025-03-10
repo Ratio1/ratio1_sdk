@@ -324,10 +324,12 @@ class BaseBlockEngine(_EVMMixin):
     if user_config:
       user_folder = get_user_folder()
       pem_fn = str(user_folder / BCct.USER_PEM_FILE)
+      self.P(f"Home config selected. Setting pem_fn to {pem_fn}")
     else:
       pem_name = config.get(BCct.K_PEM_FILE, BCct.DEFAULT_PEM_FILE)
       pem_folder = config.get(BCct.K_PEM_LOCATION, BCct.DEFAULT_PEM_LOCATION)
       pem_fn = os.path.join(log.get_target_folder(pem_folder), pem_name)
+      self.P(f"Arbitrary config selected. Setting pem_fn to {pem_fn}")
     #endif pem is defined in ~/.ratio1/ or in the data folder of the _local_cache
     self.__pem_file = pem_fn
     self._init()

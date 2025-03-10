@@ -10,18 +10,14 @@ from ratio1.utils.config import get_user_folder
 
 if __name__ == '__main__' :
   
-  os.environ["EE_EVM_NET"] = "devnet"
   
-  l = Logger(
-    "ENC", base_folder=str(get_user_folder()), 
-    app_folder="_local_cache"
-  )
+  l = Logger("ENC")
   eng = DefaultBlockEngine(
     log=l, name="default", 
-    config={
-      }
+    user_config=True
   )
   
+  eng.reset_network("devnet")
   
   addresses = [
     "0xE486F0d594e9F26931fC10c29E6409AEBb7b5144",

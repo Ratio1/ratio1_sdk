@@ -765,6 +765,17 @@ class _UtilsMixin(object):
   @staticmethod
   def shorten_name(s):
     return _UtilsMixin.name_abbreviation(s)
+  
+  @staticmethod
+  def shorten_address(s : str):
+    if s.startwith('0xai_'):
+      return s[:9] + '...' + s[-4:]
+    else:
+      return s[:6] + '...' + s[-4:]
+
+  @staticmethod
+  def shorten_addr(s : str):
+    return _UtilsMixin.shorten_address(s)
 
 
   @staticmethod
