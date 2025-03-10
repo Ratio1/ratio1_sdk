@@ -768,7 +768,7 @@ class _UtilsMixin(object):
   
   @staticmethod
   def shorten_address(s : str):
-    if s.startwith('0xai_'):
+    if s.startswith('0xai_'):
       return s[:9] + '...' + s[-4:]
     else:
       return s[:6] + '...' + s[-4:]

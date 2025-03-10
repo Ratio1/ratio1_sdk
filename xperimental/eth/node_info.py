@@ -77,9 +77,19 @@ if __name__ == '__main__' :
       should_be_valid = pre_info['type'] != 'fail'
       node_info = eng.web3_get_node_info(node)
       is_valid = node_info['isValid']
+      license_id = node_info['licenseId']      
+      assign_time = node_info['assignTimestamp']
+      str_assign_time = l.time_to_str(assign_time)
       owner = node_info['owner']
-      owner = l.shorten_addr(owner)
-      color = 'r' if is_valid != should_be_valid else 'g'
-      l.P(f"Node {node} is_valid={is_valid} owner={owner}", color=color)
+      owner_short = l.shorten_addr(owner)
+      node_short = l.shorten_addr(node)
+      check_status = is_valid != should_be_valid
+      if check_status:      
+        l.P(f"Node {node} check failed", color='r')
+      else:
+        if is_valid:
+          l.P(f"Node {node_short} is valid, license {license_id} assigned at {str_assign_time} by owner {owner_short}", color='g')
+        else:
+          l.P(f"Node {node_short} is invalid as expected.", color='g')
   
   

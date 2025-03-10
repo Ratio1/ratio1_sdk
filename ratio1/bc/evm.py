@@ -995,6 +995,7 @@ class _EVMMixin:
 
       # Unpack the tuple into a dictionary for readability.
       details = {
+        "network": network,
         "licenseType": result_tuple[0],
         "licenseId": result_tuple[1],
         "owner": result_tuple[2],
@@ -1008,7 +1009,6 @@ class _EVMMixin:
         "isValid": True, # default to True; set to False if any issues are detected
       }
 
-      self.P(f"Node Info:\n{json.dumps(details, indent=2)}", verbosity=2)
       
       no_owner = details["owner"] == "0x0000000000000000000000000000000000000000"
       no_real_addr = details["nodeAddress"] == "0x0000000000000000000000000000000000000000"
@@ -1019,6 +1019,8 @@ class _EVMMixin:
       )
       
       details['isValid'] = is_valid
+
+      self.P(f"Node Info:\n{json.dumps(details, indent=2)}", verbosity=2)
 
       if not is_valid:
         if raise_if_issue:
