@@ -33,7 +33,272 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # Dungeon progression
   EXPLORATION_THRESHOLD = 70  # Percentage of map that needs to be explored for exit to appear
   COIN_RETENTION = 0.7  # Percentage of coins kept when advancing to next dungeon
-  
+  # Multiplayer constants
+  MAX_PLAYERS_PER_ROOM = 4
+  ROOM_ID_LENGTH = 6
+
+  # --------------------------------------------------
+  # ROOM MANAGEMENT FUNCTIONS
+  # --------------------------------------------------
+  def generate_room_id():
+    """Generates a random alphanumeric room ID."""
+    chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    room_id = ''
+    for _ in range(ROOM_ID_LENGTH):
+        room_id += chars[plugin.np.random.randint(0, len(chars))]
+    return room_id
+
+  def create_room(creator_id):
+    """Creates a new multiplayer room with the given creator as first player."""
+    # Initialize room structure
+    room_id = generate_room_id()
+
+    # Check if room_id already exists (very unlikely but possible)
+    while f"room_{room_id}" in plugin.obj_cache:
+      room_id = generate_room_id()
+
+    # Create shared game state for the room
+    plugin.obj_cache[f"room_{room_id}"] = {
+      "map": generate_map(),
+      "players": {creator_id: create_new_player()},
+      "creator": creator_id,
+      "created_at": plugin.np.datetime64('now'),
+      "messages": [],  # For in-game communication between players
+      "dungeon_level": 1,
+      "dungeon_completion": 0
+    }
+
+    # Track which room each player is in
+    if "player_rooms" not in plugin.obj_cache:
+      plugin.obj_cache["player_rooms"] = {}
+
+    plugin.obj_cache["player_rooms"][creator_id] = room_id
+
+    return room_id
+
+  def join_room(player_id, room_id):
+    """Adds a player to an existing room."""
+    room_key = f"room_{room_id}"
+
+    # Check if room exists
+    if room_key not in plugin.obj_cache:
+      return False, "Room not found. Please check the room code and try again."
+
+    room = plugin.obj_cache[room_key]
+
+    # Check if room is full
+    if len(room["players"]) >= MAX_PLAYERS_PER_ROOM:
+      return False, f"Room is full (max {MAX_PLAYERS_PER_ROOM} players)."
+
+    # Add player to room
+    if player_id not in room["players"]:
+      room["players"][player_id] = create_new_player()
+
+    # Update player's room reference
+    if "player_rooms" not in plugin.obj_cache:
+      plugin.obj_cache["player_rooms"] = {}
+
+    plugin.obj_cache["player_rooms"][player_id] = room_id
+
+    # Notify other players that someone joined
+    room["messages"].append(f"Player has joined the room.")
+
+    return True, f"Joined room {room_id} successfully! There are {len(room['players'])} players in this room."
+
+  def leave_room(player_id):
+    """Removes a player from their current room."""
+    if "player_rooms" not in plugin.obj_cache or player_id not in plugin.obj_cache["player_rooms"]:
+      return "You are not in any room."
+
+    room_id = plugin.obj_cache["player_rooms"][player_id]
+    room_key = f"room_{room_id}"
+
+    if room_key in plugin.obj_cache:
+      room = plugin.obj_cache[room_key]
+
+      # Remove player from room
+      if player_id in room["players"]:
+        del room["players"][player_id]
+
+      # Notify other players
+      room["messages"].append(f"Player has left the room.")
+
+      # If room is empty, delete it
+      if len(room["players"]) == 0:
+        del plugin.obj_cache[room_key]
+      # If creator left, assign a new creator
+      elif player_id == room["creator"] and len(room["players"]) > 0:
+        room["creator"] = next(iter(room["players"].keys()))
+
+    # Remove player's room reference
+    del plugin.obj_cache["player_rooms"][player_id]
+
+    return f"Left room {room_id}."
+
+  def get_player_room(player_id):
+    """Returns the room ID that the player is currently in, or None."""
+    if "player_rooms" not in plugin.obj_cache or player_id not in plugin.obj_cache["player_rooms"]:
+      return None
+    return plugin.obj_cache["player_rooms"][player_id]
+
+  def get_room_and_player_data(player_id):
+    """Returns the room and player data for the given player ID."""
+    room_id = get_player_room(player_id)
+    if room_id is None:
+      return None, None
+
+    room_key = f"room_{room_id}"
+    if room_key not in plugin.obj_cache:
+      # Room doesn't exist but player thinks they're in it
+      if "player_rooms" in plugin.obj_cache and player_id in plugin.obj_cache["player_rooms"]:
+        del plugin.obj_cache["player_rooms"][player_id]
+      return None, None
+
+    room = plugin.obj_cache[room_key]
+    player = room["players"].get(player_id)
+    return room, player
+
+  def list_players_in_room(room):
+    """Returns a formatted string with the list of players in the room."""
+    if not room or not room["players"]:
+      return "No players in this room."
+
+    result = "Players in this room:\n"
+    for pid, p in room["players"].items():
+      result += f"• Player at {p['position']} (Level {p['level']}, HP: {p['health']}/{p['max_health']})\n"
+    return result
+
+  def send_room_message(player_id, message):
+    """Sends a message to all players in the room."""
+    room_id = get_player_room(player_id)
+    if room_id is None:
+      return "You're not in a room. Join or create a room first."
+
+    room_key = f"room_{room_id}"
+    if room_key not in plugin.obj_cache:
+      return "Room not found."
+
+    room = plugin.obj_cache[room_key]
+    # Truncate message history to last 20 messages
+    if len(room["messages"]) > 20:
+      room["messages"] = room["messages"][max(0, len(room["messages"]) - 20):]
+      # room["messages"] = room["messages"][-20:]
+
+    room["messages"].append(f"Player: {message}")
+    return "Message sent to room."
+
+  def get_room_messages(room):
+    """Returns the message history for the room."""
+    if not room or "messages" not in room:
+      return "No messages."
+
+    if not room["messages"]:
+      return "No messages yet."
+
+    result = "Recent messages:\n"
+    # for msg in room["messages"][-5:]:  # Show last 5 messages
+    for msg in room["messages"][max(0, len(room["messages"]) - 5):]:
+      result += f"• {msg}\n"
+    return result
+
+  # --------------------------------------------------
+  # MULTIPLAYER GAME MECHANICS
+  # --------------------------------------------------
+  def visualize_multiplayer_map(room, player_id):
+    """Visualizes the map with all players' positions."""
+    if not room or "map" not in room or player_id not in room["players"]:
+      return "Map not available."
+
+    game_map = room["map"]
+    current_player = room["players"][player_id]
+
+    # First, visualize the normal map for current player
+    map_str = visualize_map(current_player, game_map)
+
+    # Add other players' positions
+    map_lines = map_str.split('\n')
+    grid_line_start = 1  # Skip the header line
+
+    # Create a copy of the map representation
+    mp_map_lines = map_lines.copy()
+
+    # Add other players to the map
+    for pid, p in room["players"].items():
+      if pid != player_id:
+        x, y = p["position"]
+        # Only show other players if the tile is visible to current player
+        if y < len(game_map) and x < len(game_map[0]) and game_map[y][x].get("visible", False):
+          # Find the right line in the map string
+          line_idx = grid_line_start + y
+          if 0 <= line_idx < len(mp_map_lines):
+            # Each position takes 2 characters in the string
+            pos_in_line = 1 + (x * 2)
+            if 0 <= pos_in_line < len(mp_map_lines[line_idx]):
+              # Replace the character with a player indicator
+              line_chars = list(mp_map_lines[line_idx])
+              line_chars[pos_in_line] = '👤'
+              mp_map_lines[line_idx] = ''.join(line_chars)
+
+    # Add a legend for the multiplayer map
+    mp_map_str = '\n'.join(mp_map_lines)
+    mp_map_str += "\n👤 - Other players"
+
+    return mp_map_str
+
+  def multiplayer_move_player(room, player_id, direction):
+    """Moves a player and handles interactions with the environment and other players."""
+    if not room or "map" not in room or player_id not in room["players"]:
+      return "Cannot move - not in a valid room."
+
+    player = room["players"][player_id]
+    game_map = room["map"]
+
+    # Use the regular move_player function but with the room's map
+    result = move_player(player, direction, game_map)
+
+    # Check if player has encountered other players
+    x, y = player["position"]
+    player_encounters = []
+
+    for pid, p in room["players"].items():
+      if pid != player_id and p["position"] == (x, y):
+        player_encounters.append(f"You encountered another player at {x}, {y}!")
+
+    if player_encounters:
+      result += "\n" + "\n".join(player_encounters)
+
+    # Check if all players are on the exit portal and ready to advance
+    if game_map[y][x].get("type") == "EXIT":
+      players_on_exit = 0
+      total_players = len(room["players"])
+
+      for p in room["players"].values():
+        if p["position"] == (x, y):
+          players_on_exit += 1
+
+      if players_on_exit == total_players:
+        # All players are on the exit, advance to next dungeon
+        for p in room["players"].values():
+          enter_next_dungeon(p, game_map)
+
+        # Generate new map for the next dungeon
+        room["map"] = generate_map()
+        room["dungeon_level"] += 1
+        room["dungeon_completion"] = 0
+
+        result += f"\nAll players have reached the exit portal! Advancing to dungeon level {room['dungeon_level']}."
+
+        # Update everyone's map view
+        map_view = visualize_multiplayer_map(room, player_id)
+        result += f"\n\n{map_view}"
+      else:
+        result += f"\n{players_on_exit}/{total_players} players are at the exit portal. All players must be at the exit to advance."
+
+    return result
+
+  # --------------------------------------------------
+  # SHOP FUNCTIONS
+  # --------------------------------------------------
   # Shop items configuration
   SHOP_ITEMS = {
     "health_potion": {
@@ -91,29 +356,29 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         # Deeper parts of the map have stronger monsters and better rewards
         distance_from_start = ((x)**2 + (y)**2)**0.5
         depth_factor = min(distance_from_start / 14, 1.0)  # Normalized 0-1
-        
+
         # Adjust probabilities based on depth
         coin_prob = 0.15 + (0.05 * depth_factor)  # More coins deeper
         trap_prob = 0.1 + (0.05 * depth_factor)  # More traps deeper
         monster_prob = 0.1 + (0.1 * depth_factor)  # More monsters deeper
         health_prob = 0.05
         empty_prob = 1 - (coin_prob + trap_prob + monster_prob + health_prob)
-        
+
         tile_type = plugin.np.random.choice(
-            ["COIN", "TRAP", "MONSTER", "HEALTH", "EMPTY"], 
+            ["COIN", "TRAP", "MONSTER", "HEALTH", "EMPTY"],
             p=[coin_prob, trap_prob, monster_prob, health_prob, empty_prob]
         )
-        
+
         # Set monster level based on map depth
         monster_level = 1
         if tile_type == "MONSTER":
             base_level = max(1, int(depth_factor * 5))
             variation = plugin.np.random.randint(-1, 2)
             monster_level = max(1, base_level + variation)
-        
+
         row.append({
-            "type": tile_type, 
-            "visible": False, 
+            "type": tile_type,
+            "visible": False,
             "monster_level": monster_level if tile_type == "MONSTER" else 0
         })
       new_map.append(row)
@@ -124,10 +389,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   def create_new_player():
     """Creates a new player dict with default stats."""
     return {
-        "position": (0, 0), 
-        "coins": 0, 
-        "health": START_HEALTH, 
-        "level": 1, 
+        "position": (0, 0),
+        "coins": 0,
+        "health": START_HEALTH,
+        "level": 1,
         "max_health": START_HEALTH,
         "xp": 0,
         "next_level_xp": LEVEL_XP_REQUIREMENTS[1],
@@ -153,26 +418,26 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     if player["health"] <= 0:
       return True, "You have died! Game over.\nUse /start to play again."
     return False, ""
-    
+
   def check_level_up(player):
     """Checks if player has enough XP to level up and applies level up benefits."""
     if player["level"] >= MAX_LEVEL:
         return False, ""
-        
+
     if player["xp"] >= player["next_level_xp"]:
         player["level"] += 1
         old_max_health = player["max_health"]
         player["max_health"] += HEALTH_PER_LEVEL
         player["health"] += HEALTH_PER_LEVEL  # Heal on level up
         player["damage_reduction"] += DAMAGE_REDUCTION_PER_LEVEL
-        
+
         # Set next level XP requirement
         if player["level"] < len(LEVEL_XP_REQUIREMENTS):
             player["next_level_xp"] = LEVEL_XP_REQUIREMENTS[player["level"]]
         else:
             # For levels beyond our predefined table, increase by 30%
             player["next_level_xp"] = int(player["next_level_xp"] * 1.3)
-            
+
         return True, f"LEVEL UP! You are now level {player['level']}!\n" \
                     f"Max Health: {old_max_health} → {player['max_health']}\n" \
                     f"Damage Reduction: {int((player['damage_reduction'] - DAMAGE_REDUCTION_PER_LEVEL) * 100)}% → {int(player['damage_reduction'] * 100)}%"
@@ -186,7 +451,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         nx, ny = x + dx, y + dy
         if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
           game_map[ny][nx]["visible"] = True
-          
+
   def reveal_extended_map(player, game_map):
     """Reveals a larger portion of the map (used by map scroll)."""
     x, y = player["position"]
@@ -207,21 +472,21 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Find the farthest point from the start (0,0)
     max_distance = 0
     portal_pos = (GRID_WIDTH-1, GRID_HEIGHT-1)  # Default to bottom-right
-    
+
     for y in range(GRID_HEIGHT):
       for x in range(GRID_WIDTH):
         distance = ((x)**2 + (y)**2)**0.5
         if distance > max_distance and game_map[y][x]["type"] != "PORTAL":
           max_distance = distance
           portal_pos = (x, y)
-    
+
     # Place the portal
     game_map[portal_pos[1]][portal_pos[0]] = {
       "type": "PORTAL",
       "visible": True,  # Make it immediately visible
       "monster_level": 0
     }
-    
+
     return portal_pos
 
   def visualize_map(player, game_map):
@@ -229,7 +494,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     x, y = player["position"]
     view_distance = 2
     map_view = ""
-    
+
     for ny in range(max(0, y - view_distance), min(GRID_HEIGHT, y + view_distance + 1)):
       for nx in range(max(0, x - view_distance), min(GRID_WIDTH, x + view_distance + 1)):
         if (nx, ny) == (x, y):
@@ -258,7 +523,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         else:
           map_view += "⬛ "  # Unexplored
       map_view += "\n"
-    
+
     return map_view
 
   def enter_next_dungeon(player, game_map):
@@ -267,19 +532,19 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     old_dungeon_level = player["dungeon_level"]
     player["dungeon_level"] += 1
     player["dungeons_completed"] += 1
-    
+
     # Reset player position
     player["position"] = (0, 0)
-    
+
     # Retain a percentage of coins
     player["coins"] = int(player["coins"] * COIN_RETENTION)
-    
+
     # Heal player to full
     player["health"] = player["max_health"]
-    
+
     # Generate a new, more difficult map
     new_map = generate_map()
-    
+
     # Scale monster difficulty based on dungeon level
     for y in range(GRID_HEIGHT):
       for x in range(GRID_WIDTH):
@@ -288,10 +553,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           base_level = new_map[y][x]["monster_level"]
           level_bonus = max(0, player["dungeon_level"] - 1)
           new_map[y][x]["monster_level"] = base_level + level_bonus
-    
+
     # Start point is always visible and safe
     new_map[0][0] = {"type": "EMPTY", "visible": True, "monster_level": 0}
-    
+
     return new_map, f"You entered dungeon level {player['dungeon_level']}! Monsters will be stronger, but rewards will be greater."
 
   def move_player(player, direction, game_map):
@@ -318,7 +583,6 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     msg = f"You moved {direction} to ({x},{y}). "
     level_up_msg = ""
-    
     if tile["type"] == "COIN":
       # Increase coin rewards based on dungeon level
       dungeon_bonus = (player["dungeon_level"] - 1) * 0.5  # 50% more coins per dungeon level
@@ -327,7 +591,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       player["coins"] += coins_found
       tile["type"] = "EMPTY"
       msg += f"You found {coins_found} coin(s)! "
-      
+
     elif tile["type"] == "TRAP":
       # Check for dodge chance from equipment
       if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
@@ -341,10 +605,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
         player["health"] -= damage
         msg += f"You triggered a trap! Health -{damage}. "
-      
+
     elif tile["type"] == "MONSTER":
       monster_level = tile["monster_level"]
-      
+
       # Check for dodge chance from equipment
       if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
           msg += f"You dodged the monster's attack! "
@@ -352,42 +616,42 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           # Monster deals damage based on its level, reduced by player's attack
           effective_monster_level = max(1, monster_level - player["attack"])
           base_damage = plugin.np.random.randint(1, 2 + effective_monster_level)
-          
+
           # Apply damage reduction from player level and equipment
           damage = max(1, int(base_damage * (1 - player["damage_reduction"])))
           player["health"] -= damage
-          
+
           # Include attack info in message
           if player["attack"] > 0:
               msg += f"Your attack reduced monster effectiveness! "
-              
+
           msg += f"A level {monster_level} monster attacked you! Health -{damage}. "
-      
+
       # XP gained based on monster level
       xp_gained = monster_level * 3 + plugin.np.random.randint(0, 3)
       player["xp"] += xp_gained
       player["kills"] += 1
-      
+
       # Check for level up
       did_level_up, level_up_message = check_level_up(player)
       if did_level_up:
           level_up_msg = level_up_message + "\n"
-      
+
       monster_emoji = "👹"
       if monster_level > 2 and monster_level <= 4:
           monster_emoji = "👺"
       elif monster_level > 4:
           monster_emoji = "👿"
-          
+
       msg += f"You killed a level {monster_level} monster {monster_emoji}! You gained {xp_gained} XP!"
       tile["type"] = "EMPTY"
-      
+
     elif tile["type"] == "HEALTH":
       heal_amount = plugin.np.random.randint(2, 5)
       player["health"] = min(player["max_health"], player["health"] + heal_amount)
       msg += f"You found a health potion! Health +{heal_amount}. "
       tile["type"] = "EMPTY"
-      
+
     elif tile["type"] == "PORTAL":
       # Create a new dungeon level and move the player there
       new_map, dungeon_msg = enter_next_dungeon(player, game_map)
@@ -420,61 +684,61 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     shop_text = "🏪 SHOP 🏪\n\n"
     shop_text += f"Your coins: {player['coins']} 💰\n\n"
     shop_text += "Available Items:\n"
-    
+
     for item_id, item in SHOP_ITEMS.items():
       can_afford = "✅" if player["coins"] >= item["price"] else "❌"
       shop_text += f"{item['name']} - {item['price']} coins {can_afford}\n"
       shop_text += f"  {item['description']}\n"
-    
+
     shop_text += "\nTo purchase an item, use /buy <item_name>"
     shop_text += "\nAvailable items: health_potion, sword, shield, amulet, boots, map_scroll"
     return shop_text
-    
+
   def buy_item(player, item_id):
     """Process the purchase of an item."""
     if item_id not in SHOP_ITEMS:
       return f"Item '{item_id}' not found in the shop."
-    
+
     item = SHOP_ITEMS[item_id]
-    
+
     # Check if player has enough coins
     if player["coins"] < item["price"]:
       return f"You don't have enough coins. You need {item['price']} coins but only have {player['coins']}."
-    
+
     # Process the purchase based on item type
     if item["type"] == "consumable":
       player["inventory"][item_id] += 1
       msg = f"You purchased {item['name']}. It's in your inventory."
-    
+
     elif item["type"] == "weapon":
       # Replace existing weapon
       old_weapon = player["equipment"]["weapon"]
       if old_weapon:
         # Remove old weapon bonuses
         player["attack"] -= SHOP_ITEMS[old_weapon]["attack_bonus"]
-      
+
       player["equipment"]["weapon"] = item_id
       player["attack"] += item["attack_bonus"]
       msg = f"You equipped {item['name']}! Your attack is now {player['attack']}."
-    
+
     elif item["type"] == "armor":
       # Replace existing armor
       old_armor = player["equipment"]["armor"]
       if old_armor:
         # Remove old armor bonuses
         player["damage_reduction"] -= SHOP_ITEMS[old_armor]["damage_reduction_bonus"]
-      
+
       player["equipment"]["armor"] = item_id
       player["damage_reduction"] += item["damage_reduction_bonus"]
       msg = f"You equipped {item['name']}! Your damage reduction is now {int(player['damage_reduction'] * 100)}%."
-    
+
     elif item["type"] == "accessory":
       # Add to accessories (allowing multiple)
       if item_id in player["equipment"]["accessory"]:
         return f"You already have {item['name']}."
-      
+
       player["equipment"]["accessory"].append(item_id)
-      
+
       # Apply accessory bonuses
       if "max_health_bonus" in item:
         player["max_health"] += item["max_health_bonus"]
@@ -484,42 +748,42 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         msg = f"You equipped {item['name']}! Your dodge chance is now {int(player['dodge_chance'] * 100)}%."
       else:
         msg = f"You equipped {item['name']}!"
-    
+
     # Deduct coins
     player["coins"] -= item["price"]
-    
+
     return f"{msg}\nYou have {player['coins']} coins remaining."
-    
+
   def use_item(player, item_id, game_map):
     """Use a consumable item from inventory."""
     if item_id not in player["inventory"] or player["inventory"][item_id] <= 0:
       return f"You don't have any {item_id} in your inventory."
-    
+
     if item_id == "health_potion":
       if player["health"] >= player["max_health"]:
         return "Your health is already full!"
-      
+
       # Use health potion
       heal_amount = 5
       old_health = player["health"]
       player["health"] = min(player["max_health"], player["health"] + heal_amount)
       player["inventory"][item_id] -= 1
-      
+
       return f"You used a Health Potion. Health: {old_health} → {player['health']}"
-    
+
     elif item_id == "map_scroll":
       # Use map scroll to reveal a larger area
       reveal_extended_map(player, game_map)
       player["inventory"][item_id] -= 1
-      
+
       map_view = visualize_map(player, game_map)
       return f"You used a Map Scroll and revealed more of the map!\n\n{map_view}"
-    
+
     return f"Cannot use {item_id}."
 
   def display_help():
     """Returns extended help instructions."""
-    help_text = ("Welcome to the Ratio1 Roguelike!\n"
+    help_text = ("Welcome to Shadowborn!\n"
                  "Instructions:\n"
                  "- Explore the dungeon using /move (or WSAD keys).\n"
                  "- Check your stats with /status to see health, coins, XP, level, attack, and equipment.\n"
@@ -529,6 +793,15 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- View the map with /map.\n"
                  "- Explore the map to find the portal (🌀) to the next dungeon level.\n"
                  "- Each new dungeon has tougher monsters but better rewards.\n"
+                 "\nMultiplayer Mode:\n"
+                 "- Create a new room with /create_room and share the code with friends.\n"
+                 "- Join a friend's room with /join_room <code>.\n"
+                 "- Chat with teammates using /room_chat <message>.\n"
+                 "- See who's in your room with /room_status.\n"
+                 "- Leave your current room with /leave_room.\n"
+                 "- In multiplayer mode, all players in the room must reach the exit portal to advance to the next level!\n"
+                 "- Players can see each other on the map if they're in visible areas (👤 symbol).\n"
+                 "- Work together to explore faster and defeat challenging monsters!\n"
                  "\nAvailable Commands:\n"
                  "1. /start  - Restart the game and begin your epic adventure.\n"
                  "2. /move <up|down|left|right> - Move your character (WSAD keys supported).\n"
@@ -537,7 +810,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "5. /shop   - Browse the shop and buy upgrades/items.\n"
                  "6. /buy <item_name> - Purchase an item from the shop.\n"
                  "7. /use <item_name> - Use a consumable from your inventory.\n"
-                 "8. /help   - Display this help message.")
+                 "8. /create_room - Create a new multiplayer room and get a room code.\n"
+                 "9. /join_room <code> - Join an existing multiplayer room.\n"
+                 "10. /leave_room - Leave your current multiplayer room.\n"
+                 "11. /room_status - See who's in your current room.\n"
+                 "12. /room_chat <message> - Send a message to all players in your room.\n"
+                 "13. /help   - Display this help message.")
     return help_text
 
   # --------------------------------------------------
@@ -578,118 +856,240 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "4. /map    - View the map of your surroundings.\n" 
             "5. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
             "6. /buy <item_name> - Purchase an item from the shop.\n" 
-            "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n" 
-            "8. /help   - Display help information.")
+            "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
+            "8. /create_room - Create a new multiplayer room.\n"
+            "9. /join_room <code> - Join an existing multiplayer room.\n"
+            "10. /leave_room - Leave your current room.\n"
+            "11. /room_status - Check who's in your room.\n"
+            "12. /room_chat <message> - Send a message to everyone in your room.\n"
+            "13. /help   - Display help information.")
 
   command = parts[0]
+
+  # ---------------------------
+  # Get multiplayer room data if player is in a room
+  # ---------------------------
+  room, player = get_room_and_player_data(user_id)
+
+  # ---------------------------
+  # WASD Controls Processing
+  # ---------------------------
+  # Check if this is a single-letter WASD command
+  if command in ["w", "a", "s", "d"]:
+    # Map WASD to directions
+    direction_map = {"w": "up", "a": "left", "s": "down", "d": "right"}
+    direction = direction_map[command]
+
+    # Use the multiplayer move function if in a room, otherwise use the regular move function
+    if room and player:
+      return multiplayer_move_player(room, user_id, direction)
+    else:
+      return move_player(plugin.obj_cache[user_id], direction, plugin.obj_cache["shared_map"])
 
   if command == "/start":
     # Generate new map for new game
     plugin.obj_cache["shared_map"] = generate_map()
     plugin.obj_cache[user_id] = create_new_player()
     map_view = visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
-    return ("Welcome to the Ratio1 Roguelike!\n" 
+    return ("Welcome to Shadowborn!\n" 
             "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
             "Your goal is to explore the dungeon, find the portal to the next level, and see how deep you can go!\n"
-            "Use /move <up|down|left|right> to explore, /status to check your stats, and /shop to buy upgrades.\n" 
+            "Use /move <up|down|left|right> to explore, /status to check your stats, and /shop to buy upgrades.\n\n"
+            "MULTIPLAYER MODE:\n"
+            "• Create a room with /create_room\n"
+            "• Join a room with /join_room <code>\n"
+            "• Chat with teammates using /room_chat <message>\n"
+            "• All players must reach the exit portal to advance to the next level!\n\n"
             "For more detailed instructions, use /help.\n\n" 
             f"{map_view}")
 
   elif command == "/move":
     if len(parts) < 2:
       return "Usage: /move <up|down|left|right> (or you can use WSAD keys)"
-    direction_input = parts[1]
-    if direction_input in ["w", "a", "s", "d"]:
-      mapping = {"w": "up", "a": "left", "s": "down", "d": "right"}
-      direction = mapping[direction_input]
-    else:
-      direction = direction_input
-    return move_player(player, direction, game_map)
 
-  elif command in ["w", "a", "s", "d"]:
-    mapping = {"w": "up", "a": "left", "s": "down", "d": "right"}
-    return move_player(player, mapping[command], game_map)
+    direction = parts[1].lower()
+
+    # Handle WASD as input for /move command
+    if direction in ["w", "a", "s", "d"]:
+      direction_map = {"w": "up", "a": "left", "s": "down", "d": "right"}
+      direction = direction_map[direction]
+
+    # If the player is in a multiplayer room, use the multiplayer move function
+    if room and player:
+      return multiplayer_move_player(room, user_id, direction)
+    else:
+      return move_player(plugin.obj_cache[user_id], direction, plugin.obj_cache["shared_map"])
+
+  # ---------------------------
+  # Multiplayer Room Commands
+  # ---------------------------
+  elif command == "/create_room":
+    # Check if player is already in a room
+    if get_player_room(user_id):
+      return "You're already in a room. Use /leave_room first before creating a new room."
+
+    # Create a new room with this player as creator
+    room_id = create_room(user_id)
+
+    # Return room info
+    return (f"Created a new multiplayer room!\n"
+            f"Your room code is: {room_id}\n"
+            f"Share this code with friends so they can join using /join_room {room_id}\n"
+            f"You are the only player in this room currently.\n"
+            f"Use /room_status to see who joins.")
+
+  elif command == "/join_room":
+    if len(parts) < 2:
+      return "Usage: /join_room <room_code>"
+
+    # Check if player is already in a room
+    if get_player_room(user_id):
+      return "You're already in a room. Use /leave_room first before joining another room."
+
+    room_code = parts[1].upper()
+    success, message = join_room(user_id, room_code)
+
+    if success:
+      room, player = get_room_and_player_data(user_id)
+      map_view = visualize_multiplayer_map(room, user_id)
+      player_list = list_players_in_room(room)
+      return f"{message}\n\n{player_list}\n\n{map_view}"
+    else:
+      return message
+
+  elif command == "/leave_room":
+    if not get_player_room(user_id):
+      return "You're not in any room."
+
+    result = leave_room(user_id)
+
+    # Show the regular solo map after leaving
+    map_view = visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
+    return f"{result}\nYou are now playing solo.\n\n{map_view}"
+
+  elif command == "/room_status":
+    if not room:
+      return "You're not in a multiplayer room. Use /create_room to create one or /join_room <code> to join one."
+
+    player_list = list_players_in_room(room)
+    messages = get_room_messages(room)
+
+    return (f"Room Code: {get_player_room(user_id)}\n"
+            f"Dungeon Level: {room['dungeon_level']}\n"
+            f"{player_list}\n\n{messages}")
+
+  elif command == "/room_chat":
+    if not room:
+      return "You're not in a multiplayer room. Use /create_room to create one or /join_room <code> to join one."
+
+    if len(parts) < 2:
+      return "Usage: /room_chat <your message>"
+
+    chat_message = " "#.join(parts[1:])
+    send_room_message(user_id, chat_message)
+
+    return f"Message sent: {chat_message}\n\n{get_room_messages(room)}"
 
   elif command == "/status":
-    x, y = player["position"]
-    status = f"Position: ({x},{y})\n" \
-           f"Health: {player['health']}/{player['max_health']}\n" \
-           f"Coins: {player['coins']}\n" \
-           f"Level: {player['level']} ({player['xp']}/{player['next_level_xp']} XP)\n"
-    
-    # Add combat stats
-    status += f"Attack: {player['attack']}\n" \
-              f"Damage Reduction: {int(player['damage_reduction'] * 100)}%\n"
-    
-    if player["dodge_chance"] > 0:
-      status += f"Dodge Chance: {int(player['dodge_chance'] * 100)}%\n"
-    
-    status += f"Kills: {player['kills']}\n"
-    status += f"Dungeon Level: {player['dungeon_level']}\n"
-    status += f"Dungeons Completed: {player['dungeons_completed']}\n\n"
-    
-    # Equipment
-    status += "Equipment:\n"
-    if player["equipment"]["weapon"]:
-      status += f"- Weapon: {SHOP_ITEMS[player['equipment']['weapon']]['name']}\n"
+    # If in a multiplayer room, use the player data from the room
+    if room and player:
+      p = player
     else:
-      status += "- Weapon: None\n"
-      
-    if player["equipment"]["armor"]:
-      status += f"- Armor: {SHOP_ITEMS[player['equipment']['armor']]['name']}\n"
-    else:
-      status += "- Armor: None\n"
-    
-    if player["equipment"]["accessory"]:
-      status += "- Accessories:\n"
-      for acc in player["equipment"]["accessory"]:
-        status += f"  - {SHOP_ITEMS[acc]['name']}\n"
-    else:
-      status += "- Accessories: None\n"
-    
-    # Inventory
-    status += "\nInventory:\n"
-    has_items = False
-    for item_id, count in player["inventory"].items():
+      p = plugin.obj_cache[user_id]
+
+    x, y = p["position"]
+
+    # Calculate total stats including equipment bonuses
+    total_attack = p["attack"]
+    total_damage_reduction = p["damage_reduction"]
+    total_max_health = p["max_health"]
+    total_dodge = p["dodge_chance"]
+
+    # Add equipment bonuses
+    if p["equipment"]["weapon"]:
+      item = SHOP_ITEMS[p["equipment"]["weapon"]]
+      if "attack_bonus" in item:
+        total_attack += item["attack_bonus"]
+
+    if p["equipment"]["armor"]:
+      item = SHOP_ITEMS[p["equipment"]["armor"]]
+      if "damage_reduction_bonus" in item:
+        total_damage_reduction += item["damage_reduction_bonus"]
+
+    for accessory in p["equipment"]["accessory"]:
+      item = SHOP_ITEMS[accessory]
+      if "max_health_bonus" in item:
+        total_max_health += item["max_health_bonus"]
+      if "dodge_chance" in item:
+        total_dodge += item["dodge_chance"]
+
+    # Format damage reduction and dodge chance as percentages
+    damage_reduction_percent = int(total_damage_reduction * 100)
+    dodge_percent = int(total_dodge * 100)
+
+    # Build equipment list
+    equipment_list = []
+    if p["equipment"]["weapon"]:
+      equipment_list.append(f"Weapon: {SHOP_ITEMS[p['equipment']['weapon']]['name']}")
+    if p["equipment"]["armor"]:
+      equipment_list.append(f"Armor: {SHOP_ITEMS[p['equipment']['armor']]['name']}")
+    for accessory in p["equipment"]["accessory"]:
+      equipment_list.append(f"Accessory: {SHOP_ITEMS[accessory]['name']}")
+
+    equipment_str = "\n".join(equipment_list) if equipment_list else "None"
+
+    # Build inventory list
+    inventory_list = []
+    for item_id, count in p["inventory"].items():
       if count > 0:
-        status += f"- {SHOP_ITEMS[item_id]['name']}: {count}\n"
-        has_items = True
-    
-    if not has_items:
-      status += "No items\n"
-      
-    status += "\nUse /shop to buy equipment and items!"
-    
-    return status
+        if item_id in SHOP_ITEMS:
+          inventory_list.append(f"{SHOP_ITEMS[item_id]['name']}: {count}")
+        else:
+          inventory_list.append(f"{item_id}: {count}")
+
+    inventory_str = "\n".join(inventory_list) if inventory_list else "Empty"
+
+    # Get room info if in multiplayer
+    room_info = ""
+    if room:
+      room_id = get_player_room(user_id)
+      room_info = f"\n🏠 Room: {room_id} (Dungeon Level {room['dungeon_level']})"
+
+    status_message = (f"📊 STATUS 📊\n"
+                     f"🗺️ Position: ({x}, {y}){room_info}\n"
+                     f"❤️ Health: {p['health']}/{total_max_health}\n"
+                     f"💰 Coins: {p['coins']}\n"
+                     f"⚔️ Attack: {total_attack}\n"
+                     f"🛡️ Damage Reduction: {damage_reduction_percent}%\n"
+                     f"👟 Dodge Chance: {dodge_percent}%\n"
+                     f"📈 Level: {p['level']} (XP: {p['xp']}/{p['next_level_xp']})\n"
+                     f"💀 Kills: {p['kills']}\n\n"
+                     f"🎒 INVENTORY:\n{inventory_str}\n\n"
+                     f"🧥 EQUIPMENT:\n{equipment_str}")
+
+    return status_message
 
   elif command == "/map":
-    map_view = visualize_map(player, game_map)
-    exploration = check_exploration_progress(game_map)
-    
-    # Check if we need to tell the player about the portal
-    has_portal = any(tile["type"] == "PORTAL" for row in game_map for tile in row)
-    portal_msg = ""
-    if has_portal:
-      portal_msg = "\n🌀 Portal to next dungeon is visible on the map!"
-    elif exploration >= EXPLORATION_THRESHOLD:
-      portal_msg = "\n🌀 A portal to the next dungeon has appeared somewhere!"
-      
-    return f"Your surroundings:\n{map_view}\nExploration: {int(exploration)}%{portal_msg}"
-    
+    # If in a multiplayer room, use the multiplayer map view
+    if room and player:
+      return visualize_multiplayer_map(room, user_id)
+    else:
+      return visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
+
   elif command == "/shop":
     return display_shop(player)
-    
+
   elif command == "/buy":
     if len(parts) < 2:
       return "Usage: /buy <item_name>\nUse /shop to see available items."
-    
+
     item_id = parts[1].lower()
     return buy_item(player, item_id)
-    
+
   elif command == "/use":
     if len(parts) < 2:
       return "Usage: /use <item_name>\nItems you can use: health_potion, map_scroll"
-    
+
     item_id = parts[1].lower()
     return use_item(player, item_id, game_map)
 
@@ -704,7 +1104,13 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "/map    - Reveal the map of your surroundings\n"
             "/shop   - Visit the shop to buy upgrades and items\n" 
             "/buy <item_name> - Purchase an item from the shop\n" 
-            "/use <item_name> - Use a consumable item from your inventory\n" 
+            "/use <item_name> - Use a consumable item from your inventory\n"
+            "\nMultiplayer Commands:\n"
+            "/create_room - Create a new multiplayer room\n"
+            "/join_room <code> - Join an existing multiplayer room\n"
+            "/leave_room - Leave your current room\n"
+            "/room_status - Check who's in your room\n"
+            "/room_chat <message> - Send a message to everyone in your room\n"
             "/help   - Display this help message")
 
 # --------------------------------------------------
