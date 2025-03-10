@@ -15,10 +15,18 @@ EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
   'true', '1', 'yes', 'y', 't', 'on'
 ]
 
-Web3Vars = namedtuple("Web3Vars", [
-  "w3", "rpc_url", "nd_contract_address", "r1_contract_address", "network", 
-  "genesis_date", "epoch_length_seconds" 
-])
+Web3Vars = namedtuple(
+  "Web3Vars", [  
+    "w3", 
+    "rpc_url", 
+    "network", 
+    "genesis_date",
+    "epoch_length_seconds",
+    "nd_contract_address", 
+    "r1_contract_address", 
+    "proxy_contract_address",  
+  ]
+)
 
 
 if not EE_VPN_IMPL:
@@ -62,6 +70,82 @@ ERC20_ABI = [
       "type": "function"
   }
 ]
+
+
+GET_NODE_INFO_ABI = [
+  {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "node",
+          "type": "address"
+        }
+      ],
+      "name": "getNodeLicenseDetails",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "enum LicenseType",
+              "name": "licenseType",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint256",
+              "name": "licenseId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "owner",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "nodeAddress",
+              "type": "address"
+            },
+            {
+              "internalType": "uint256",
+              "name": "totalAssignedAmount",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "totalClaimedAmount",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "lastClaimEpoch",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "assignTimestamp",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "lastClaimOracle",
+              "type": "address"
+            },
+            {
+              "internalType": "bool",
+              "name": "isBanned",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct LicenseDetails",
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+]
+
 
 class _EVMMixin:
   
@@ -177,8 +261,8 @@ class _EVMMixin:
   if True:
     def reset_network(self, network: str):
       assert network.lower() in dAuth.EVM_NET_DATA, f"Invalid network: {network}"
-      os.environ[dAuth.DAUTH_NET_ENV_KEY] = network
-      return
+      os.environ[dAuth.DAUTH_NET_ENV_KEY] = network      
+      return self.get_evm_network()
     
     def get_evm_network(self) -> str:
       """
@@ -247,6 +331,7 @@ class _EVMMixin:
       nd_contract_address = network_data[dAuth.EvmNetData.DAUTH_ND_ADDR_KEY]
       rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
       r1_contract_address = network_data[dAuth.EvmNetData.DAUTH_R1_ADDR_KEY]
+      proxy_contract_address = network_data[dAuth.EvmNetData.DAUTH_PROXYAPI_ADDR_KEY]
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
@@ -262,11 +347,12 @@ class _EVMMixin:
       result = Web3Vars(
         w3=w3, 
         rpc_url=rpc_url, 
-        nd_contract_address=nd_contract_address, 
-        r1_contract_address=r1_contract_address, 
         network=network,
         genesis_date=genesis_date,
-        epoch_length_seconds=ep_sec
+        epoch_length_seconds=ep_sec,
+        nd_contract_address=nd_contract_address, 
+        r1_contract_address=r1_contract_address, 
+        proxy_contract_address=proxy_contract_address,        
       )
       return result
 
@@ -721,14 +807,15 @@ class _EVMMixin:
       )
 
       try:
-          decimals = token_contract.functions.decimals().call()
+        decimals = token_contract.functions.decimals().call()
       except Exception:
-          decimals = 18  # default to 18 if the decimals call fails
+        decimals = 18  # default to 18 if the decimals call fails
 
       raw_balance = token_contract.functions.balanceOf(address).call()
       human_balance = raw_balance / (10 ** decimals)
       return float(human_balance)
-    
+
+
     def web3_send_r1(
       self,
       to_address: str,
@@ -790,9 +877,9 @@ class _EVMMixin:
       
       # Get the token's decimals (default to 18 if not available).
       try:
-          decimals = token_contract.functions.decimals().call()
+        decimals = token_contract.functions.decimals().call()
       except Exception:
-          decimals = 18
+        decimals = 18
 
       # Convert the human-readable amount to the token's smallest unit.
       token_amount = int(amount * (10 ** decimals))
@@ -820,7 +907,7 @@ class _EVMMixin:
       eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
       extra_buffer = w3vars.w3.to_wei(extra_buffer_eth, 'ether')
       if eth_balance < gas_cost + extra_buffer:
-          raise Exception("Insufficient ETH balance to cover gas fees and extra buffer.")
+        raise Exception("Insufficient ETH balance to cover gas fees and extra buffer.")
       
       # Get the transaction count for the nonce.
       nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
@@ -837,7 +924,7 @@ class _EVMMixin:
         'chainId': chain_id,
       })
       
-      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)      
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
       
       # Sign the transaction using the internal account (via _get_eth_account).
       eth_account = self._get_eth_account()
@@ -858,5 +945,88 @@ class _EVMMixin:
       else:
         return tx_hash.hex()
 
-    
 
+    def web3_get_node_info(
+      self,
+      node_address: str,
+      network: str = None,
+      raise_if_issue: bool = False,
+    ):      
+      """
+      Retrieve license details for the specified node using getNodeLicenseDetails().
+
+      Parameters
+      ----------
+      node_address : str
+          The node address (must be a valid Ethereum address).
+          
+      network : str, optional
+          The network to use. If None, defaults to self.evm_network.
+          
+      raise_if_issue : bool, optional
+          If True, raises an exception based on custom criteria (e.g., if node is banned).
+          Default is False.
+
+
+      Returns
+      -------
+      dict
+          A dictionary containing all license details returned by getNodeLicenseDetails.
+      """
+      # Validate the node address.
+      assert self.is_valid_eth_address(node_address), "Invalid Ethereum address"
+
+      # Retrieve the necessary Web3 variables (pattern consistent with web3_send_r1).
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+
+      # Create the contract instance for retrieving node info.
+      # Assuming you have a specific contract address in w3vars (e.g. license_contract_address),
+      # or you may adapt this code if your contract address is stored differently.
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.proxy_contract_address,  # or the relevant address from your environment
+        abi=GET_NODE_INFO_ABI
+      )
+
+      self.P(f"`getNodeLicenseDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
+
+      # Call the contract function to get details.
+      result_tuple = contract.functions.getNodeLicenseDetails(node_address).call()
+
+      # Unpack the tuple into a dictionary for readability.
+      details = {
+        "network": network,
+        "licenseType": result_tuple[0],
+        "licenseId": result_tuple[1],
+        "owner": result_tuple[2],
+        "nodeAddress": result_tuple[3],
+        "totalAssignedAmount": result_tuple[4],
+        "totalClaimedAmount": result_tuple[5],
+        "lastClaimEpoch": result_tuple[6],
+        "assignTimestamp": result_tuple[7],
+        "lastClaimOracle": result_tuple[8],
+        "isBanned": result_tuple[9],
+        "isValid": True, # default to True; set to False if any issues are detected
+      }
+
+      
+      no_owner = details["owner"] == "0x0000000000000000000000000000000000000000"
+      no_real_addr = details["nodeAddress"] == "0x0000000000000000000000000000000000000000"
+      is_banned = details["isBanned"]
+      
+      is_valid = not (
+        no_owner or no_real_addr or is_banned
+      )
+      
+      details['isValid'] = is_valid
+
+      self.P(f"Node Info:\n{json.dumps(details, indent=2)}", verbosity=2)
+
+      if not is_valid:
+        if raise_if_issue:
+          msg = f"Node {node_address} is not valid."
+          raise Exception(msg)
+        else:
+          pass
+      #end if
+      return details

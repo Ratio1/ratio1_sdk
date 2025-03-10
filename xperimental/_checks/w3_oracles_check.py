@@ -15,19 +15,16 @@ if __name__ == '__main__' :
     "testnet",
     "devnet",
   ]
+
+  l = Logger("ENC")
+  eng = DefaultBlockEngine(
+    log=l, name="default", 
+    user_config=True
+  )
   
   for network in NETWORKS:
-    os.environ["EE_EVM_NET"] = network
-    
-    l = Logger(
-      "ENC", base_folder=str(get_user_folder()), 
-      app_folder="_local_cache",
-      silent=True,
-    )
-    eng = DefaultBlockEngine(
-      log=l, name="default", 
-    )
-      
+    eng.reset_network(network)
+
     oracles = eng.web3_get_oracles(debug=True)
     l.P("\nOracles for {}:\n {}".format(network, json.dumps(oracles, indent=2)), 
       color='b', show=True
