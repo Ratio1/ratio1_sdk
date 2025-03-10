@@ -211,39 +211,102 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     game_map = room["map"]
     current_player = room["players"][player_id]
-
-    # First, visualize the normal map for current player
-    map_str = visualize_map(current_player, game_map)
-
-    # Add other players' positions
-    map_lines = map_str.split('\n')
-    grid_line_start = 1  # Skip the header line
-
-    # Create a copy of the map representation
-    mp_map_lines = map_lines.copy()
-
-    # Add other players to the map
+    
+    # Get player position
+    current_x, current_y = current_player["position"]
+    
+    # Rather than modifying an existing map, let's build it from scratch with proper alignment
+    map_view = "Your surroundings:\n"
+    
+    # Count players on each cell for consistent display
+    player_positions = {}
+    
+    # First, gather all player positions
     for pid, p in room["players"].items():
-      if pid != player_id:
-        x, y = p["position"]
-        # Only show other players if the tile is visible to current player
-        if y < len(game_map) and x < len(game_map[0]) and game_map[y][x].get("visible", False):
-          # Find the right line in the map string
-          line_idx = grid_line_start + y
-          if 0 <= line_idx < len(mp_map_lines):
-            # Each position takes 2 characters in the string
-            pos_in_line = 1 + (x * 2)
-            if 0 <= pos_in_line < len(mp_map_lines[line_idx]):
-              # Replace the character with a player indicator
-              line_chars = list(mp_map_lines[line_idx])
-              line_chars[pos_in_line] = '👤'
-              mp_map_lines[line_idx] = ''.join(line_chars)
-
-    # Add a legend for the multiplayer map
-    mp_map_str = '\n'.join(mp_map_lines)
-    mp_map_str += "\n👤 - Other players"
-
-    return mp_map_str
+      x, y = p["position"]
+      pos_key = f"{x},{y}"
+      
+      # Only track if visible
+      if y < len(game_map) and x < len(game_map[0]) and game_map[y][x].get("visible", False):
+        if pos_key not in player_positions:
+          player_positions[pos_key] = []
+        player_positions[pos_key].append(pid)
+    
+    # Now build the map
+    view_distance = 2  # Same as in visualize_map
+    
+    for y in range(max(0, current_y - view_distance), min(len(game_map), current_y + view_distance + 1)):
+      for x in range(max(0, current_x - view_distance), min(len(game_map[0]), current_x + view_distance + 1)):
+        # Check if this tile is visible
+        if not game_map[y][x].get("visible", False):
+          map_view += "⬛"  # Unexplored
+          continue
+          
+        # Check if there are players here
+        pos_key = f"{x},{y}"
+        if pos_key in player_positions and len(player_positions[pos_key]) > 0:
+          # Calculate how many players are here
+          player_count = len(player_positions[pos_key])
+          
+          # Check if current player is among them
+          is_current_player_here = player_id in player_positions[pos_key]
+          
+          # Determine correct symbol
+          if is_current_player_here and player_count > 2:
+            # Current player plus others
+            map_view += "⚡"  # Lightning for player encounter (narrower than sword)
+          elif is_current_player_here:
+            # Just current player - use the character icon
+            map_view += "🧙"  # Character/player icon
+          elif player_count == 1:
+            map_view += "👤"  # Single other player
+          elif player_count == 2:
+            map_view += "👥"  # Two other players
+          else:
+            # 3+ other players - use number
+            map_view += str(min(9, player_count))  # Cap at 9 for display
+        else:
+          # No players here, just show the tile
+          tile_type = game_map[y][x]["type"]
+          if tile_type == "COIN":
+            map_view += "💰"
+          elif tile_type == "TRAP":
+            map_view += "🔥"
+          elif tile_type == "MONSTER":
+            # Different monster emoji based on level
+            monster_level = game_map[y][x]["monster_level"]
+            if monster_level <= 2:
+              map_view += "👹"  # Regular monster
+            elif monster_level <= 4:
+              map_view += "👺"  # Stronger monster
+            else:
+              map_view += "👿"  # Boss monster
+          elif tile_type == "HEALTH":
+            map_view += "❤️"
+          elif tile_type == "PORTAL":
+            map_view += "🌀"  # Portal to next dungeon
+          else:
+            map_view += "⬜"  # Empty
+      
+      map_view += "\n"  # End of row
+    
+    # Add exploration info
+    exploration = check_exploration_progress(game_map)
+    has_portal = any(tile["type"] == "PORTAL" for row in game_map for tile in row)
+    
+    portal_msg = ""
+    if has_portal:
+      portal_msg = "\n🌀 Portal to next dungeon is visible on the map!"
+    elif exploration >= EXPLORATION_THRESHOLD:
+      portal_msg = "\n🌀 A portal to the next dungeon has appeared somewhere!"
+    
+    # Add player count info
+    player_count_msg = f"\nPlayers in room: {len(room['players'])}"
+    
+    # Add a legend for the multiplayer symbols
+    legend = "\n🧙 - You  👤 - Other player  👥 - Two players  ⚡ - Shared tile  3-9 - Multiple players"
+    
+    return f"{map_view}Exploration: {int(exploration)}%{portal_msg}{player_count_msg}{legend}"
 
   def multiplayer_move_player(room, player_id, direction):
     """Moves a player and handles interactions with the environment and other players."""
@@ -1136,7 +1199,7 @@ if __name__ == "__main__":
   # and deploy the app on the target node and leave it there
   pipeline, _ = session.create_telegram_simple_bot(
     node=my_node,
-    name="roguelike_bot",
+    name="shadowborn_bot",
     message_handler=reply,
     telegram_bot_token=telegram_bot_token,
   )
