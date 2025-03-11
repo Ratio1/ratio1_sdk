@@ -1,3 +1,15 @@
+"""
+ex10_telegram_echo_bot.py
+-------------------------
+
+A simple echo bot that replies to the user with the same message it received.
+It also keeps track of the number of messages received from each user and the number of times
+the processor has been called.
+
+This example leverages the SDK ability to package user defined code and send them as handlers to
+the target pipeline. 
+
+"""
 import os
 import time
 
