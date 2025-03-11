@@ -1,3 +1,14 @@
+"""
+cli_commands.py
+================
+
+This module defines the command-line interface (CLI) commands 
+for the Ratio1 SDK client. It provides a structured way to interact
+with the SDK's functionalities through various commands and options
+and it is used by cli.py
+
+"""
+
 from ratio1.cli.nodes import (
   get_nodes, get_supervisors, 
   restart_node, shutdown_node,
@@ -14,6 +25,7 @@ CLI_COMMANDS = {
     "get": {
         "nodes": {
             "func": get_nodes,
+            "description": "Get the list of nodes available in the network.",
             "params": {
                 ### use "(flag)" at the end of the description to indicate a boolean flag
                 ### otherwise it will be treated as a str parameter
@@ -27,6 +39,7 @@ CLI_COMMANDS = {
         },
         "supervisors": {
             "func": get_supervisors, # DONE
+            "description": "Get the list of available supervisor oracles",
         },
         "eth" : {
             "func": get_eth_addr,
@@ -37,6 +50,7 @@ CLI_COMMANDS = {
         },
         "avail": {    
             "func": get_availability,
+            "description": "Get the availability of a node via the oracle network.",
             "params": {
                 ### use "(flag)" at the end of the description to indicate a boolean flag
                 ### otherwise it will be treated as a str parameter
@@ -99,13 +113,15 @@ CLI_COMMANDS = {
         }        
     },
     "restart": {
-        "func": restart_node, # TODO
+        "func": restart_node,
+        "description": "Restart a node",
         "params": {
             "node": "The node to restart"
         }
     },
     "shutdown": {
-        "func": shutdown_node, # TODO
+        "func": shutdown_node,
+        "description": "Shutdown a node",
         "params": {
             "node": "The node to shutdown"
         }

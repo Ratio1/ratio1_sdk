@@ -1,10 +1,18 @@
+"""
+cli.py
+======
+
+This script serves as the command-line interface (CLI) for the Ratio1 SDK.
+It provides a user-friendly way to interact with the SDK's features and
+functionalities through various commands and options.
+"""
+
 import signal
 import sys
 import argparse
 
 from ratio1.utils.config import maybe_init_config, log_with_color
 from ratio1.cli.cli_commands import CLI_COMMANDS
-
 from ratio1 import version
 import traceback
 
@@ -12,7 +20,6 @@ def handle_sigint(signum, frame):
   """Handler for the SIGINT signal (Ctrl-C)."""
   print("Interrupted. Exiting...")
   sys.exit(1)
-
 
 def create_global_parser():
   """
@@ -23,12 +30,11 @@ def create_global_parser():
   argparse.ArgumentParser
       Global argument parser.
   """
-  global_parser = argparse.ArgumentParser(add_help=False)  # Prevent duplicate help
+  global_parser = argparse.ArgumentParser(add_help=False)
   global_parser.add_argument(
     "-v", "--verbose", action="store_true", help="Enable verbose output"
   )
   return global_parser
-
 
 def build_parser():
   """
@@ -39,93 +45,88 @@ def build_parser():
   argparse.ArgumentParser
       Configured argument parser.
   """
-  global_parser = create_global_parser()  # Add global parameters
-  
+  global_parser = create_global_parser()
+
   title = f"Ratio1 fleet control for SDK v{version} - CLI for ratio1 Edge Protocol SDK package"
   parser = argparse.ArgumentParser(description=title, parents=[global_parser])
+
+  # Top-level subparsers (e.g. 'get', 'config', 'restart', 'shutdown')
   subparsers = parser.add_subparsers(dest="command", help="Available commands")
+  subparsers.required = True  # Force user to pick a valid command
 
   for command, subcommands in CLI_COMMANDS.items():
-    command_parser = subparsers.add_parser(command, help=f"{command} commands")
+    # Create a sub-parser for each top-level command
+    cmd_help = subcommands.get("description") if "func" in subcommands else f"{command} commands"
+    command_parser = subparsers.add_parser(command, help=cmd_help)
 
+    # Check if this command has nested subcommands vs. a single-level function
     if isinstance(subcommands, dict) and "func" not in subcommands:
-      # Nested subcommands
-      command_subparsers = command_parser.add_subparsers(dest="subcommand")
+      # Nested subcommands (e.g. 'get nodes', 'get apps', etc.)
+      command_subparsers = command_parser.add_subparsers(
+        dest="subcommand",
+        required=True,
+        help=f"Subcommands under '{command}'"
+      )
+
       for subcommand, subcmd_info in subcommands.items():
         description = subcmd_info.get("description", f"{subcommand} command")
-        subcommand_parser = command_subparsers.add_parser(
-          subcommand, help=description
-        )
+        subcommand_parser = command_subparsers.add_parser(subcommand, help=description)
+
+        # If we have parameters, add them
         if isinstance(subcmd_info, dict) and "params" in subcmd_info:
-          for param, description in subcmd_info["params"].items():
+          for param, desc in subcmd_info["params"].items():
             if param.startswith("--"):
-              if description.lower().endswith("(flag)"):
-                subcommand_parser.add_argument(
-                  param, action="store_true", help=description
-                )
+              if desc.lower().endswith("(flag)"):
+                subcommand_parser.add_argument(param, action="store_true", help=desc)
               else:
-                subcommand_parser.add_argument(
-                  param, help=description, type=str
-                )
+                subcommand_parser.add_argument(param, type=str, help=desc)
             else:
-              subcommand_parser.add_argument(
-                param, help=description
-              )
-            #end if
-          #end for
-        #end if
+              # Positional argument
+              subcommand_parser.add_argument(param, help=desc)
+
+        # Assign the function to call
         subcommand_parser.set_defaults(func=subcmd_info["func"])
-      #end for
-      # Fallback help for `-h <subcommand>` like `nepctl -h config`
-      command_parser.set_defaults(func=lambda args: command_parser.print_help())        
     else:
-      # Single-level commands with parameters
+      # Single-level command with optional parameters
       if "params" in subcommands:
-        for param, description in subcommands["params"].items():
+        for param, desc in subcommands["params"].items():
           if param.startswith("--"):
-            command_parser.add_argument(
-              param, action="store_true", help=description
-            )
+            if desc.lower().endswith("(flag)"):
+              command_parser.add_argument(param, action="store_true", help=desc)
+            else:
+              command_parser.add_argument(param, type=str, help=desc)
           else:
-            command_parser.add_argument(
-              param, help=description
-            )
-          #end if
+            command_parser.add_argument(param, help=desc)
+
+      # Set the function to be called for this command
       command_parser.set_defaults(func=subcommands["func"])
 
   return parser
 
-
-
 def main():
   """
   Main entry point for the CLI.
-  Ensures the configuration is initialized, builds the parser, 
+  Ensures the configuration is initialized, builds the parser,
   and executes the appropriate command function.
   """
-  # Register the SIGINT handler
-  signal.signal(signal.SIGINT, handle_sigint)  
+  # Register SIGINT handler
+  signal.signal(signal.SIGINT, handle_sigint)
   print("Processing...\r", end="", flush=True)
-  
+
   try:
-    # Initialize configuration if necessary
     initialized = maybe_init_config()
-    
+
     if initialized:
-      # Build the CLI parser
       parser = build_parser()
       args = parser.parse_args()
 
-      # Check if a command function is provided
       if hasattr(args, "func"):
-        args.func(args)  # Pass parsed arguments to the command function
+        args.func(args)
       else:
         parser.print_help()
 
   except Exception as e:
-    # Handle unexpected errors gracefully
     log_with_color(f"Error: {e}:\n{traceback.format_exc()}", color='r')
-
 
 if __name__ == "__main__":
   main()

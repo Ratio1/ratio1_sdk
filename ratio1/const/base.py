@@ -56,6 +56,7 @@ class dAuth:
   DAUTH_VARS = DAUTH_VARS
   
   DAUTH_SERVER_INFO = 'server_info'
+  DAUTH_SERVER_IS_SEED = "is_seed_server"
   DAUTH_SENDER_TYPE = 'sender_type'
   DAUTH_SENDER_TYPE_CORE = 'core'
   DAUTH_SENDER_TYPE_SDK = 'sdk'

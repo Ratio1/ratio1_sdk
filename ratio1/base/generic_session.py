@@ -3217,6 +3217,7 @@ class GenericSession(BaseDecentrAIObject):
         'Seen ago' : PAYLOAD_DATA.NETMON_LAST_SEEN,
         'Version' : PAYLOAD_DATA.NETMON_NODE_VERSION,
         'State': PAYLOAD_DATA.NETMON_STATUS_KEY,
+        'Uptime' : PAYLOAD_DATA.NETMON_UPTIME,
         'Last probe' : PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME,
         'Zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
         'Oracle' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
@@ -3312,8 +3313,13 @@ class GenericSession(BaseDecentrAIObject):
         # end for
       # end if
       pd.options.display.float_format = '{:.1f}'.format
+      df_res = pd.DataFrame(res)
+      if not all_info:
+        df_res = df_res.drop(
+          columns=['State', 'Last probe']
+        )
       dct_result = _DotDict({
-        SESSION_CT.NETSTATS_REPORT : pd.DataFrame(res),
+        SESSION_CT.NETSTATS_REPORT : df_res,
         SESSION_CT.NETSTATS_REPORTER : best_super,
         SESSION_CT.NETSTATS_REPORTER_ALIAS : best_super_alias,
         SESSION_CT.NETSTATS_NR_SUPERVISORS : len(self.__current_network_statuses),

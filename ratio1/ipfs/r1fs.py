@@ -141,6 +141,7 @@ class R1FSEngine:
     base64_swarm_key: str = None, 
     ipfs_relay: str = None,   
     debug=False,     
+    min_connection_age: int = 300,
   ):
     with cls._lock:
       if name not in cls.__instances:
@@ -148,6 +149,7 @@ class R1FSEngine:
         instance._build(
           name=name, logger=logger, downloads_dir=downloads_dir, uploads_dir=uploads_dir,
           base64_swarm_key=base64_swarm_key, ipfs_relay=ipfs_relay, debug=debug,
+          min_connection_age=min_connection_age,
         )
         cls.__instances[name] = instance
       else:
@@ -162,6 +164,7 @@ class R1FSEngine:
     uploads_dir: str = None,
     base64_swarm_key: str = None, 
     ipfs_relay: str = None,   
+    min_connection_age: int = 300,
     debug=False,     
   ):
     """
@@ -177,6 +180,8 @@ class R1FSEngine:
     self.__ipfs_started = False
     self.__ipfs_address = None
     self.__ipfs_id = None
+    self.__min_connection_age = min_connection_age
+    self.__connected_at = None
     self.__ipfs_agent = None
     self.__uploaded_files = {}
     self.__downloaded_files = {}
@@ -254,6 +259,14 @@ class R1FSEngine:
     return self.__ipfs_started
   
   @property
+  def peers(self):
+    return self.__peers
+  
+  @property
+  def swarm_peers(self):
+    return self.peers
+  
+  @property
   def uploaded_files(self):
     return self.__uploaded_files
   
@@ -273,11 +286,40 @@ class R1FSEngine:
       return os.path.join(self.__uploads_dir, f"{fn}{suffix}")
     return self._get_unique_upload_name(prefix, suffix=suffix)
   
+
+  def _check_and_record_relay_connection(self):
+    """
+    Checks if we're connected to the relay_peer_id by parsing 'ipfs swarm peers'.
+    If connected and we haven't recorded connected_at yet, we set it.
+    """
+    try:
+      self.Pd("Checking IPFS relay connection...")
+      out = subprocess.run(
+        ["ipfs", "swarm", "peers"],
+        capture_output=True, text=True, timeout=5
+      )
+      if out.returncode == 0:
+        peer_lines = out.stdout.strip().split("\n")
+        self.__peers = peer_lines
+        for line in peer_lines:
+          # If the line contains the relay peer ID, we consider ourselves connected:
+          if self.__ipfs_relay in line:
+            # Record the time if not already set
+            if self.connected_at is None:
+              self.connected_at = time.time()
+      else:
+        self.P(f"Error checking swarm peers: {out.stderr.strip()}", color='r')
+    except subprocess.TimeoutExpired:
+      self.P("Timeout checking swarm peers.", color='r')
+    #end try
+    return self.connected_at is not None
+
+
   def __set_reprovider_interval(self):
     # Command to set the Reprovider.Interval to 1 minute
     cmd = ["ipfs", "config", "--json", "Reprovider.Interval", f'"{IPFSCt.REPROVIDER}"']
     result = self.__run_command(cmd)
-    return
+    return result
 
   
   def __set_relay(self):
@@ -285,7 +327,7 @@ class R1FSEngine:
     result = self.__run_command(
       ["ipfs", "config", "--json", "Swarm.DisableRelay", "false"]
     )
-    return
+    return result
 
 
   def __run_command(
@@ -339,11 +381,13 @@ class R1FSEngine:
     try:
       data = json.loads(output)
       self.__ipfs_id = data.get("ID", ERROR_TAG)
-      self.__ipfs_address = data.get("Addresses", [ERROR_TAG,ERROR_TAG])[1]
+      addrs = data.get("Addresses", [])
+      self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
       self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
       return data.get("ID", ERROR_TAG)
     except json.JSONDecodeError:
       raise Exception("Failed to parse JSON from 'ipfs id' output.")
+
 
   @require_ipfs_started
   def __pin_add(self, cid: str) -> str:
@@ -689,3 +733,19 @@ class R1FSEngine:
       
     return self.ipfs_started
     
+
+  def is_ipfs_warmed(self) -> bool:
+    """
+    1) Checks if we appear to be connected to the relay at all.
+    2) If so, checks how long we've been connected. If it's >= min_connection_age, returns True.
+    """
+    if not self.ipfs_started:
+      # Not ipfs_started no need for further checks
+      return False
+    connected = self._check_and_record_relay_connection()
+    if not connected:
+      # Not connected to the relay yet
+      return False    
+    # If we have a connection, see how old it is:
+    connection_age = time.time() - self.connected_at
+    return connection_age >= self.__min_connection_age    

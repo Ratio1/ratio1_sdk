@@ -202,6 +202,7 @@ class PAYLOAD_DATA:
   NETMON_ETH_ADDRESS = "eth_address"
   NETMON_EEID = "eeid"
   NETMON_LAST_REMOTE_TIME = 'last_remote_time'
+  NETMON_UPTIME = 'uptime'
   NETMON_NODE_UTC = 'node_utc'
   NETMON_LAST_SEEN = 'last_seen_sec'
   NETMON_IS_SUPERVISOR = 'is_supervisor'
