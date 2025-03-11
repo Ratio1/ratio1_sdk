@@ -350,11 +350,49 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         players_on_exit = 0
         total_players = len(room["players"])
         player_names_on_exit = []
+        player_ids_on_exit = []
         
         for pid, p in room["players"].items():
           if p["position"] == portal_pos:
             players_on_exit += 1
-            player_names_on_exit.append(f"Player at {portal_pos}")
+            player_id_short = pid[max(0, len(pid) - 4):]  # Get last 4 chars without negative indexing
+            player_names_on_exit.append(f"Player {player_id_short}")
+            player_ids_on_exit.append(pid)
+        
+        # Check if this player just reached the exit
+        player_just_reached_exit = player["position"] == portal_pos and player_id not in room.get("players_waiting_at_exit", [])
+        
+        # Initialize players_waiting_at_exit list if it doesn't exist
+        if "players_waiting_at_exit" not in room:
+          room["players_waiting_at_exit"] = []
+          
+        # Add this player to waiting list if they just reached the exit
+        if player_just_reached_exit and player_id not in room["players_waiting_at_exit"]:
+          room["players_waiting_at_exit"].append(player_id)
+          
+          # If this is the first player to reach the exit, they need to wait
+          if len(room["players_waiting_at_exit"]) == 1:
+            result += f"\n🌀 You've reached the exit portal! Waiting for other players to join you."
+            # Send a message to all players in the room about this player reaching the exit
+            for pid in room["players"]:
+              if pid != player_id:
+                player_id_short = player_id[max(0, len(player_id) - 4):]  # Get last 4 chars
+                room["messages"].append(f"🌀 Player {player_id_short} has reached the exit portal and is waiting for others!")
+          
+          # If this is at least the second player to reach the exit, notify all other players
+          elif len(room["players_waiting_at_exit"]) >= 2:
+            result += f"\n🌀 You've reached the exit portal! {len(room['players_waiting_at_exit'])}/{total_players} players are now at the exit."
+            
+            # Send notification to all players about the current exit status
+            player_id_short = player_id[max(0, len(player_id) - 4):]  # Get last 4 chars
+            notification = f"🌀 Player {player_id_short} has reached the exit portal! {len(room['players_waiting_at_exit'])}/{total_players} players are now at the exit."
+            room["messages"].append(notification)
+            
+            # Special notification for players still exploring
+            for pid in room["players"]:
+              if pid not in room["players_waiting_at_exit"]:
+                pid_short = pid[max(0, len(pid) - 4):]  # Get last 4 chars
+                room["messages"].append(f"⚠️ ATTENTION Player {pid_short}: Other players are waiting at the exit portal! Please make your way there.")
         
         # Always show portal status after each move when portal exists
         if players_on_exit == total_players:
@@ -366,6 +404,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           room["map"] = generate_map()
           room["dungeon_level"] += 1
           room["dungeon_completion"] = 0
+          # Reset the waiting list for the next level
+          room["players_waiting_at_exit"] = []
 
           result += f"\nAll players have reached the exit portal! Advancing to dungeon level {room['dungeon_level']}."
 
@@ -903,7 +943,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     """Returns extended help instructions."""
     help_text = ("Welcome to Shadowborn!\n"
                  "Instructions:\n"
-                 "- Explore the dungeon using /move (or WSAD keys).\n"
+                 "- Explore the dungeon using up, down, left, right commands, /move, or WSAD keys.\n"
                  "- Check your stats with /status to see health, coins, XP, level, attack, and equipment.\n"
                  "- Defeat monsters to earn XP and level up.\n"
                  "- Collect coins and visit the shop (/shop) to buy upgrades using /buy.\n"
@@ -922,18 +962,19 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- Work together to explore faster and defeat challenging monsters!\n"
                  "\nAvailable Commands:\n"
                  "1. /start  - Restart the game and begin your epic adventure.\n"
-                 "2. /move <up|down|left|right> - Move your character (WSAD keys supported).\n"
-                 "3. /status - Display your current stats.\n"
-                 "4. /map    - View your surroundings on the map.\n"
-                 "5. /shop   - Browse the shop and buy upgrades/items.\n"
-                 "6. /buy <item_name> - Purchase an item from the shop.\n"
-                 "7. /use <item_name> - Use a consumable from your inventory.\n"
-                 "8. /create_room - Create a new multiplayer room and get a room code.\n"
-                 "9. /join_room <code> - Join an existing multiplayer room.\n"
-                 "10. /leave_room - Leave your current multiplayer room.\n"
-                 "11. /room_status - See who's in your current room.\n"
-                 "12. /room_chat <message> - Send a message to all players in your room.\n"
-                 "13. /help   - Display this help message.")
+                 "2. up, down, left, right - Move your character directly with these commands.\n"
+                 "3. /move <up|down|left|right> - Move your character (WSAD keys also supported).\n"
+                 "4. /status - Display your current stats.\n"
+                 "5. /map    - View the map of your surroundings.\n"
+                 "6. /shop   - Visit the shop to browse and buy upgrades/items.\n"
+                 "7. /buy <item_name> - Purchase an item from the shop.\n"
+                 "8. /use <item_name> - Use a consumable item from your inventory.\n"
+                 "9. /create_room - Create a new multiplayer room.\n"
+                 "10. /join_room <code> - Join an existing multiplayer room.\n"
+                 "11. /leave_room - Leave your current room.\n"
+                 "12. /room_status - Check who's in your room.\n"
+                 "13. /room_chat <message> - Send a message to everyone in your room.\n"
+                 "14. /help   - Display this help message.")
     return help_text
 
   # --------------------------------------------------
@@ -969,18 +1010,19 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   if not parts:
     return ("Available Commands:\n" 
             "1. /start  - Restart the game and begin your epic adventure.\n" 
-            "2. /move <up|down|left|right> - Move your character in the specified direction (WSAD keys supported).\n" 
-            "3. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n" 
-            "4. /map    - View the map of your surroundings.\n" 
-            "5. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
-            "6. /buy <item_name> - Purchase an item from the shop.\n" 
-            "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
-            "8. /create_room - Create a new multiplayer room.\n"
-            "9. /join_room <code> - Join an existing multiplayer room.\n"
-            "10. /leave_room - Leave your current room.\n"
-            "11. /room_status - Check who's in your room.\n"
-            "12. /room_chat <message> - Send a message to everyone in your room.\n"
-            "13. /help   - Display help information.")
+            "2. up, down, left, right - Move your character directly with these commands.\n" 
+            "3. /move <up|down|left|right> - Move your character in the specified direction (WSAD keys supported).\n" 
+            "4. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n" 
+            "5. /map    - View the map of your surroundings.\n" 
+            "6. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
+            "7. /buy <item_name> - Purchase an item from the shop.\n" 
+            "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
+            "9. /create_room - Create a new multiplayer room.\n"
+            "10. /join_room <code> - Join an existing multiplayer room.\n"
+            "11. /leave_room - Leave your current room.\n"
+            "12. /room_status - Check who's in your room.\n"
+            "13. /room_chat <message> - Send a message to everyone in your room.\n"
+            "14. /help   - Display help information.")
 
   command = parts[0]
 
@@ -1003,6 +1045,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       return multiplayer_move_player(room, user_id, direction)
     else:
       return move_player(plugin.obj_cache[user_id], direction, plugin.obj_cache["shared_map"])
+      
+  # ---------------------------
+  # Direct direction commands (up, down, left, right)
+  # ---------------------------
+  if command in ["up", "down", "left", "right"]:
+    direction = command
+    
+    # Use the multiplayer move function if in a room, otherwise use the regular move function
+    if room and player:
+      return multiplayer_move_player(room, user_id, direction)
+    else:
+      return move_player(plugin.obj_cache[user_id], direction, plugin.obj_cache["shared_map"])
 
   if command == "/start":
     # Generate new map for new game
@@ -1012,13 +1066,13 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     return ("Welcome to Shadowborn!\n" 
             "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
             "Your goal is to explore the dungeon, find the portal to the next level, and see how deep you can go!\n"
-            "Use /move <up|down|left|right> to explore, /status to check your stats, and /shop to buy upgrades.\n\n"
+            "Use up, down, left, right or /move <up|down|left|right> to explore, /status to check your stats, and /shop to buy upgrades.\n\n"
             "MULTIPLAYER MODE:\n"
             "• Create a room with /create_room\n"
             "• Join a room with /join_room <code>\n"
             "• Chat with teammates using /room_chat <message>\n"
             "• All players must reach the exit portal to advance to the next level!\n\n"
-            "For more detailed instructions, use /help.\n\n" 
+            "For more detailed instructions, use /help.\n\n"
             f"{map_view}")
 
   elif command == "/move":
@@ -1242,9 +1296,9 @@ if __name__ == "__main__":
   #       is basically based on the same sk/pk it is in a different format and not directly usable with the SDK
   #       the internal node address is easily spoted as starting with 0xai_ and can be found
   #       via `docker exec r1node get_node_info` or via the launcher UI
-  my_node = os.getenv("EE_TARGET_NODE")  # we can specify a node here, if we want to connect to a specific
+  # my_node = os.getenv("EE_TARGET_NODE", "0xai_A7NhKLfFaJd9pOE_YsyePcMmFfxmMBpvMA4mhuK7Si1w")  # we can specify a node here, if we want to connect to a specific
   telegram_bot_token = os.getenv("EE_TELEGRAM_BOT_TOKEN")  # we can specify a node here, if we want to connect to a specific
-
+  my_node='0xai_A7NhKLfFaJd9pOE_YsyePcMmFfxmMBpvMA4mhuK7Si1w'
   assert my_node is not None, "Please provide the target edge node identifier"
   assert telegram_bot_token is not None, "Please provide the telegram bot token"
 
@@ -1268,8 +1322,8 @@ if __name__ == "__main__":
   #   in production, you would not need this code as the script can close
   #   after the pipeline will be sent
   session.wait(
-    seconds=600,  # we wait the session for 10 minutes
-    close_pipelines=True,  # we close the pipelines after the session
+    seconds=7200,  # we wait the session for 10 minutes
+    close_pipelines=True,  # we close the pipelines after the session !!!FALSE!!!
     close_session=True,  # we close the session after the session
   )
 
