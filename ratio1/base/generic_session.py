@@ -251,6 +251,7 @@ class GenericSession(BaseDecentrAIObject):
 
     self._dct_online_nodes_pipelines: dict[str, Pipeline] = {}
     self._dct_online_nodes_last_heartbeat: dict[str, dict] = {}
+    self._dct_node_whitelist: dict[str, list] = {}
     self._dct_can_send_to_node: dict[str, bool] = {}
     self._dct_node_last_seen_time = {} # key is node address
     self.__dct_node_address_to_alias = {}
@@ -736,6 +737,10 @@ class GenericSession(BaseDecentrAIObject):
       node_alias = dict_msg.get(PAYLOAD_DATA.NETMON_EEID, None)
       node_eth_address = dict_msg.get(PAYLOAD_DATA.NETMON_ETH_ADDRESS, None)
       
+      if isinstance(node_whitelist, list) and len(node_whitelist) > 0:
+        self._dct_node_whitelist[node_addr] = node_whitelist
+      # end if whitelist present
+      
       if node_online:
         self.__track_online_node(
           node_addr=node_addr,
@@ -830,6 +835,8 @@ class GenericSession(BaseDecentrAIObject):
 
       msg_active_configs = dict_msg.get(HB.CONFIG_STREAMS)
       whitelist = dict_msg.get(HB.EE_WHITELIST, [])
+      if isinstance(whitelist, list) and len(whitelist) > 0:
+        self._dct_node_whitelist[msg_node_addr] = whitelist
       is_allowed = self.bc_engine.contains_current_address(whitelist)
       if msg_active_configs is None:
         msg_active_configs = []      
@@ -3117,7 +3124,31 @@ class GenericSession(BaseDecentrAIObject):
     @property
     def client_address(self):
       return self.get_client_address()
+
     
+    def get_node_whitelist(self, node):
+      """
+      Get the whitelist of a node.
+      Parameters
+      ----------
+      node : str
+          The address or name of the Ratio1 edge node.
+
+      Returns
+      -------
+      list[str]
+          The whitelist of the node.
+      """
+      node = self.__get_node_address(node)
+      wl = self._dct_node_whitelist.get(node, [])
+      res = []
+      for addr in wl:
+        alias = self.get_node_alias(addr)
+        paddr = self.bc_engine.maybe_add_prefix(addr)
+        res.append(paddr + '  ' + str(alias))
+      return res
+
+
     def __wait_for_supervisors_net_mon_data(
       self, 
       supervisor=None, 
@@ -3146,6 +3177,7 @@ class GenericSession(BaseDecentrAIObject):
     def get_all_nodes_pipelines(self):
       # TODO: Bleo inject this function in __on_hb and maybe_process_net_config and dump result
       return self._dct_online_nodes_pipelines
+
     
     def get_network_known_nodes(
       self, 
