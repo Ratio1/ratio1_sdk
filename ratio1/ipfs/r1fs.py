@@ -64,6 +64,9 @@ from threading import Lock
 
 __VER__ = "0.2.2"
 
+# empirically determined minimum connection age for IPFS relay
+DEFAULT_MIN_CONNECTION_AGE = 3600 # seconds
+
 
 class IPFSCt:
   EE_IPFS_RELAY_ENV_KEY = "EE_IPFS_RELAY"
@@ -141,7 +144,7 @@ class R1FSEngine:
     base64_swarm_key: str = None, 
     ipfs_relay: str = None,   
     debug=False,     
-    min_connection_age: int = 300,
+    min_connection_age: int = DEFAULT_MIN_CONNECTION_AGE,
   ):
     with cls._lock:
       if name not in cls.__instances:
@@ -164,12 +167,14 @@ class R1FSEngine:
     uploads_dir: str = None,
     base64_swarm_key: str = None, 
     ipfs_relay: str = None,   
-    min_connection_age: int = 300,
+    min_connection_age: int = DEFAULT_MIN_CONNECTION_AGE,
     debug=False,     
   ):
     """
     Initialize the IPFS wrapper with a given logger function.
     By default, it uses the built-in print function for logging.
+    
+    
     """
     self.__name = name
     if logger is None:
