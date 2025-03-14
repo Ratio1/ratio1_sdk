@@ -187,8 +187,9 @@ class R1FSEngine:
     self.__downloaded_files = {}
     self.__base64_swarm_key = base64_swarm_key
     self.__ipfs_relay = ipfs_relay
+    self.__ipfs_home = None
     self.__downloads_dir = downloads_dir
-    self.__uploads_dir = uploads_dir
+    self.__uploads_dir = uploads_dir    
     self.__debug = debug
     
     self.startup()
@@ -198,8 +199,10 @@ class R1FSEngine:
     
     if self.__downloads_dir is None:
       if hasattr(self.logger, "get_output_folder"):
+        output_folder = self.logger.get_output_folder()
+        self.Pd("Using output folder as base: {}".format(output_folder))
         self.__downloads_dir = os.path.join(
-          self.logger.get_output_folder(),
+          output_folder,
           IPFSCt.R1FS_DOWNLOADS
         )
       else:
@@ -232,6 +235,9 @@ class R1FSEngine:
   def Pd(self, s, *args, **kwargs):
     if self.__debug:
       s = "[R1FS][DEBUG] " + s
+      color = kwargs.pop("color", "d")
+      color = "d" if color != 'r' else "r"
+      kwargs["color"] = color
       self.logger.P(s, *args, **kwargs)
     return
   
@@ -274,6 +280,16 @@ class R1FSEngine:
   def downloaded_files(self):
     return self.__downloaded_files
   
+  
+  @property
+  def connected_at(self):
+    return self.__connected_at
+  
+  @property
+  def ipfs_home(self):
+    return os.environ.get("IPFS_PATH")
+  
+  
   def _get_unique_name(self, prefix="r1fs", suffix=""):
     str_id = str(uuid.uuid4()).replace("-", "")[:8]
     return f"{prefix}_{str_id}{suffix}"
@@ -287,32 +303,61 @@ class R1FSEngine:
     return self._get_unique_upload_name(prefix, suffix=suffix)
   
 
-  def _check_and_record_relay_connection(self):
+  def _check_and_record_relay_connection(self, max_check_age : int = 3600):
     """
     Checks if we're connected to the relay_peer_id by parsing 'ipfs swarm peers'.
     If connected and we haven't recorded connected_at yet, we set it.
     """
+    relay_found = False
     try:
-      self.Pd("Checking IPFS relay connection...")
-      out = subprocess.run(
-        ["ipfs", "swarm", "peers"],
-        capture_output=True, text=True, timeout=5
-      )
-      if out.returncode == 0:
-        peer_lines = out.stdout.strip().split("\n")
-        self.__peers = peer_lines
-        for line in peer_lines:
-          # If the line contains the relay peer ID, we consider ourselves connected:
-          if self.__ipfs_relay in line:
-            # Record the time if not already set
-            if self.connected_at is None:
-              self.connected_at = time.time()
-      else:
-        self.P(f"Error checking swarm peers: {out.stderr.strip()}", color='r')
+      if self.connected_at is not None:
+        # Already connected, lets see if last check was recent enough:
+        elapsed_time = time.time() - self.connected_at
+        if elapsed_time < max_check_age:
+          relay_found = True
+          self.Pd(f"Already connected to relay peer for {elapsed_time:.1f}s, skipping check.")
+          # If we are connected and the last check was recent enough, return True:
+        else:
+          self.Pd(f"Last connection check was {elapsed_time:.1f}s ago, checking again...")
+          # If we are connected but the last check was too long ago, check again:
+        #end if needs recheck or not
+      #end if connected_at is not None
+      else:          
+        self.Pd("Checking IPFS relay connection and swarm peers...")
+        out = subprocess.run(
+          ["ipfs", "swarm", "peers"],
+          capture_output=True, text=True, timeout=5
+        )
+        if out.returncode == 0:
+          peer_lines = out.stdout.strip().split("\n")
+          self.Pd(f"Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
+          self.__peers = peer_lines
+          for line in peer_lines:
+            # If the line contains the relay peer ID, we consider ourselves connected:
+            if self.__ipfs_relay in line:
+              # Record the time if not already set
+              relay_found = True
+              self.Pd(f"Found relay peer in swarm peers: {line.strip()}")
+            #end if
+          #end for
+          # now reset the connected_at time if we found the relay peer
+          if relay_found:
+            self.__connected_at = time.time()
+            str_connected = self.logger.time_to_str(self.__connected_at)
+            self.P(f"Connected to relay peer recorded at {str_connected}.")
+          else:
+            self.__connected_at = None
+            self.Pd(f"Relay peer not found in swarm peers: {self.__ipfs_relay}", color='r')
+        else:
+          self.P(f"Error checking swarm peers: {out.stderr.strip()}", color='r')
     except subprocess.TimeoutExpired:
       self.P("Timeout checking swarm peers.", color='r')
+      relay_found = False
+    except Exception as e:
+      self.P(f"Error checking swarm peers: {e}", color='r')
+      relay_found = False
     #end try
-    return self.connected_at is not None
+    return relay_found
 
 
   def __set_reprovider_interval(self):
@@ -646,13 +691,15 @@ class R1FSEngine:
     self.__base64_swarm_key = base64_swarm_key
     self.__ipfs_relay = ipfs_relay
     hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
+        
+    ipfs_home = os.path.join(self.logger.base_folder, ".ipfs/")
     
+    os.makedirs(ipfs_home, exist_ok=True)
+    self.__ipfs_home = os.path.abspath(ipfs_home)
+    os.environ["IPFS_PATH"] = self.__ipfs_home
     
-    ipfs_repo = os.path.join(self.logger.base_folder, ".ipfs/")
-    os.makedirs(ipfs_repo, exist_ok=True)
-    
-    config_path = os.path.join(ipfs_repo, "config")
-    swarm_key_path = os.path.join(ipfs_repo, "swarm.key")
+    config_path = os.path.join(self.__ipfs_home, "config")
+    swarm_key_path = os.path.join(self.__ipfs_home, "swarm.key")
 
     msg = f"Starting R1FS <{self.__name}>:"
     msg += f"\n  Relay:    {self.__ipfs_relay}"
@@ -660,7 +707,7 @@ class R1FSEngine:
     msg += f"\n  Upload:   {self.__uploads_dir}"
     msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
     msg += f"\n  Debug:    {self.__debug}"
-    msg += f"\n  Repo:     {ipfs_repo}"
+    msg += f"\n  Repo:     {self.ipfs_home}"
     self.P(msg, color='d')
     
 
@@ -716,6 +763,7 @@ class R1FSEngine:
       my_id = self.__get_id()
       assert my_id != ERROR_TAG, "Failed to get IPFS ID."
       msg =  f"Connecting to R1FS relay"
+      msg += f"\n  IPFS Home:  {self.ipfs_home}"
       msg += f"\n  IPFS ID:    {my_id}"
       msg += f"\n  IPFS Addr:  {self.__ipfs_address}"
       msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
@@ -733,8 +781,8 @@ class R1FSEngine:
       
     return self.ipfs_started
     
-
-  def is_ipfs_warmed(self) -> bool:
+  
+  def check_ipfs_warmed(self) -> bool:
     """
     1) Checks if we appear to be connected to the relay at all.
     2) If so, checks how long we've been connected. If it's >= min_connection_age, returns True.
@@ -745,7 +793,20 @@ class R1FSEngine:
     connected = self._check_and_record_relay_connection()
     if not connected:
       # Not connected to the relay yet
+      
       return False    
     # If we have a connection, see how old it is:
     connection_age = time.time() - self.connected_at
-    return connection_age >= self.__min_connection_age    
+    is_connection_aged =  connection_age >= self.__min_connection_age  
+    if is_connection_aged:
+      self.Pd(f"IPFS connection age {connection_age:.1f}s, >= {self.__min_connection_age}s")
+    else:
+      self.Pd(f"IPFS connection age {connection_age:.1f}s, < {self.__min_connection_age}s")
+    return is_connection_aged
+  
+  @property
+  def is_ipfs_warmed(self) -> bool:
+    """
+    Check if IPFS is warmed up (connected to the relay and has been for a while).
+    """
+    return self.check_ipfs_warmed()  
