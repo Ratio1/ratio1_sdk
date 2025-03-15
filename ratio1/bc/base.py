@@ -25,6 +25,7 @@ from ..const.base import (
 )
 
 from .evm import _EVMMixin, Web3, EE_VPN_IMPL
+from .chain import _ChainMixin
 
 EVM_COMMENT = " # "
 INVALID_COMMENT = " # INVALID: "
@@ -241,7 +242,10 @@ def ripemd160(data):
   
 # END ## RIPEMD160  
 
-class BaseBlockEngine(_EVMMixin):
+class BaseBlockEngine(
+  _EVMMixin,
+  _ChainMixin,
+):
   """
   This multiton (multi-singleton via key) is the base workhorse of the private blockchain. 
   

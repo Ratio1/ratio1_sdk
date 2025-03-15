@@ -9,7 +9,7 @@
     "sdk_dev",
     
     "--name",
-    "r1_devenv"
+    "r1_sdk_devenv"
   ],
 
   "customizations": {
