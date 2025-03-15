@@ -10,7 +10,7 @@ from ratio1.utils.config import get_user_folder
 
 
 if __name__ == '__main__' :
-  l = Logger("ENC")
+  l = Logger("ENC", base_folder='.', app_folder='_local_cache')
   eng = DefaultBlockEngine(
     log=l, name="default", 
     config={

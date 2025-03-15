@@ -12,6 +12,16 @@ from hashlib import sha256, md5
 from threading import Lock
 from copy import deepcopy
 
+try:
+  from ver import __VER__ as app_version
+except:
+  app_version = None
+try:
+  from naeural_core.main.ver import __VER__ as core_version
+except:
+  core_version = None
+
+
 
 from cryptography.hazmat.primitives import serialization
 
@@ -753,6 +763,31 @@ class BaseBlockEngine(
     address = BCct.ADDR_PREFIX + address  
     return address
   
+  
+  
+  def _get_binary_pk(self, pubic_key=None):
+    """
+    Returns the public key object
+
+    Returns
+    -------
+    pk : pk
+      the public key object.
+
+    """
+    if pubic_key is None:
+      public_key = self.__public_key
+    data = public_key.public_bytes(
+      encoding=serialization.Encoding.DER, # will encode the full pk information 
+      format=serialization.PublicFormat.SubjectPublicKeyInfo, # used with DER
+    )    
+    return data
+  
+  
+  def _pkdata_to_addr(self, pkdata):
+    txt = BCct.ADDR_PREFIX + self._binary_to_text(pkdata)
+    return txt
+  
 
   
   def _pk_to_address(self, public_key):
@@ -772,11 +807,8 @@ class BaseBlockEngine(
       text address      
     
     """
-    data = public_key.public_bytes(
-      encoding=serialization.Encoding.DER, # will encode the full pk information 
-      format=serialization.PublicFormat.SubjectPublicKeyInfo, # used with DER
-    )
-    txt = BCct.ADDR_PREFIX + self._binary_to_text(data)
+    data = self._get_binary_pk(public_key)
+    txt = self._pkdata_to_addr(data)
     return txt
 
 
@@ -1420,14 +1452,6 @@ class BaseBlockEngine(
     #endif EE_VPN_IMPL
     
     from ratio1._ver import __VER__ as sdk_version
-    try:
-      from ver import __VER__ as app_version
-    except:
-      app_version = None
-    try:
-      from naeural_core.main.ver import __VER__ as core_version
-    except:
-      core_version = None
       
     MIN_LEN = 10
     # Default result in case of invalid URL should be None
