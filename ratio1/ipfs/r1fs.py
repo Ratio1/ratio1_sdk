@@ -432,7 +432,11 @@ class R1FSEngine:
       data = json.loads(output)
       self.__ipfs_id = data.get("ID", ERROR_TAG)
       addrs = data.get("Addresses", [])
-      self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
+      if addrs is None:
+        self.__ipfs_address = ERROR_TAG
+        self.P(f"IPFS address not found in `ipfs id` output:\n{json.dumps(data, indent=2)}", color='r')
+      else:
+        self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
       self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
       return data.get("ID", ERROR_TAG)
     except json.JSONDecodeError:
