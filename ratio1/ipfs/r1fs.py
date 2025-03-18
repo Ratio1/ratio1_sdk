@@ -437,6 +437,10 @@ class R1FSEngine:
       return data.get("ID", ERROR_TAG)
     except json.JSONDecodeError:
       raise Exception("Failed to parse JSON from 'ipfs id' output.")
+    except Exception as e:
+      msg = f"Error getting IPFS ID: {e}. `ipfs id`:\n{data}"
+      self.P(msg, color='r')
+      raise Exception(f"Error getting IPFS ID: {e}") from e
 
 
   @require_ipfs_started
