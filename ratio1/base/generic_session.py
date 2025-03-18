@@ -1143,14 +1143,15 @@ class GenericSession(BaseDecentrAIObject):
         if EE_VPN_IMPL and self._eth_enabled:
           self.P("Disabling ETH for VPN implementation", color='r')
           self._eth_enabled = False
-        
+        eth_enabled = self._eth_enabled
+        self.Pd(f"Starting default bc_engine: {user_config=}, {eth_enabled=}")
         self.bc_engine = DefaultBlockEngine(
           log=self.log,
           name=self.name,
           config=blockchain_config,
           verbosity=self._verbosity,
           user_config=user_config,
-          eth_enabled=self._eth_enabled, 
+          eth_enabled=eth_enabled, 
         )
       except:
         raise ValueError("Failure in private blockchain setup:\n{}".format(traceback.format_exc()))
@@ -1477,7 +1478,8 @@ class GenericSession(BaseDecentrAIObject):
   if True:
     
     def __load_user_config(self, dotenv_path):
-      # if the ~/.ratio1/config file exists, load the credentials from there else try to load them from .env
+      # if the ~/.ratio1/config file exists, load the credentials from there 
+      # else try to load them from .env
       if not load_user_defined_config(verbose=not self.silent):        
         # this method will search for the credentials in the environment variables
         # the path to env file, if not specified, will be search in the following order:
@@ -2185,7 +2187,7 @@ class GenericSession(BaseDecentrAIObject):
         if last_hb is None:
           continue
 
-        if last_hb.get(PAYLOAD_DATA.IS_SUPERVISOR, False):
+        if last_hb.get(HB.EE_IS_SUPER, False):
           active_supervisors.append(node)
 
       return active_supervisors

@@ -4,7 +4,6 @@ import json
 
 from ratio1 import Logger, const
 from ratio1.bc import DefaultBlockEngine
-from ratio1.utils.config import get_user_folder
 
 
 
