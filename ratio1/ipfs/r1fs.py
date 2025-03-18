@@ -185,6 +185,7 @@ class R1FSEngine:
     self.__ipfs_started = False
     self.__ipfs_address = None
     self.__ipfs_id = None
+    self.__ipfs_id_result = None
     self.__min_connection_age = min_connection_age
     self.__connected_at = None
     self.__ipfs_agent = None
@@ -427,24 +428,25 @@ class R1FSEngine:
     Get the IPFS peer ID via 'ipfs id' (JSON output).
     Returns the 'ID' field as a string.
     """
+    self.__ipfs_address = None
     output = self.__run_command(["ipfs", "id"])
     try:
       data = json.loads(output)
+      self.__ipfs_id_result = data
       self.__ipfs_id = data.get("ID", ERROR_TAG)
+      self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
       addrs = data.get("Addresses", [])
-      if addrs is None:
-        self.__ipfs_address = ERROR_TAG
-        self.P(f"IPFS address not found in `ipfs id` output:\n{json.dumps(data, indent=2)}", color='r')
+      if not addrs:
+        self.__ipfs_address = None
       else:
         self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
-      self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
-      return data.get("ID", ERROR_TAG)
     except json.JSONDecodeError:
       raise Exception("Failed to parse JSON from 'ipfs id' output.")
     except Exception as e:
       msg = f"Error getting IPFS ID: {e}. `ipfs id`:\n{data}"
       self.P(msg, color='r')
       raise Exception(f"Error getting IPFS ID: {e}") from e
+    return self.__ipfs_id
 
 
   @require_ipfs_started
@@ -767,7 +769,17 @@ class R1FSEngine:
         self.__set_relay()
         self.P("Starting IPFS daemon in background...")        
         subprocess.Popen(["ipfs", "daemon"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(5)
+        max_attempts = 10
+        sleep_time = 2
+        for attempt in range(max_attempts):
+          _ = self.__get_id()          
+          if self.__ipfs_address not in [None, ERROR_TAG]:
+            self.P("IPFS daemon started successfully.", color='g')
+            break
+          else:
+            self.P(f"Check {attempt + 1}/{max_attempts} IPFS daemon: {self.__ipfs_id_result}", color='r')
+            time.sleep(sleep_time)
+          #end for
       except Exception as e:
         self.P(f"Error starting IPFS daemon: {e}", color='r')
         return
