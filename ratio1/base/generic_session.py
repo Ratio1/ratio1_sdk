@@ -2710,7 +2710,7 @@ class GenericSession(BaseDecentrAIObject):
       return pipeline, instance
 
 
-    def __is_assets_valid(self, assets, mandatory=True, raise_exception=True):
+    def __is_assets_valid(self, assets, mandatory=True, raise_exception=True, default_field_values=None):
       if assets is None:
         if mandatory:
           msg = "Assets field is mandatory, but was not specified."
@@ -2724,6 +2724,12 @@ class GenericSession(BaseDecentrAIObject):
       # endif assets is None
       if not isinstance(assets, dict):
         return False
+
+      # Fill in default values.
+      if not isinstance(default_field_values, dict):
+        default_field_values = {}
+      assets = {**default_field_values, **assets}
+
       mandatory_fields = [
         "url",
         "operation",
@@ -2834,9 +2840,10 @@ class GenericSession(BaseDecentrAIObject):
       tuple
           `Pipeline` and a `Instance` objects tuple.
       """
-      self.__is_assets_valid(assets, mandatory=True)
+      self.__is_assets_valid(assets, mandatory=True, default_field_values={"operation": "release_asset"})
       static_directory = static_directory or '.'
       self.__is_static_directory_valid(static_directory, raise_exception=True)
+      endpoints = self.__maybe_add_root_endpoint(endpoints)
       return self.create_web_app(
         node=node,
         name=name,
@@ -2936,6 +2943,38 @@ class GenericSession(BaseDecentrAIObject):
       return pipelines, instances
 
 
+    def __maybe_add_root_endpoint(self, endpoints):
+      """
+      This will add index.html to root if it s not already present.
+
+      Parameters
+      ----------
+      endpoints : list[dict]
+          The list of endpoint routings.
+
+      Returns
+      -------
+      list[dict]
+          The list of endpoint routings with the root endpoint added if it was not already present.
+      """
+      default_root_endpoint_routing = {
+        "endpoint_type": "html",
+        "web_app_file_name": "index.html",
+        "endpoint_route": "/",
+      }
+      if endpoints is None:
+        return [default_root_endpoint_routing]
+      has_root = False
+      for endpoint in endpoints:
+        if endpoint.get("endpoint_route", None) == "/":
+          has_root = True
+          break
+      # end for
+      if not has_root:
+        endpoints.append(default_root_endpoint_routing)
+      return endpoints
+
+
     def create_and_deploy_balanced_http_server(
         self,
         *,
@@ -2983,9 +3022,10 @@ class GenericSession(BaseDecentrAIObject):
       tuple
           `Pipeline` and a `Instance` objects tuple.
       """
-      self.__is_assets_valid(assets, mandatory=True)
+      self.__is_assets_valid(assets, mandatory=True, default_field_values={"operation": "release_asset"})
       static_directory = static_directory or '.'
       self.__is_static_directory_valid(static_directory, raise_exception=True)
+      endpoints = self.__maybe_add_root_endpoint(endpoints)
       return self.create_and_deploy_balanced_web_app(
         nodes=nodes,
         name=name,

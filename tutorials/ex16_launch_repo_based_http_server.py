@@ -36,26 +36,29 @@ if __name__ == "__main__":
   ngrok_edge_label = os.environ.get("NGROK_EDGE_LABEL", None)
 
   # 4. Define the assets of the web application
+  git_username = os.environ.get("GITHUB_USER")
+  git_token = os.environ.get("GITHUB_TOKEN")
   assets = {
     # This will specify that the target node(s) need(s) to download
     # the assets from the provided repository.
     # It will also periodically check for updates.
-    "operation": "release_asset",
+    # "operation": "release_asset",
+
     # This is the asset that needs to be downloaded.
     # If this is a zip it will be unzipped on the target node(s).
     "asset_filter": "asset1_from_my_release.zip",
     # The repository from which the asset will be downloaded.
     "url": "<github_repo_url>",
     # The following 2 fields are necessary only if the repository is private.
-    "username": "<git_user>",
-    "token": "<git_token>"
+    "username": git_username,
+    "token": git_token
   }
 
-  # 5. Define the environment variables for the http server.
-  port = 32600
+  # 5. Define the environment variables for the http server if needed.
   env_vars = {
-    "PORT": port,
+    # "KEY1": "VALUE1",
   }
+
   # This is the directory where the assets will be searched for.
   # If, for example, index.html is in <zip_root>/dist/index.html,
   # the static_directory should be "dist".
@@ -66,13 +69,14 @@ if __name__ == "__main__":
   # If this is not provided, a not found error will be returned.
   default_route = "/"
 
-  # 6. Define endpoints if necessary.
+  # 6. Define endpoints if necessary. This will be used for custom routing and is optional.
+  # The below example is the default approach(the index.html will be served at the root).
   endpoints = [
-    {
-      "endpoint_type": "html",
-      "web_app_file_name": "index.html",
-      "endpoint_route": "/",
-    }
+    # {
+    #   "endpoint_type": "html",
+    #   "web_app_file_name": "index.html",
+    #   "endpoint_route": "/",
+    # }
   ]
 
   # 7. Create and deploy the http server.
@@ -80,16 +84,12 @@ if __name__ == "__main__":
   sess.create_and_deploy_balanced_http_server(
     nodes=nodes,
     name="Ratio1 HTTP Server Deploy Tutorial",
-    env_vars=env_vars,
+    env_vars=env_vars,  # optional
     assets=assets,
     static_directory=static_directory,
-    default_route=default_route,
-    endpoints=endpoints,
+    default_route=default_route,  # optional
+    endpoints=endpoints,  # optional
     ngrok_edge_label=ngrok_edge_label,
-    # Additional parameters.
-    # For example, if the launched http server needs a certain port to be exposed,
-    # it will need to also be provided here.
-    port=port,
   )
 
   # Observations:
