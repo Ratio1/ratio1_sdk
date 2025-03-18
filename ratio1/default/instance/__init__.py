@@ -3,6 +3,7 @@ from .view_scene_01_plugin import ViewScene01
 from .custom_webapi_01_plugin import CustomWebapi01
 from .chain_dist_custom_job_01_plugin import ChainDistCustomJob01
 from .telegram_basic_bot_01_plugin import BasicTelegramBot01
+from .generic_http_01_plugin import GenericHttp01
 
 
 class PLUGIN_TYPES:
@@ -14,6 +15,7 @@ class PLUGIN_TYPES:
   CUSTOM_WEBAPI_01 = CustomWebapi01
   CHAIN_DIST_CUSTOM_JOB_01 = ChainDistCustomJob01
   TELEGRAM_BASIC_BOT_01 = BasicTelegramBot01
+  GENERIC_HTTP_SERVER = GenericHttp01
   
   
 REVERSE_MAP = {
