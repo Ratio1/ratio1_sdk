@@ -5543,7 +5543,7 @@ class CustomPluginTemplate:
   @property
   def utils(self):
     """
-    Provides access to methods from ratio1_core.bussiness.utils.py
+    Provides access to methods from naeural_core.business.utils.py
     """
     raise NotImplementedError
 

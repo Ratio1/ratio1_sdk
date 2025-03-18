@@ -2708,7 +2708,150 @@ class GenericSession(BaseDecentrAIObject):
       # end if we have endpoints defined in the call
 
       return pipeline, instance
-    
+
+
+    def __is_assets_valid(self, assets, mandatory=True, raise_exception=True):
+      if assets is None:
+        if mandatory:
+          msg = "Assets field is mandatory, but was not specified."
+          self.log.P(msg, color='r', show=True)
+          if raise_exception:
+            raise ValueError(msg)
+          else:
+            return False
+        # endif mandatory
+        return True
+      # endif assets is None
+      if not isinstance(assets, dict):
+        return False
+      mandatory_fields = [
+        "url",
+        "operation",
+        "asset_filter",
+      ]
+      non_mandatory_fields = [
+        "username",
+        "token",
+      ]
+      for field in mandatory_fields:
+        field_value = assets.get(field, None)
+        if not isinstance(field_value, str):
+          msg = f"Assets field '{field}' is mandatory and should be a string, instead got {type(field_value)}."
+          self.log.P(msg, color='r', show=True)
+          if raise_exception:
+            raise ValueError(msg)
+          else:
+            return False
+      # endfor mandatory fields
+      missing_fields = []
+      for field in non_mandatory_fields:
+        field_value = assets.get(field, None)
+        if field_value is None:
+          # Not specified.
+          missing_fields.append(field)
+        elif not isinstance(assets[field], str):
+          # Invalid type.
+          msg = (f"Assets field '{field}' is optional, but if specified it should be a string.\n"
+                 f"Got instead {type(field_value)}.")
+          self.log.P(msg, color='r', show=True)
+          if raise_exception:
+            raise ValueError(msg)
+          else:
+            return False
+        # endif invalid type
+      # endfor non-mandatory fields
+      if len(missing_fields) > 0:
+        msg = (f"Warning! Assets fields {missing_fields} are missing from the `assets` object,"
+               f"but are only necessary if the repository is private.")
+        self.log.P(msg, color='y', show=True)
+      # endif missing fields
+      return True
+
+
+    def __is_static_directory_valid(self, static_directory, raise_exception=True):
+      if not isinstance(static_directory, str):
+        msg = f"Static directory should be a string, instead got {type(static_directory)}."
+        self.log.P(msg, color='r', show=True)
+        if raise_exception:
+          raise ValueError(msg)
+        else:
+          return False
+      # endif not string
+      if os.path.isabs(static_directory):
+        msg = f"Static directory should be a relative path, instead got an absolute path."
+        self.log.P(msg, color='r', show=True)
+        if raise_exception:
+          raise ValueError(msg)
+        else:
+          return False
+      return True
+
+
+    def create_http_server(
+        self,
+        *,
+        node,
+        name="Ratio1 HTTP Server",
+        ngrok_edge_label=None,
+        endpoints=None,
+        extra_debug=False,
+        summary="Ratio1 HTTP Server created via SDK",
+        description=None,
+        assets=None,
+        static_directory=None,
+        default_route=None,
+        **kwargs
+    ):
+      """
+      Create a new HTTP server on a node.
+
+      Parameters
+      ----------
+
+      node : str
+          Address or Name of the ratio1 Edge Protocol edge node that will handle this HTTP server.
+
+      name : str
+          Name of the HTTP server.
+
+      ngrok_edge_label : str, optional
+          The label of the edge node that will be used to expose the HTTP server. Defaults to None.
+
+      endpoints : list[dict], optional
+          A list of dictionaries defining the endpoint configuration. Defaults to None.
+
+      assets : dict, optional
+          A dictionary defining the assets configuration. Defaults to None.
+
+      static_directory : str, optional
+          The path to the static directory. Defaults to None.
+
+      default_route : str, optional
+          The default route. Defaults to None.
+
+      Returns
+      -------
+      tuple
+          `Pipeline` and a `Instance` objects tuple.
+      """
+      self.__is_assets_valid(assets, mandatory=True)
+      static_directory = static_directory or '.'
+      self.__is_static_directory_valid(static_directory, raise_exception=True)
+      return self.create_web_app(
+        node=node,
+        name=name,
+        signature=PLUGIN_SIGNATURES.GENERIC_HTTP_SERVER,
+        ngrok_edge_label=ngrok_edge_label,
+        endpoints=endpoints,
+        extra_debug=extra_debug,
+        summary=summary,
+        description=description,
+        assets=assets,
+        static_directory=static_directory,
+        default_route=default_route,
+        **kwargs
+      )
+
     
     def create_and_deploy_balanced_web_app(
       self,
@@ -2791,8 +2934,73 @@ class GenericSession(BaseDecentrAIObject):
         instances.append(instance)
       # end for
       return pipelines, instances
-      
-    
+
+
+    def create_and_deploy_balanced_http_server(
+        self,
+        *,
+        nodes,
+        name="Ratio1 HTTP Server",
+        ngrok_edge_label=None,
+        endpoints=None,
+        extra_debug=False,
+        summary="Ratio1 HTTP Server created via SDK",
+        description=None,
+        assets=None,
+        static_directory=None,
+        default_route=None,
+        **kwargs
+    ):
+      """
+      Create a new HTTP server on a list of nodes.
+
+      Parameters
+      ----------
+
+      nodes : str
+          List of addresses or Names of the ratio1 Edge Protocol edge nodes that will handle this HTTP server.
+
+      name : str
+          Name of the HTTP server.
+
+      ngrok_edge_label : str, optional
+          The label of the edge node that will be used to expose the HTTP server. Defaults to None.
+
+      endpoints : list[dict], optional
+          A list of dictionaries defining the endpoint configuration. Defaults to None.
+
+      assets : dict, optional
+          A dictionary defining the assets configuration. Defaults to None.
+
+      static_directory : str, optional
+          The path to the static directory. Defaults to None.
+
+      default_route : str, optional
+          The default route. Defaults to None.
+
+      Returns
+      -------
+      tuple
+          `Pipeline` and a `Instance` objects tuple.
+      """
+      self.__is_assets_valid(assets, mandatory=True)
+      static_directory = static_directory or '.'
+      self.__is_static_directory_valid(static_directory, raise_exception=True)
+      return self.create_and_deploy_balanced_web_app(
+        nodes=nodes,
+        name=name,
+        signature=PLUGIN_SIGNATURES.GENERIC_HTTP_SERVER,
+        ngrok_edge_label=ngrok_edge_label,
+        endpoints=endpoints,
+        extra_debug=extra_debug,
+        summary=summary,
+        description=description,
+        assets=assets,
+        static_directory=static_directory,
+        default_route=default_route,
+        **kwargs
+      )
+
 
     def create_telegram_simple_bot(
       self,

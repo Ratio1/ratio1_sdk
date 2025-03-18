@@ -84,43 +84,48 @@ class CustomWebapi01(Instance):
     dct_endpoint["ARGS"] = args
 
     self.update_instance_config(config={"ENDPOINTS": proposed_endpoints})
-    return  
+    return
 
 
-  def add_new_html_endpoint(self, html_path, web_app_file_name, endpoint_route):
-    str_code = None
-    with open(html_path, "r") as file:
-      str_code = file.read()
+  def add_new_html_endpoint(self, web_app_file_name, endpoint_route, html_path=None):
+    updated_config = {}
+    if html_path is not None:
+      # This means that the user wants to add a local html file
+      str_code = None
+      with open(html_path, "r") as file:
+        str_code = file.read()
 
-    if str_code is None:
-      raise ValueError(f"Could not read the file {html_path}")
-    self.pipeline: Pipeline
-    base64_html = self.pipeline.str_to_base64(str_code, compress=True)
+      if str_code is None:
+        raise ValueError(f"Could not read the file {html_path}")
+      self.pipeline: Pipeline
+      base64_html = self.pipeline.str_to_base64(str_code, compress=True)
 
-    proposed_assets = self.get_proposed_assets()
+      proposed_assets = self.get_proposed_assets()
+
+      if isinstance(proposed_assets, str):
+        proposed_assets = {
+          "url": [],
+          "operation": "decode",
+        }
+      elif isinstance(proposed_assets, dict):
+        if proposed_assets.get("operation") != "decode":
+          proposed_assets["operation"] = "decode"
+          proposed_assets["url"] = []
+
+      lst_pos = [pos
+                 for pos, code_name_pair
+                 in enumerate(proposed_assets["url"])
+                 if code_name_pair[1] == 'assets/' + web_app_file_name]
+
+      if len(lst_pos) > 0:
+        proposed_assets["url"][lst_pos[0]][0] = base64_html
+      else:
+        proposed_assets["url"].append([base64_html, 'assets/' + web_app_file_name])
+      # endif
+      updated_config["ASSETS"] = proposed_assets
+    # endif html_path is not None
+
     proposed_jinja_args = self.get_proposed_jinja_args()
-
-    if isinstance(proposed_assets, str):
-      proposed_assets = {
-        "url": [],
-        "operation": "decode",
-      }
-    elif isinstance(proposed_assets, dict):
-      if proposed_assets.get("operation") != "decode":
-        proposed_assets["operation"] = "decode"
-        proposed_assets["url"] = []
-
-    lst_pos = [pos
-               for pos, code_name_pair
-               in enumerate(proposed_assets["url"])
-               if code_name_pair[1] == 'assets/' + web_app_file_name]
-
-    if len(lst_pos) > 0:
-      proposed_assets["url"][lst_pos[0]][0] = base64_html
-    else:
-      proposed_assets["url"].append([base64_html, 'assets/' + web_app_file_name])
-    # endif
-
     if proposed_jinja_args is None:
       proposed_jinja_args = {
         'html_files': [],
@@ -143,6 +148,7 @@ class CustomWebapi01(Instance):
       proposed_jinja_args['html_files'].append(dict_name_route_method)
 
     dict_name_route_method["route"] = endpoint_route
+    updated_config["JINJA_ARGS"] = proposed_jinja_args
 
-    self.update_instance_config(config={"ASSETS": proposed_assets, "JINJA_ARGS": proposed_jinja_args})
+    self.update_instance_config(config=updated_config)
     return
