@@ -210,6 +210,8 @@ class PAYLOAD_DATA:
   NETMON_WHITELIST = 'whitelist'
   NETMON_NODE_SECURED = 'secured'
   NETMON_NODE_VERSION = 'version'
+  NETMON_NODE_R1FS_ID = 'r1fs_id'
+  NETMON_NODE_R1FS_ONLINE = 'r1fs_online'
   
 
   

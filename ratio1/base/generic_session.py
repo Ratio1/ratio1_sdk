@@ -3498,12 +3498,13 @@ class GenericSession(BaseDecentrAIObject):
         'Alias'  : PAYLOAD_DATA.NETMON_EEID,
         'Seen ago' : PAYLOAD_DATA.NETMON_LAST_SEEN,
         'Version' : PAYLOAD_DATA.NETMON_NODE_VERSION,
-        'State': PAYLOAD_DATA.NETMON_STATUS_KEY,
+        # 'State': PAYLOAD_DATA.NETMON_STATUS_KEY,
         'Uptime' : PAYLOAD_DATA.NETMON_UPTIME,
-        'Last probe' : PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME,
+        # 'Last probe' : PAYLOAD_DATA.NETMON_LAST_REMOTE_TIME,
         'Zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
         'Oracle' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
         'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
+        'R1FS'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ID,
       })
       if all_info:
         mapping = OrderedDict({
@@ -3597,9 +3598,13 @@ class GenericSession(BaseDecentrAIObject):
       pd.options.display.float_format = '{:.1f}'.format
       df_res = pd.DataFrame(res)
       if not all_info:
-        df_res = df_res.drop(
-          columns=['State', 'Last probe']
-        )
+        DROPPABLE = ['State', 'Last probe']
+        to_drop = [x for x in DROPPABLE if x in df_res.columns]
+        if to_drop:
+          df_res = df_res.drop(
+            columns=to_drop
+          )
+      # endif not all_info filter some columns
       dct_result = _DotDict({
         SESSION_CT.NETSTATS_REPORT : df_res,
         SESSION_CT.NETSTATS_REPORTER : best_super,

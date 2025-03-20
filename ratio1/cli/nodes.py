@@ -82,10 +82,11 @@ def get_nodes(args):
   prefix = "Online n" if (online or args.peered) else "N"
   # network = os.environ.get(BASE_CT.dAuth.DAUTH_NET_ENV_KEY, BASE_CT.dAuth.DAUTH_SDK_NET_DEFAULT)
   network = sess.bc_engine.evm_network
+  addr = sess.bc_engine.address
   if supervisor == "ERROR":
     log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')
   else:
-    log_with_color(f"Ratio1 client v{version}:\n", color='b')
+    log_with_color(f"Ratio1 client v{version}: {addr} \n", color='b')
     log_with_color(
       "{}odes on '{}' reported by <{}> '{}' in {:.1f}s ({} supervisors seen):".format(
       prefix, network, supervisor, super_alias, elapsed, nr_supers), 
