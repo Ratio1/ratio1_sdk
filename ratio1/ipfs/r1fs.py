@@ -59,6 +59,9 @@ import time
 import os
 import tempfile
 import uuid
+import requests
+
+
 
 from threading import Lock
 
@@ -235,6 +238,8 @@ class R1FSEngine:
     
   def P(self, s, *args, **kwargs):
     s = "[R1FS] " + s
+    color = kwargs.pop("color", "d")
+    kwargs["color"] = color
     self.logger.P(s, *args, **kwargs)
     return
   
@@ -293,6 +298,7 @@ class R1FSEngine:
   
   @property
   def ipfs_home(self):
+    """ return the IPFS home directory from the environment variable IPFS_PATH """
     return os.environ.get("IPFS_PATH")
   
   
@@ -387,6 +393,7 @@ class R1FSEngine:
     raise_on_error=True,
     timeout=IPFSCt.TIMEOUT,
     verbose=False,
+    return_errors=False,
   ):
     """
     Run a shell command using subprocess.run with a timeout.
@@ -395,6 +402,7 @@ class R1FSEngine:
     """
     failed = False
     output = ""
+    errors = ""
     cmd_str = " ".join(cmd_list)
     self.Pd(f"Running command: {cmd_str}", color='d')
     try:
@@ -409,10 +417,17 @@ class R1FSEngine:
       self.P(f"Command timed out after {timeout} seconds: {cmd_str}", color='r')
       if raise_on_error:
         raise Exception(f"Timeout expired for '{cmd_str}'") from e
+    except Exception as e:
+      failed = True
+      msg = f"Error running command `{cmd_str}`: {e}"
+      self.P(msg, color='r')
+      if raise_on_error:
+        raise Exception(msg) from e
     
     if result.returncode != 0:
+      errors = result.stderr.strip()
       failed = True
-      self.P(f"Command error: {result.stderr.strip()}", color='r')
+      self.P(f"Command error `{cmd_str}`: {errors}", color='r')
       if raise_on_error:
         raise Exception(f"Error while running '{cmd_str}': {result.stderr.strip()}")
     
@@ -420,6 +435,8 @@ class R1FSEngine:
       if verbose:
         self.Pd(f"Command output: {result.stdout.strip()}")
       output = result.stdout.strip()
+    if return_errors:
+      output, errors
     return output
   
 
@@ -429,7 +446,7 @@ class R1FSEngine:
     Returns the 'ID' field as a string.
     """
     self.__ipfs_address = None
-    output = self.__run_command(["ipfs", "id"])
+    output = self.__run_command(["ipfs", "id"]) # this will raise an exception if the command fails
     try:
       data = json.loads(output)
       self.__ipfs_id_result = data
@@ -448,390 +465,448 @@ class R1FSEngine:
       raise Exception(f"Error getting IPFS ID: {e}") from e
     return self.__ipfs_id
 
+  # R1FS API calls
+  if True:
+    @require_ipfs_started
+    def __pin_add(self, cid: str) -> str:
+      """
+      Explicitly pin a CID (and fetch its data) so it appears in the local pinset.
+      """
+      res = self.__run_command(["ipfs", "pin", "add", cid])
+      self.Pd(f"{res}")
+      return res  
 
-  @require_ipfs_started
-  def __pin_add(self, cid: str) -> str:
-    """
-    Explicitly pin a CID (and fetch its data) so it appears in the local pinset.
-    """
-    res = self.__run_command(["ipfs", "pin", "add", cid])
-    self.Pd(f"{res}")
-    return res  
-
-  
-  # Public methods
-  
-  def add_json(self, data, fn=None, tempfile=False) -> bool:
-    """
-    Add a JSON object to IPFS.
-    """
-    try:
-      json_data = json.dumps(data)
-      if tempfile:
-        self.Pd("Using tempfile for JSON")
-        with tempfile.NamedTemporaryFile(
-          mode='w', suffix='.json', delete=False
-        ) as f:
-          f.write(json_data)
-        fn = f.name
-      else:
-        fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".json")
-        self.Pd(f"Using unique name for JSON: {fn}")
-        with open(fn, "w") as f:
-          f.write(json_data)
-      #end if tempfile
-      cid = self.add_file(fn)
-      return cid
-    except Exception as e:
-      self.P(f"Error adding JSON to IPFS: {e}", color='r')
-      return None
     
+    # Public methods
     
-  def add_yaml(self, data, fn=None, tempfile=False) -> bool:
-    """
-    Add a YAML object to IPFS.
-    """
-    try:
-      import yaml
-      yaml_data = yaml.dump(data)
-      if tempfile:
-        self.Pd("Using tempfile for YAML")
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-          f.write(yaml_data)
-        fn = f.name
-      else:
-        fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".yaml")
-        self.Pd(f"Using unique name for YAML: {fn}")
-        with open(fn, "w") as f:
-          f.write(yaml_data)
-      cid = self.add_file(fn)
-      return cid
-    except Exception as e:
-      self.P(f"Error adding YAML to IPFS: {e}", color='r')
-      return None
-    
-    
-  def add_pickle(self, data, fn=None, tempfile=False) -> bool:
-    """
-    Add a Pickle object to IPFS.
-    """
-    try:
-      import pickle
-      if tempfile:
-        self.Pd("Using tempfile for Pickle")
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
-          pickle.dump(data, f)
-        fn = f.name
-      else:
-        fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
-        self.Pd(f"Using unique name for pkl: {fn}")
-        with open(fn, "wb") as f:
-          pickle.dump(data, f)
-      cid = self.add_file(fn)
-      return cid
-    except Exception as e:
-      self.P(f"Error adding Pickle to IPFS: {e}", color='r')
-      return None
-
-
-  @require_ipfs_started
-  def add_file(self, file_path: str) -> str:
-    """
-    This method adds a file to IPFS and returns the CID of the wrapped folder.
-    
-    Parameters
-    ----------
-    file_path : str
-        The path to the file to be added.
-    
-    Returns
-    -------
-    str
-        The CID of the wrapped folder
+    def add_json(self, data, fn=None, tempfile=False) -> bool:
+      """
+      Add a JSON object to IPFS.
+      """
+      try:
+        json_data = json.dumps(data)
+        if tempfile:
+          self.Pd("Using tempfile for JSON")
+          with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.json', delete=False
+          ) as f:
+            f.write(json_data)
+          fn = f.name
+        else:
+          fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".json")
+          self.Pd(f"Using unique name for JSON: {fn}")
+          with open(fn, "w") as f:
+            f.write(json_data)
+        #end if tempfile
+        cid = self.add_file(fn)
+        return cid
+      except Exception as e:
+        self.P(f"Error adding JSON to IPFS: {e}", color='r')
+        return None
       
-    """
-    assert os.path.isfile(file_path), f"File not found: {file_path}"
-    
-    output = self.__run_command(["ipfs", "add", "-q", "-w", file_path])
-    # "ipfs add -w <file>" typically prints two lines:
-    #   added <hash_of_file> <filename>
-    #   added <hash_of_wrapped_folder> <foldername?>
-    # We want the *last* line's CID (the wrapped folder).
-    lines = output.strip().split("\n")
-    if not lines:
-      raise Exception("No output from 'ipfs add -w -q'")
-    folder_cid = lines[-1].strip()
-    self.__uploaded_files[folder_cid] = file_path
-    # now we pin the folder
-    res = self.__pin_add(folder_cid)
-    self.P(f"Added file {file_path} as <{folder_cid}>")
-    return folder_cid
+      
+    def add_yaml(self, data, fn=None, tempfile=False) -> bool:
+      """
+      Add a YAML object to IPFS.
+      """
+      try:
+        import yaml
+        yaml_data = yaml.dump(data)
+        if tempfile:
+          self.Pd("Using tempfile for YAML")
+          with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            f.write(yaml_data)
+          fn = f.name
+        else:
+          fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".yaml")
+          self.Pd(f"Using unique name for YAML: {fn}")
+          with open(fn, "w") as f:
+            f.write(yaml_data)
+        cid = self.add_file(fn)
+        return cid
+      except Exception as e:
+        self.P(f"Error adding YAML to IPFS: {e}", color='r')
+        return None
+      
+      
+    def add_pickle(self, data, fn=None, tempfile=False) -> bool:
+      """
+      Add a Pickle object to IPFS.
+      """
+      try:
+        import pickle
+        if tempfile:
+          self.Pd("Using tempfile for Pickle")
+          with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
+            pickle.dump(data, f)
+          fn = f.name
+        else:
+          fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
+          self.Pd(f"Using unique name for pkl: {fn}")
+          with open(fn, "wb") as f:
+            pickle.dump(data, f)
+        cid = self.add_file(fn)
+        return cid
+      except Exception as e:
+        self.P(f"Error adding Pickle to IPFS: {e}", color='r')
+        return None
 
 
-  @require_ipfs_started
-  def get_file(
-    self, 
-    cid: str, 
-    local_folder: str = None, 
-    timeout: int = None,
-    pin=True, 
-    raise_on_error: bool = False
-  ) -> str:
-    """
-    Get a file from IPFS by CID and save it to a local folder.
-    If no local folder is provided, the default downloads directory is used.
-    Returns the full path of the downloaded file.
+    @require_ipfs_started
+    def add_file(self, file_path: str) -> str:
+      """
+      This method adds a file to IPFS and returns the CID of the wrapped folder.
+      
+      Parameters
+      ----------
+      file_path : str
+          The path to the file to be added.
+      
+      Returns
+      -------
+      str
+          The CID of the wrapped folder
+        
+      """
+      assert os.path.isfile(file_path), f"File not found: {file_path}"
+      
+      output = self.__run_command(["ipfs", "add", "-q", "-w", file_path])
+      # "ipfs add -w <file>" typically prints two lines:
+      #   added <hash_of_file> <filename>
+      #   added <hash_of_wrapped_folder> <foldername?>
+      # We want the *last* line's CID (the wrapped folder).
+      lines = output.strip().split("\n")
+      if not lines:
+        raise Exception("No output from 'ipfs add -w -q'")
+      folder_cid = lines[-1].strip()
+      self.__uploaded_files[folder_cid] = file_path
+      # now we pin the folder
+      res = self.__pin_add(folder_cid)
+      self.P(f"Added file {file_path} as <{folder_cid}>")
+      return folder_cid
+
+
+    @require_ipfs_started
+    def get_file(
+      self, 
+      cid: str, 
+      local_folder: str = None, 
+      timeout: int = None,
+      pin=True, 
+      raise_on_error: bool = False
+    ) -> str:
+      """
+      Get a file from IPFS by CID and save it to a local folder.
+      If no local folder is provided, the default downloads directory is used.
+      Returns the full path of the downloaded file.
+      
+      Parameters
+      ----------
+      cid : str
+          The CID of the file to download.
+          
+      local_folder : str
+          The local folder to save the
+          
+      timeout : int
+          The maximum time to wait for the download to complete.
+          Default `None` means the timeout is set by the IPFSCt.TIMEOUT (90s by default)
+              
+      """
+      if pin:
+        pin_result = self.__pin_add(cid)
+        
+      if local_folder is None:
+        local_folder = self.__downloads_dir # default downloads directory
+        os.makedirs(local_folder, exist_ok=True)
+        local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
+        
+      self.Pd(f"Downloading file {cid} to {local_folder}")
+      start_time = time.time()
+      self.__run_command(["ipfs", "get", cid, "-o", local_folder], timeout=timeout)
+      elapsed_time = time.time() - start_time
+      # now we need to get the file from the folder
+      folder_contents = os.listdir(local_folder)
+      if len(folder_contents) != 1:
+        msg = f"Expected one file in {local_folder}, found {folder_contents}"
+        if raise_on_error:
+          raise Exception(msg)
+        else:
+          self.P(msg, color='r')
+      # get the full path of the file
+      out_local_filename = os.path.join(local_folder, folder_contents[0])
+      self.P(f"Downloaded in {elapsed_time:.1f}s <{cid}> to {out_local_filename}")
+      self.__downloaded_files[cid] = out_local_filename
+      return out_local_filename
+
+
+
+
+
+    @require_ipfs_started
+    def list_pins(self):
+      """
+      List pinned CIDs via 'ipfs pin ls --type=recursive'.
+      Returns a list of pinned CIDs.
+      """
+      output = self.__run_command(["ipfs", "pin", "ls", "--type=recursive"])
+      pinned_cids = []
+      for line in output.split("\n"):
+        line = line.strip()
+        if not line:
+          continue
+        parts = line.split()
+        if len(parts) > 0:
+          pinned_cids.append(parts[0])
+      return pinned_cids
     
-    Parameters
-    ----------
-    cid : str
-        The CID of the file to download.
-        
-    local_folder : str
-        The local folder to save the
-        
-    timeout : int
-        The maximum time to wait for the download to complete.
-        Default `None` means the timeout is set by the IPFSCt.TIMEOUT (90s by default)
-            
-    """
-    if pin:
-      pin_result = self.__pin_add(cid)
+    
+    @require_ipfs_started
+    def is_cid_available(self, cid: str, max_wait=3) -> bool:
+      """
+      Check if a CID is available on IPFS.
+      Returns True if the CID is available, False otherwise.
       
-    if local_folder is None:
-      local_folder = self.__downloads_dir # default downloads directory
-      os.makedirs(local_folder, exist_ok=True)
-      local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
+      Parameters
+      ----------
+      cid : str
+          The CID to check.
+          
+      max_wait : int
+          The maximum time to wait for the CID to be found.
+          
+      """
+      CMD = ["ipfs", "block", "stat", cid]  
+      result = True
+      try:
+        res = self.__run_command(CMD, timeout=max_wait)
+        self.Pd(f"{cid} is available:\n{res}")
+      except Exception as e:
+        result = False
+      return result
       
-    self.Pd(f"Downloading file {cid} to {local_folder}")
-    start_time = time.time()
-    self.__run_command(["ipfs", "get", cid, "-o", local_folder], timeout=timeout)
-    elapsed_time = time.time() - start_time
-    # now we need to get the file from the folder
-    folder_contents = os.listdir(local_folder)
-    if len(folder_contents) != 1:
-      msg = f"Expected one file in {local_folder}, found {folder_contents}"
-      if raise_on_error:
-        raise Exception(msg)
+    
+    def check_ipfs_warmed(self) -> bool:
+      """
+      1) Checks if we appear to be connected to the relay at all.
+      2) If so, checks how long we've been connected. If it's >= min_connection_age, returns True.
+      """
+      if not self.ipfs_started:
+        # Not ipfs_started no need for further checks
+        return False
+      connected = self._check_and_record_relay_connection()
+      if not connected:
+        # Not connected to the relay yet
+        
+        return False    
+      # If we have a connection, see how old it is:
+      connection_age = time.time() - self.connected_at
+      is_connection_aged =  connection_age >= self.__min_connection_age  
+      if is_connection_aged:
+        self.Pd(f"IPFS connection age {connection_age:.1f}s, >= {self.__min_connection_age}s")
       else:
-        self.P(msg, color='r')
-    # get the full path of the file
-    out_local_filename = os.path.join(local_folder, folder_contents[0])
-    self.P(f"Downloaded in {elapsed_time:.1f}s <{cid}> to {out_local_filename}")
-    self.__downloaded_files[cid] = out_local_filename
-    return out_local_filename
-
-
-
-
-
-  @require_ipfs_started
-  def list_pins(self):
-    """
-    List pinned CIDs via 'ipfs pin ls --type=recursive'.
-    Returns a list of pinned CIDs.
-    """
-    output = self.__run_command(["ipfs", "pin", "ls", "--type=recursive"])
-    pinned_cids = []
-    for line in output.split("\n"):
-      line = line.strip()
-      if not line:
-        continue
-      parts = line.split()
-      if len(parts) > 0:
-        pinned_cids.append(parts[0])
-    return pinned_cids
-  
-  
-  @require_ipfs_started
-  def is_cid_available(self, cid: str, max_wait=3) -> bool:
-    """
-    Check if a CID is available on IPFS.
-    Returns True if the CID is available, False otherwise.
+        self.Pd(f"IPFS connection age {connection_age:.1f}s, < {self.__min_connection_age}s")
+      return is_connection_aged
     
-    Parameters
-    ----------
-    cid : str
-        The CID to check.
-        
-    max_wait : int
-        The maximum time to wait for the CID to be found.
-        
-    """
-    CMD = ["ipfs", "block", "stat", cid]  
-    result = True
-    try:
-      res = self.__run_command(CMD, timeout=max_wait)
-      self.Pd(f"{cid} is available:\n{res}")
-    except Exception as e:
+    @property
+    def is_ipfs_warmed(self) -> bool:
+      """
+      Check if IPFS is warmed up (connected to the relay and has been for a while).
+      """
+      return self.check_ipfs_warmed()  
+    
+  
+  # Start/stop IPFS methods (R1FS API)
+  if True:
+    
+    def is_ipfs_daemon_running(
+      self,
+      host="127.0.0.1",
+      port=5001,
+      method="POST",
+      timeout=3
+    ) -> bool:
+      """
+      Checks if an IPFS daemon is running by calling /api/v0/version
+      on the specified host and port. Some configurations require
+      POST instead of GET, so we allow a method argument.
+
+      Returns:
+          bool: True if the IPFS daemon responds successfully; False otherwise.
+      """
+      url = f"http://{host}:{port}/api/v0/version"
       result = False
-    return result
+      output = None
+      try:
+        if method.upper() == "POST":
+          response = requests.post(url, timeout=timeout)
+        else:
+          response = requests.get(url, timeout=timeout)
 
-  
+        response.raise_for_status()
+        # Optionally, parse and verify the JSON:
+        data = response.json()
+        output = str(data)
+        if "Version" in data:
+          result = True
+        else:
+          result = False
 
-  def maybe_start_ipfs(
-    self, 
-    base64_swarm_key: str = None, 
-    ipfs_relay: str = None
-  ) -> bool:
-    """
-    This method initializes the IPFS repository if needed, connects to a relay, and starts the daemon.
-    """
-    if self.ipfs_started:
-      return
+      except Exception as e:
+        result = False
+        output = str(e)
+      self.P(f"IPFS daemon running: {result} ({output})", color='g' if result else 'r')
+      return result        
     
-    self.P("Starting R1FS...", color='m')
-    
-    if base64_swarm_key is None:
-      base64_swarm_key = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
-      if base64_swarm_key is not None:
-        self.P(f"Found env IPFS swarm key: {str(base64_swarm_key)[:4]}...", color='d')
-        if len(base64_swarm_key) < 10:
-          self.P(f"Invalid IPFS swarm key: `{base64_swarm_key}`", color='r')
-          return False
+    def maybe_start_ipfs(
+      self, 
+      base64_swarm_key: str = None, 
+      ipfs_relay: str = None
+    ) -> bool:
+      """
+      This method initializes the IPFS repository if needed, connects to a relay, and starts the daemon.
+      """
+      if self.ipfs_started:
+        return
       
-    if ipfs_relay is None:
-      ipfs_relay = os.getenv(IPFSCt.EE_IPFS_RELAY_ENV_KEY)
-      if ipfs_relay is not None:
-        self.P(f"Found env IPFS relay: {ipfs_relay}", color='d')
-        if len(ipfs_relay) < 10:
-          self.P(f"Invalid IPFS relay: `{ipfs_relay}`", color='r')
-          return False
+      self.P("Starting R1FS...", color='m')
       
-    
-    if not base64_swarm_key or not ipfs_relay:
-      self.P("Missing env values EE_SWARM_KEY_CONTENT_BASE64 and EE_IPFS_RELAY.", color='r')
-      return False
-    
-    self.__base64_swarm_key = base64_swarm_key
-    self.__ipfs_relay = ipfs_relay
-    hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
+      if base64_swarm_key is None:
+        base64_swarm_key = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
+        if base64_swarm_key is not None:
+          self.P(f"Found env IPFS swarm key: {str(base64_swarm_key)[:4]}...", color='d')
+          if len(base64_swarm_key) < 10:
+            self.P(f"Invalid IPFS swarm key: `{base64_swarm_key}`", color='r')
+            return False
         
-    ipfs_home = os.path.join(self.logger.base_folder, ".ipfs/")
-    
-    os.makedirs(ipfs_home, exist_ok=True)
-    self.__ipfs_home = os.path.abspath(ipfs_home)
-    os.environ["IPFS_PATH"] = self.__ipfs_home
-    
-    config_path = os.path.join(self.__ipfs_home, "config")
-    swarm_key_path = os.path.join(self.__ipfs_home, "swarm.key")
-
-    msg = f"Starting R1FS <{self.__name}>:"
-    msg += f"\n  Relay:    {self.__ipfs_relay}"
-    msg += f"\n  Download: {self.__downloads_dir}"
-    msg += f"\n  Upload:   {self.__uploads_dir}"
-    msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
-    msg += f"\n  Debug:    {self.__debug}"
-    msg += f"\n  Repo:     {self.ipfs_home}"
-    self.P(msg, color='d')
-    
-
-    if not os.path.isfile(config_path):
-      # Repository is not initialized; write the swarm key and init.
-      try:
-        decoded_key = base64.b64decode(base64_swarm_key)
-        with open(swarm_key_path, "wb") as f:
-          f.write(decoded_key)
-        os.chmod(swarm_key_path, 0o600)
-        self.P("Swarm key written successfully.", color='g')
-      except Exception as e:
-        self.P(f"Error writing swarm.key: {e}", color='r')
+      if ipfs_relay is None:
+        ipfs_relay = os.getenv(IPFSCt.EE_IPFS_RELAY_ENV_KEY)
+        if ipfs_relay is not None:
+          self.P(f"Found env IPFS relay: {ipfs_relay}", color='d')
+          if len(ipfs_relay) < 10:
+            self.P(f"Invalid IPFS relay: `{ipfs_relay}`", color='r')
+            return False
+        
+      
+      if not base64_swarm_key or not ipfs_relay:
+        self.P("Missing env values EE_SWARM_KEY_CONTENT_BASE64 and EE_IPFS_RELAY.", color='r')
         return False
+      
+      self.__base64_swarm_key = base64_swarm_key
+      self.__ipfs_relay = ipfs_relay
+      hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
+          
+      ipfs_home = os.path.join(self.logger.base_folder, ".ipfs/")
+      
+      os.makedirs(ipfs_home, exist_ok=True)
+      self.__ipfs_home = os.path.abspath(ipfs_home)
+      os.environ["IPFS_PATH"] = self.__ipfs_home
+      
+      config_path = os.path.join(self.__ipfs_home, "config")
+      swarm_key_path = os.path.join(self.__ipfs_home, "swarm.key")
+
+      msg = f"Starting R1FS <{self.__name}>:"
+      msg += f"\n  Relay:    {self.__ipfs_relay}"
+      msg += f"\n  Download: {self.__downloads_dir}"
+      msg += f"\n  Upload:   {self.__uploads_dir}"
+      msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
+      msg += f"\n  Debug:    {self.__debug}"
+      msg += f"\n  Repo:     {self.ipfs_home}"
+      self.P(msg, color='d')
+      
+
+      if not os.path.isfile(config_path):
+        # Repository is not initialized; write the swarm key and init.
+        try:
+          decoded_key = base64.b64decode(base64_swarm_key)
+          with open(swarm_key_path, "wb") as f:
+            f.write(decoded_key)
+          os.chmod(swarm_key_path, 0o600)
+          self.P("Swarm key written successfully.", color='g')
+        except Exception as e:
+          self.P(f"Error writing swarm.key: {e}", color='r')
+          return False
+
+        try:
+          self.P("Initializing IPFS repository...")
+          self.__run_command(["ipfs", "init"])
+        except Exception as e:
+          self.P(f"Error during IPFS init: {e}", color='r')
+          return False
+      else:
+        self.P(f"IPFS repository already initialized in {config_path}.", color='g')
 
       try:
-        self.P("Initializing IPFS repository...")
-        self.__run_command(["ipfs", "init"])
+        self.P("Removing public IPFS bootstrap nodes...")
+        self.__run_command(["ipfs", "bootstrap", "rm", "--all"])
       except Exception as e:
-        self.P(f"Error during IPFS init: {e}", color='r')
-        return False
-    else:
-      self.P(f"IPFS repository already initialized in {config_path}.", color='g')
+        self.P(f"Error removing bootstrap nodes: {e}", color='r')
 
-    try:
-      self.P("Removing public IPFS bootstrap nodes...")
-      self.__run_command(["ipfs", "bootstrap", "rm", "--all"])
-    except Exception as e:
-      self.P(f"Error removing bootstrap nodes: {e}", color='r')
-
-    # Check if daemon is already running by attempting to get the node id.
-    try:
-      # explicit run no get_id
-      result = self.__run_command(["ipfs", "id"])
-      self.__ipfs_id = json.loads(result)["ID"]
-      self.__ipfs_address = json.loads(result)["Addresses"][1]
-      self.__ipfs_agent = json.loads(result)["AgentVersion"]
-      self.P("IPFS daemon running", color='g')
-            
-    except Exception:
-      self.Pd("ipfs id failed, starting daemon...")
+      # Check if daemon is already running by attempting to get the node id.
       try:
-        self.__set_reprovider_interval()
-        self.__set_relay()
-        self.P("Starting IPFS daemon in background...")        
-        subprocess.Popen(["ipfs", "daemon"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        max_attempts = 10
-        sleep_time = 2
-        for attempt in range(max_attempts):
-          _ = self.__get_id()          
-          if self.__ipfs_address not in [None, ERROR_TAG]:
-            self.P("IPFS daemon started successfully.", color='g')
+        self.P("Trying to see if IPFS daemon is running...", color='d')
+        n_ipfs_daemon_checks = 3
+        for attempt in range(1, n_ipfs_daemon_checks + 1):
+          ipfs_daemon_running = self.is_ipfs_daemon_running()
+          if ipfs_daemon_running:
             break
           else:
-            self.P(f"Check {attempt + 1}/{max_attempts} IPFS daemon: {self.__ipfs_id_result}", color='r')
-            time.sleep(sleep_time)
+            self.P(f"Check {attempt}/{n_ipfs_daemon_checks} IPFS started: {ipfs_daemon_running}", color='d')
+            time.sleep(2)
+        #end for
+        if ipfs_daemon_running:
+          self.P("IPFS daemon already running", color='g')
+        else:
+          self.P("IPFS daemon not running. Trying to start...", color='r')          
+          # If not running, start the daemon in the background.
+          # first delete the repository lock file if it exists
+          lock_file = os.path.join(self.__ipfs_home, "repo.lock")
+          if os.path.isfile(lock_file):
+            self.P(f"Deleting lock file {lock_file}...")
+            os.remove(lock_file)
+          else:
+            self.P(f"Lock file {lock_file} not found.")
+          # now we can start the daemon
+          self.__set_reprovider_interval()
+          self.__set_relay()
+          self.P("Starting IPFS daemon in background...")
+          subprocess.Popen(["ipfs", "daemon"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+          max_attempts = 10
+          sleep_time = 2
+          for attempt in range(max_attempts):
+            ipfs_daemon_running = self.is_ipfs_daemon_running()
+            if ipfs_daemon_running:
+              self.P("IPFS daemon started successfully.", color='g')
+              break
+            else:
+              self.P(f"Check {attempt + 1}/{max_attempts} IPFS running: {ipfs_daemon_running}", color='r')
+              time.sleep(sleep_time)
           #end for
+        #end if daemon running
       except Exception as e:
         self.P(f"Error starting IPFS daemon: {e}", color='r')
         return
 
-    try:
-      my_id = self.__get_id()
-      assert my_id != ERROR_TAG, "Failed to get IPFS ID."
-      msg =  f"Connecting to R1FS relay"
-      msg += f"\n  IPFS Home:  {self.ipfs_home}"
-      msg += f"\n  IPFS ID:    {my_id}"
-      msg += f"\n  IPFS Addr:  {self.__ipfs_address}"
-      msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
-      msg += f"\n  Relay:      {ipfs_relay}"
-      self.P(msg, color='m')
-      result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
-      relay_ip = ipfs_relay.split("/")[2]
-      if "connect" in result.lower() and "success" in result.lower():
-        self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
-        self.__ipfs_started = True
-      else:
-        self.P("Relay connection result did not indicate success.", color='r')
-    except Exception as e:
-      self.P(f"Error connecting to relay: {e}", color='r')
-      
-    return self.ipfs_started
-    
-  
-  def check_ipfs_warmed(self) -> bool:
-    """
-    1) Checks if we appear to be connected to the relay at all.
-    2) If so, checks how long we've been connected. If it's >= min_connection_age, returns True.
-    """
-    if not self.ipfs_started:
-      # Not ipfs_started no need for further checks
-      return False
-    connected = self._check_and_record_relay_connection()
-    if not connected:
-      # Not connected to the relay yet
-      
-      return False    
-    # If we have a connection, see how old it is:
-    connection_age = time.time() - self.connected_at
-    is_connection_aged =  connection_age >= self.__min_connection_age  
-    if is_connection_aged:
-      self.Pd(f"IPFS connection age {connection_age:.1f}s, >= {self.__min_connection_age}s")
-    else:
-      self.Pd(f"IPFS connection age {connection_age:.1f}s, < {self.__min_connection_age}s")
-    return is_connection_aged
-  
-  @property
-  def is_ipfs_warmed(self) -> bool:
-    """
-    Check if IPFS is warmed up (connected to the relay and has been for a while).
-    """
-    return self.check_ipfs_warmed()  
+      # last phase: connect to the relay      
+      try:
+        self.P("Getting the IPFS ID...")
+        my_id = self.__get_id()
+        assert my_id != ERROR_TAG, "Failed to get IPFS ID."
+        msg =  f"Connecting to R1FS relay"
+        msg += f"\n  IPFS Home:  {self.ipfs_home}"
+        msg += f"\n  IPFS ID:    {my_id}"
+        msg += f"\n  IPFS Addr:  {self.__ipfs_address}"
+        msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
+        msg += f"\n  Relay:      {ipfs_relay}"
+        self.P(msg, color='m')
+        result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
+        relay_ip = ipfs_relay.split("/")[2]
+        if "connect" in result.lower() and "success" in result.lower():
+          self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+          self.__ipfs_started = True
+        else:
+          self.P("Relay connection result did not indicate success.", color='r')
+      except Exception as e:
+        self.P(f"Error connecting to relay: {e}", color='r')
+      #end try
+      return self.ipfs_started    
