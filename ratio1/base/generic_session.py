@@ -419,10 +419,10 @@ class GenericSession(BaseDecentrAIObject):
     super(GenericSession, self).startup()
 
 
-  def _shorten_addr(self, addr: str) -> str:
+  def _shorten_addr(self, addr: str, prefix_size=11, sufix_size=4) -> str:
     if not isinstance(addr, str) or len(addr) < 15 or '...' in addr:
       return addr
-    return addr[:11] + '...' + addr[-4:]
+    return addr[:prefix_size] + '...' + addr[-sufix_size:]
 
 
   # Message callbacks
@@ -3504,7 +3504,8 @@ class GenericSession(BaseDecentrAIObject):
         'Zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
         'Oracle' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
         'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
-        'R1FS'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ID,
+        'R1FS ID'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ID,
+        'R1FS Online'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ONLINE,
       })
       if all_info:
         mapping = OrderedDict({
@@ -3565,6 +3566,8 @@ class GenericSession(BaseDecentrAIObject):
               # val hols a string '2024-12-23 23:50:16.462155' and must be converted to a datetime
               val = dt.strptime(val, '%Y-%m-%d %H:%M:%S.%f')              
               val = val.replace(microsecond=0) # strip the microseconds
+            elif key == PAYLOAD_DATA.NETMON_NODE_R1FS_ID:
+              val = self._shorten_addr(val)
             elif key == PAYLOAD_DATA.NETMON_LAST_SEEN:
               # convert val (seconds) to a human readable format
               val = seconds_to_short_format(val)
