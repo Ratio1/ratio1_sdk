@@ -200,6 +200,7 @@ class R1FSEngine:
     self.__downloads_dir = downloads_dir
     self.__uploads_dir = uploads_dir    
     self.__debug = debug
+    self.__relay_check_cnt = 0
     
     self.startup()
     return
@@ -347,42 +348,43 @@ class R1FSEngine:
         elapsed_time = time.time() - self.connected_at
         if elapsed_time < max_check_age:
           relay_found = True
-          log_func(f"Already connected to relay peer for {elapsed_time:.1f}s, skipping check.")
+          log_func(f"Relay check #{self.__relay_check_cnt}: Already connected to relay peer for {elapsed_time:.1f}s, skipping check.")
           # If we are connected and the last check was recent enough, return True:
         else:
-          log_func(f"Last connection check was {elapsed_time:.1f}s ago, checking again...")
+          log_func(f"Relay check #{self.__relay_check_cnt}: Last connection check was {elapsed_time:.1f}s ago, checking again...")
           # If we are connected but the last check was too long ago, check again:
         #end if needs recheck or not
       #end if connected_at is not None
       if not relay_found:         
-        log_func("Checking IPFS relay connection and swarm peers...")
+        self.__relay_check_cnt += 1
+        log_func(f"Relay check #{self.__relay_check_cnt}: Checking IPFS relay connection and swarm peers...")
         peer_lines = self._get_swarm_peers()
         if len(peer_lines) > 0:
-          log_func(f"Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
+          log_func(f"Relay check  #{self.__relay_check_cnt}: Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
           self.__peers = peer_lines
           for line in peer_lines:
             # If the line contains the relay peer ID, we consider ourselves connected:
             if self.__ipfs_relay in line:
               # Record the time if not already set
               relay_found = True
-              log_func(f"Relay ok: {line.strip()}")
+              log_func(f"Relay check #{self.__relay_check_cnt}: Relay ok: {line.strip()}")
             #end if
           #end for
           # now reset the connected_at time if we found the relay peer
           if relay_found:
             self.__connected_at = time.time() # set self.connected_at
             str_connected = self.logger.time_to_str(self.connected_at)
-            self.P(f"Connected to relay peer recorded at {str_connected}.")
+            self.P(f"Relay check #{self.__relay_check_cnt}: Connected to relay peer recorded at {str_connected}.")
           else:
             self.__connected_at = None
-            log_func(f"Relay peer not found in swarm peers: {self.__ipfs_relay}", color='r')
+            log_func(f"Relay check #{self.__relay_check_cnt}: Relay peer not found in swarm peers: {self.__ipfs_relay}", color='r')
           #end if relay_found or not
         #end if len(peer_lines) > 0
     except subprocess.TimeoutExpired:
-      self.P("Timeout checking swarm peers.", color='r')
+      self.P(f"Relay check #{self.__relay_check_cnt}: Timeout checking swarm peers.", color='r')
       relay_found = False
     except Exception as e:
-      self.P(f"Error checking swarm peers: {e}", color='r')
+      self.P(f"Relay check #{self.__relay_check_cnt}: Error checking swarm peers: {e}", color='r')
       relay_found = False
     #end try
     return relay_found
