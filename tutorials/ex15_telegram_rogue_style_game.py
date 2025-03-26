@@ -25,13 +25,34 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # --------------------------------------------------
   GRID_WIDTH = 100
   GRID_HEIGHT = 100
-  START_HEALTH = 10  # Base health for all players
-  # XP requirements for each level
-  LEVEL_XP_REQUIREMENTS = [0, 10, 25, 45, 70, 100, 140, 190, 250, 320]
   # Stats increase per level
   HEALTH_PER_LEVEL = 2
   DAMAGE_REDUCTION_PER_LEVEL = 0.05  # 5% damage reduction per level
   MAX_LEVEL = 10
+
+  # Player stats for each level
+  LEVEL_DATA = {
+    # Level: {max_hp, max_energy, next_level_xp, hp_regen_rate, energy_regen_rate}
+    # hp_regen_rate and energy_regen_rate are per minute
+    1: {"max_hp": 10, "max_energy": 20, "next_level_xp": 10, "hp_regen_rate": 3, "energy_regen_rate": 6},
+    2: {"max_hp": 12, "max_energy": 22, "next_level_xp": 25, "hp_regen_rate": 3.6, "energy_regen_rate": 7.2},
+    3: {"max_hp": 14, "max_energy": 24, "next_level_xp": 45, "hp_regen_rate": 4.2, "energy_regen_rate": 8.4},
+    4: {"max_hp": 16, "max_energy": 26, "next_level_xp": 70, "hp_regen_rate": 4.8, "energy_regen_rate": 9.6},
+    5: {"max_hp": 18, "max_energy": 28, "next_level_xp": 100, "hp_regen_rate": 5.4, "energy_regen_rate": 10.8},
+    6: {"max_hp": 20, "max_energy": 30, "next_level_xp": 140, "hp_regen_rate": 6, "energy_regen_rate": 12},
+    7: {"max_hp": 22, "max_energy": 32, "next_level_xp": 190, "hp_regen_rate": 6.6, "energy_regen_rate": 13.2},
+    8: {"max_hp": 24, "max_energy": 34, "next_level_xp": 250, "hp_regen_rate": 7.2, "energy_regen_rate": 14.4},
+    9: {"max_hp": 26, "max_energy": 36, "next_level_xp": 320, "hp_regen_rate": 7.8, "energy_regen_rate": 15.6},
+    10: {"max_hp": 28, "max_energy": 40, "next_level_xp": 400, "hp_regen_rate": 9, "energy_regen_rate": 18},
+  }
+
+  # Energy costs for actions
+  ENERGY_COSTS = {
+    "move": 1,     # Basic movement
+    "attack": 3,   # Fighting a monster
+    "shop": 0,     # Checking the shop (free)
+    "use_item": 2  # Using an item
+  }
 
   # --------------------------------------------------
   # SHOP FUNCTIONS
@@ -113,17 +134,23 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   def create_new_player():
     """Creates a new player dict with default stats."""
+    level_1_data = LEVEL_DATA[1]
     return {
         "position": (0, 0),
         "coins": 0,
-        "health": START_HEALTH,
-        "max_health": START_HEALTH,
+        "health": level_1_data["max_hp"],
+        "max_health": level_1_data["max_hp"],
+        "energy": level_1_data["max_energy"],
+        "max_energy": level_1_data["max_energy"],
         "damage_reduction": 0,
         "attack": 0,
         "dodge_chance": 0,
         "level": 1,
         "xp": 0,
-        "next_level_xp": LEVEL_XP_REQUIREMENTS[1],
+        "next_level_xp": level_1_data["next_level_xp"],
+        "hp_regen_rate": level_1_data["hp_regen_rate"],
+        "energy_regen_rate": level_1_data["energy_regen_rate"],
+        "last_update_time": plugin.time(),  # Track last update for regeneration with correct function
         "inventory": {
             "health_potion": 0,
             "map_scroll": 0
@@ -147,22 +174,54 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         return False, ""
 
     if player["xp"] >= player["next_level_xp"]:
+        old_level = player["level"]
         player["level"] += 1
-        old_max_health = player["max_health"]
-        player["max_health"] += HEALTH_PER_LEVEL
-        player["health"] += HEALTH_PER_LEVEL  # Heal on level up
-        player["damage_reduction"] += DAMAGE_REDUCTION_PER_LEVEL
-
-        # Set next level XP requirement
-        if player["level"] < len(LEVEL_XP_REQUIREMENTS):
-            player["next_level_xp"] = LEVEL_XP_REQUIREMENTS[player["level"]]
+        new_level = player["level"]
+        
+        # Get stats for the new level
+        if new_level in LEVEL_DATA:
+            level_data = LEVEL_DATA[new_level]
+            
+            # Store old stats for message
+            old_max_health = player["max_health"]
+            old_max_energy = player["max_energy"]
+            old_hp_regen = player["hp_regen_rate"]
+            old_energy_regen = player["energy_regen_rate"]
+            
+            # Update stats based on new level data
+            player["max_health"] = level_data["max_hp"]
+            player["max_energy"] = level_data["max_energy"]
+            player["next_level_xp"] = level_data["next_level_xp"]
+            player["hp_regen_rate"] = level_data["hp_regen_rate"]
+            player["energy_regen_rate"] = level_data["energy_regen_rate"]
+            
+            # Also heal the player on level up (bonus!)
+            player["health"] = min(player["health"] + 5, player["max_health"])
+            player["energy"] = player["max_energy"]  # Refill energy on level up
+            
+            # Update damage reduction (not in LEVEL_DATA)
+            player["damage_reduction"] += DAMAGE_REDUCTION_PER_LEVEL
+            
+            return True, f"LEVEL UP! You are now level {player['level']}!\n" \
+                        f"Max Health: {old_max_health} → {player['max_health']}\n" \
+                        f"Max Energy: {old_max_energy} → {player['max_energy']}\n" \
+                        f"HP Regen: {old_hp_regen:.1f}/min → {player['hp_regen_rate']:.1f}/min\n" \
+                        f"Energy Regen: {old_energy_regen:.1f}/min → {player['energy_regen_rate']:.1f}/min\n" \
+                        f"Damage Reduction: {int((player['damage_reduction'] - DAMAGE_REDUCTION_PER_LEVEL) * 100)}% → {int(player['damage_reduction'] * 100)}%"
         else:
-            # For levels beyond our predefined table, increase by 30%
+            # For levels beyond our predefined table
+            player["max_health"] += HEALTH_PER_LEVEL
+            player["max_energy"] += 2
             player["next_level_xp"] = int(player["next_level_xp"] * 1.3)
-
-        return True, f"LEVEL UP! You are now level {player['level']}!\n" \
-                    f"Max Health: {old_max_health} → {player['max_health']}\n" \
-                    f"Damage Reduction: {int((player['damage_reduction'] - DAMAGE_REDUCTION_PER_LEVEL) * 100)}% → {int(player['damage_reduction'] * 100)}%"
+            player["hp_regen_rate"] += 0.01
+            player["energy_regen_rate"] += 0.02
+            player["damage_reduction"] += DAMAGE_REDUCTION_PER_LEVEL
+            
+            return True, f"LEVEL UP! You are now level {player['level']}!\n" \
+                        f"Max Health +{HEALTH_PER_LEVEL}, Max Energy +2\n" \
+                        f"HP Regen +0.01/s, Energy Regen +0.02/s\n" \
+                        f"Damage Reduction +{int(DAMAGE_REDUCTION_PER_LEVEL * 100)}%"
+            
     return False, ""
 
   def reveal_surroundings(player, game_map):
@@ -231,7 +290,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   def move_player(player, direction, game_map):
     """
     Moves the player, applies tile effects, and returns a response message.
+    Checks for and consumes energy for different actions.
     """
+    # Check if player has enough energy for the basic move
+    if int(player["energy"]) < ENERGY_COSTS["move"]:
+      return f"You are too exhausted to move! Energy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
+
     x, y = player["position"]
 
     if direction == "up" and y > 0:
@@ -245,13 +309,31 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     else:
       return "You cannot move that way!"
 
+    # Calculate energy cost for this move
+    energy_cost = ENERGY_COSTS["move"]
+    
+    # Check what's on the tile we're moving to
+    new_tile = game_map[y][x]
+    if new_tile["type"] == "MONSTER":
+      # Fighting a monster requires more energy
+      if int(player["energy"]) < ENERGY_COSTS["move"] + ENERGY_COSTS["attack"]:
+        return f"You don't have enough energy to fight the monster at ({x},{y})!\nEnergy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
+      energy_cost += ENERGY_COSTS["attack"]
+
+    # Consume energy
+    player["energy"] -= energy_cost
+    
+    # Actually move the player
     player["position"] = (x, y)
     tile = game_map[y][x]
     tile["visible"] = True
     reveal_surroundings(player, game_map)
 
-    msg = f"You moved {direction} to ({x},{y}). "
+    # Basic movement message
+    msg = f"You moved {direction} to ({x},{y}). Energy: -{energy_cost} "
+    
     level_up_msg = ""
+    
     if tile["type"] == "COIN":
       base_coins = plugin.np.random.randint(1, 3)
       player["coins"] += base_coins
@@ -260,12 +342,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     elif tile["type"] == "TRAP":
       if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
-          msg += "You nimbly avoided a trap! "
+        msg += "You nimbly avoided a trap! "
       else:
-          base_damage = plugin.np.random.randint(1, 3)
-          damage = max(1, base_damage)
-          player["health"] -= damage
-          msg += f"You triggered a trap! Health -{damage}. "
+        base_damage = plugin.np.random.randint(1, 3)
+        damage = max(1, base_damage)
+        player["health"] -= damage
+        msg += f"You triggered a trap! Health -{damage}. "
 
     elif tile["type"] == "MONSTER":
       monster_level = tile["monster_level"]
@@ -287,7 +369,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       # Check for level up
       leveled_up, level_up_msg = check_level_up(player)
       if leveled_up:
-          msg += " " + level_up_msg
+        msg += " " + level_up_msg
           
       tile["type"] = "EMPTY"
 
@@ -302,7 +384,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       return death_msg
 
     map_view = visualize_map(player, game_map)
-    stats = f"Health: {player['health']}/{player['max_health']}, Coins: {player['coins']}"
+    stats = f"Health: {int(player['health'])}/{player['max_health']}, Energy: {int(player['energy'])}/{player['max_energy']}, Coins: {player['coins']}"
     return f"{map_view}\n{msg}\n{stats}"
 
   def display_shop(player):
@@ -382,11 +464,21 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   def use_item(player, item_id, game_map):
     """Use a consumable item from inventory."""
+    # Check if player has the item
     if item_id not in player["inventory"] or player["inventory"][item_id] <= 0:
       return f"You don't have any {item_id} in your inventory."
+      
+    # Check if player has enough energy to use an item
+    if int(player["energy"]) < ENERGY_COSTS["use_item"]:
+      return f"You don't have enough energy to use this item. Energy: {int(player['energy'])}/{player['max_energy']}"
+    
+    # Consume energy for using the item
+    player["energy"] -= ENERGY_COSTS["use_item"]
 
     if item_id == "health_potion":
       if player["health"] >= player["max_health"]:
+        # Refund energy if potion wasn't used
+        player["energy"] += ENERGY_COSTS["use_item"]
         return "Your health is already full!"
 
       # Use health potion
@@ -395,7 +487,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       player["health"] = min(player["max_health"], player["health"] + heal_amount)
       player["inventory"][item_id] -= 1
 
-      return f"You used a Health Potion. Health: {old_health} → {player['health']}"
+      return f"You used a Health Potion. Health: {int(old_health)} → {int(player['health'])}\nEnergy: -{ENERGY_COSTS['use_item']}"
 
     elif item_id == "map_scroll":
       # Use map scroll to reveal a larger area
@@ -403,7 +495,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       player["inventory"][item_id] -= 1
 
       map_view = visualize_map(player, game_map)
-      return f"You used a Map Scroll and revealed more of the map!\n\n{map_view}"
+      return f"You used a Map Scroll and revealed more of the map! Energy: -{ENERGY_COSTS['use_item']}\n\n{map_view}"
 
     return f"Cannot use {item_id}."
 
@@ -572,7 +664,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     status_message = (f"📊 STATUS 📊\n"
                      f"🗺️ Position: ({x}, {y})\n"
-                     f"❤️ Health: {p['health']}/{p['max_health']}\n"
+                     f"❤️ Health: {int(p['health'])}/{p['max_health']} (Regen: {p['hp_regen_rate']:.1f}/min)\n"
+                     f"⚡ Energy: {int(p['energy'])}/{p['max_energy']} (Regen: {p['energy_regen_rate']:.1f}/min)\n"
                      f"💰 Coins: {p['coins']}\n"
                      f"📊 Level: {p['level']} (XP: {p['xp']}/{p['next_level_xp']})\n"
                      f"⚔️ Attack: {total_attack}\n"
@@ -622,37 +715,51 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 # --------------------------------------------------
 def loop_processing(plugin):
   """
-  This method will be continously called by the plugin to do any kind of required processing
-  without being triggered by a message. This is useful for example to check for new events in
-  a particular source or to do some kind of processing that is not directly related to a message
+  This method is continuously called by the plugin approximately every second.
+  Used to regenerate health and energy for all users.
+  
+  Regeneration rates in LEVEL_DATA are per minute, so we convert them to per-second rates.
+  Health and energy values are truncated to whole numbers.
   """
   result = None
+  current_time = plugin.time()  # Get current time using the correct method
+  
   for user in plugin.users:
-    plugin.P(user)
-    # Get or initialize user notification state
-    user_cache_key = f"{user}"
-    user_notification_state = plugin.obj_cache.get(user_cache_key)
-    user_stats = plugin.get_user_stats(user)
-
-    # plugin.P(f"Processing user {user} with stats {user_stats} and notification state {user_notification_state}")
-    # if user_notification_state is None:
-    #   user_notification_state = {
-    #     "received_question_notice_at_question": 0
-    #   }
-    #   plugin.obj_cache[user_cache_key] = user_notification_state
-    #
-    # if user_stats and user_stats['questions'] % 5 == 0 and user_notification_state.get(
-    #     "received_question_notice_at_question") != user_stats['questions']:
-    #   plugin.send_message_to_user(user_id=user, text="You have asked quite a few question, ser!")
-    #
-    #   user_notification_state = {
-    #     "received_question_notice_at_question": user_stats['questions']
-    #   }
-    #   plugin.obj_cache[user_cache_key] = user_notification_state
-    #
-    #   if result is None:
-    #     result = {}
-    #   result[user] = user_stats
+    # Skip if user has no player data yet
+    if user not in plugin.obj_cache or plugin.obj_cache[user] is None:
+      continue
+      
+    player = plugin.obj_cache[user]
+    
+    # Calculate time elapsed since last update
+    time_elapsed = current_time - player.get("last_update_time", current_time)
+    player["last_update_time"] = current_time  # Update the timestamp
+    
+    # Don't process if less than 1 second has passed
+    if time_elapsed < 1:
+      continue
+      
+    # Convert per-minute rates to per-second for calculations
+    hp_regen_per_second = player["hp_regen_rate"] / 60.0
+    energy_regen_per_second = player["energy_regen_rate"] / 60.0
+    
+    # Regenerate health - only keep whole numbers
+    if int(player["health"]) < player["max_health"]:
+      hp_gain = hp_regen_per_second * time_elapsed
+      player["health"] = min(player["max_health"], int(player["health"]) + hp_gain)
+      # Store only the integer part for display
+      player["health"] = int(player["health"])
+    
+    # Regenerate energy - only keep whole numbers
+    if int(player["energy"]) < player["max_energy"]:
+      energy_gain = energy_regen_per_second * time_elapsed
+      player["energy"] = min(player["max_energy"], int(player["energy"]) + energy_gain)
+      # Store only the integer part for display
+      player["energy"] = int(player["energy"])
+    
+    # Update the player object in cache
+    plugin.obj_cache[user] = player
+    
   return result
 
 
