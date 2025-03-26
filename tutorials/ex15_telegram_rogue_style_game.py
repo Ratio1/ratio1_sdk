@@ -27,23 +27,22 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   GRID_HEIGHT = 100
   # Stats increase per level
   HEALTH_PER_LEVEL = 2
-  DAMAGE_REDUCTION_PER_LEVEL = 0.05  # 5% damage reduction per level
   MAX_LEVEL = 10
 
   # Player stats for each level
   LEVEL_DATA = {
-    # Level: {max_hp, max_energy, next_level_xp, hp_regen_rate, energy_regen_rate}
+    # Level: {max_hp, max_energy, next_level_xp, hp_regen_rate, energy_regen_rate, damage_reduction}
     # hp_regen_rate and energy_regen_rate are per minute
-    1: {"max_hp": 10, "max_energy": 20, "next_level_xp": 10, "hp_regen_rate": 3, "energy_regen_rate": 6},
-    2: {"max_hp": 12, "max_energy": 22, "next_level_xp": 25, "hp_regen_rate": 3.6, "energy_regen_rate": 7.2},
-    3: {"max_hp": 14, "max_energy": 24, "next_level_xp": 45, "hp_regen_rate": 4.2, "energy_regen_rate": 8.4},
-    4: {"max_hp": 16, "max_energy": 26, "next_level_xp": 70, "hp_regen_rate": 4.8, "energy_regen_rate": 9.6},
-    5: {"max_hp": 18, "max_energy": 28, "next_level_xp": 100, "hp_regen_rate": 5.4, "energy_regen_rate": 10.8},
-    6: {"max_hp": 20, "max_energy": 30, "next_level_xp": 140, "hp_regen_rate": 6, "energy_regen_rate": 12},
-    7: {"max_hp": 22, "max_energy": 32, "next_level_xp": 190, "hp_regen_rate": 6.6, "energy_regen_rate": 13.2},
-    8: {"max_hp": 24, "max_energy": 34, "next_level_xp": 250, "hp_regen_rate": 7.2, "energy_regen_rate": 14.4},
-    9: {"max_hp": 26, "max_energy": 36, "next_level_xp": 320, "hp_regen_rate": 7.8, "energy_regen_rate": 15.6},
-    10: {"max_hp": 28, "max_energy": 40, "next_level_xp": 400, "hp_regen_rate": 9, "energy_regen_rate": 18},
+    1: {"max_hp": 10, "max_energy": 20, "next_level_xp": 10, "hp_regen_rate": 3, "energy_regen_rate": 6, "damage_reduction": 0.00},
+    2: {"max_hp": 12, "max_energy": 22, "next_level_xp": 25, "hp_regen_rate": 3.6, "energy_regen_rate": 7.2, "damage_reduction": 0.05},
+    3: {"max_hp": 14, "max_energy": 24, "next_level_xp": 45, "hp_regen_rate": 4.2, "energy_regen_rate": 8.4, "damage_reduction": 0.10},
+    4: {"max_hp": 16, "max_energy": 26, "next_level_xp": 70, "hp_regen_rate": 4.8, "energy_regen_rate": 9.6, "damage_reduction": 0.15},
+    5: {"max_hp": 18, "max_energy": 28, "next_level_xp": 100, "hp_regen_rate": 5.4, "energy_regen_rate": 10.8, "damage_reduction": 0.20},
+    6: {"max_hp": 20, "max_energy": 30, "next_level_xp": 140, "hp_regen_rate": 6, "energy_regen_rate": 12, "damage_reduction": 0.25},
+    7: {"max_hp": 22, "max_energy": 32, "next_level_xp": 190, "hp_regen_rate": 6.6, "energy_regen_rate": 13.2, "damage_reduction": 0.30},
+    8: {"max_hp": 24, "max_energy": 34, "next_level_xp": 250, "hp_regen_rate": 7.2, "energy_regen_rate": 14.4, "damage_reduction": 0.35},
+    9: {"max_hp": 26, "max_energy": 36, "next_level_xp": 320, "hp_regen_rate": 7.8, "energy_regen_rate": 15.6, "damage_reduction": 0.40},
+    10: {"max_hp": 28, "max_energy": 40, "next_level_xp": 400, "hp_regen_rate": 9, "energy_regen_rate": 18, "damage_reduction": 0.45},
   }
 
   # Energy costs for actions
@@ -142,7 +141,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         "max_health": level_1_data["max_hp"],
         "energy": level_1_data["max_energy"],
         "max_energy": level_1_data["max_energy"],
-        "damage_reduction": 0,
+        "damage_reduction": level_1_data["damage_reduction"],
         "attack": 0,
         "dodge_chance": 0,
         "level": 1,
@@ -187,6 +186,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             old_max_energy = player["max_energy"]
             old_hp_regen = player["hp_regen_rate"]
             old_energy_regen = player["energy_regen_rate"]
+            old_damage_reduction = player["damage_reduction"]
             
             # Update stats based on new level data
             player["max_health"] = level_data["max_hp"]
@@ -194,20 +194,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             player["next_level_xp"] = level_data["next_level_xp"]
             player["hp_regen_rate"] = level_data["hp_regen_rate"]
             player["energy_regen_rate"] = level_data["energy_regen_rate"]
+            player["damage_reduction"] = level_data["damage_reduction"]
             
             # Also heal the player on level up (bonus!)
             player["health"] = min(player["health"] + 5, player["max_health"])
             player["energy"] = player["max_energy"]  # Refill energy on level up
-            
-            # Update damage reduction (not in LEVEL_DATA)
-            player["damage_reduction"] += DAMAGE_REDUCTION_PER_LEVEL
             
             return True, f"LEVEL UP! You are now level {player['level']}!\n" \
                         f"Max Health: {old_max_health} → {player['max_health']}\n" \
                         f"Max Energy: {old_max_energy} → {player['max_energy']}\n" \
                         f"HP Regen: {old_hp_regen:.1f}/min → {player['hp_regen_rate']:.1f}/min\n" \
                         f"Energy Regen: {old_energy_regen:.1f}/min → {player['energy_regen_rate']:.1f}/min\n" \
-                        f"Damage Reduction: {int((player['damage_reduction'] - DAMAGE_REDUCTION_PER_LEVEL) * 100)}% → {int(player['damage_reduction'] * 100)}%"
+                        f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%"
         else:
             # For levels beyond our predefined table
             player["max_health"] += HEALTH_PER_LEVEL
@@ -215,12 +213,15 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             player["next_level_xp"] = int(player["next_level_xp"] * 1.3)
             player["hp_regen_rate"] += 0.01
             player["energy_regen_rate"] += 0.02
-            player["damage_reduction"] += DAMAGE_REDUCTION_PER_LEVEL
+            
+            # Increment damage reduction by 5% for levels beyond our table
+            old_damage_reduction = player["damage_reduction"]
+            player["damage_reduction"] += 0.05
             
             return True, f"LEVEL UP! You are now level {player['level']}!\n" \
                         f"Max Health +{HEALTH_PER_LEVEL}, Max Energy +2\n" \
                         f"HP Regen +0.01/s, Energy Regen +0.02/s\n" \
-                        f"Damage Reduction +{int(DAMAGE_REDUCTION_PER_LEVEL * 100)}%"
+                        f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%"
             
     return False, ""
 
