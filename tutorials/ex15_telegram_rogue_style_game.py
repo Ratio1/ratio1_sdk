@@ -32,9 +32,6 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   HEALTH_PER_LEVEL = 2
   DAMAGE_REDUCTION_PER_LEVEL = 0.05  # 5% damage reduction per level
   MAX_LEVEL = 10
-  # Dungeon progression
-  EXPLORATION_THRESHOLD = 70  # Percentage of map that needs to be explored for exit to appear
-  COIN_RETENTION = 0.7  # Percentage of coins kept when advancing to next dungeon
 
   # --------------------------------------------------
   # SHOP FUNCTIONS
@@ -124,6 +121,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         "damage_reduction": 0,
         "attack": 0,
         "dodge_chance": 0,
+        "level": 1,
+        "xp": 0,
+        "next_level_xp": LEVEL_XP_REQUIREMENTS[1],
         "inventory": {
             "health_potion": 0,
             "map_scroll": 0
@@ -132,9 +132,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "weapon": None,
             "armor": None,
             "accessory": []
-        },
-        "dungeon_level": 1,
-        "dungeons_completed": 0
+        }
     }
 
   def check_health(player):
@@ -186,38 +184,16 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           game_map[ny][nx]["visible"] = True
 
   def check_exploration_progress(game_map):
-    """Calculates the percentage of the map that has been explored."""
+    """Calculates the percentage of the map that has been explored (for informational purposes only)."""
     total_tiles = GRID_WIDTH * GRID_HEIGHT
     visible_tiles = sum(1 for row in game_map for tile in row if tile["visible"])
     return (visible_tiles / total_tiles) * 100
-
-  def create_exit_portal(game_map):
-    """Creates an exit portal at the furthest unexplored point from the start."""
-    # Find the farthest point from the start (0,0)
-    max_distance = 0
-    portal_pos = (GRID_WIDTH-1, GRID_HEIGHT-1)  # Default to bottom-right
-
-    for y in range(GRID_HEIGHT):
-      for x in range(GRID_WIDTH):
-        distance = ((x)**2 + (y)**2)**0.5
-        if distance > max_distance and game_map[y][x]["type"] != "PORTAL":
-          max_distance = distance
-          portal_pos = (x, y)
-
-    # Place the portal
-    game_map[portal_pos[1]][portal_pos[0]] = {
-      "type": "PORTAL",
-      "visible": True,  # Make it immediately visible
-      "monster_level": 0
-    }
-
-    return portal_pos
 
   def visualize_map(player, game_map):
     """Creates a visual representation of the nearby map."""
     x, y = player["position"]
     view_distance = 2
-    map_view = ""
+    map_view = f"🗺️ Your location: ({x}, {y}) | Map size: {GRID_WIDTH}×{GRID_HEIGHT}\n\n"
 
     for ny in range(max(0, y - view_distance), min(GRID_HEIGHT, y + view_distance + 1)):
       for nx in range(max(0, x - view_distance), min(GRID_WIDTH, x + view_distance + 1)):
@@ -240,48 +216,17 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                 map_view += "👿 "  # Boss monster
           elif tile_type == "HEALTH":
             map_view += "❤️ "
-          elif tile_type == "PORTAL":
-            map_view += "🌀 "  # Portal to next dungeon
           else:
             map_view += "⬜ "  # Empty
         else:
           map_view += "⬛ "  # Unexplored
       map_view += "\n"
 
+    # Add map exploration stats
+    exploration = check_exploration_progress(game_map)
+    map_view += f"Map Exploration: {int(exploration)}%"
+    
     return map_view
-
-  def enter_next_dungeon(player, game_map):
-    """Advances the player to the next dungeon level."""
-    # Save player progress
-    old_dungeon_level = player["dungeon_level"]
-    player["dungeon_level"] += 1
-    player["dungeons_completed"] += 1
-
-    # Reset player position
-    player["position"] = (0, 0)
-
-    # Retain a percentage of coins
-    player["coins"] = int(player["coins"] * COIN_RETENTION)
-
-    # Heal player to full
-    player["health"] = player["max_health"]
-
-    # Generate a new, more difficult map
-    new_map = generate_map()
-
-    # Scale monster difficulty based on dungeon level
-    for y in range(GRID_HEIGHT):
-      for x in range(GRID_WIDTH):
-        if new_map[y][x]["type"] == "MONSTER":
-          # Increase monster level based on dungeon level
-          base_level = new_map[y][x]["monster_level"]
-          level_bonus = max(0, player["dungeon_level"] - 1)
-          new_map[y][x]["monster_level"] = base_level + level_bonus
-
-    # Start point is always visible and safe
-    new_map[0][0] = {"type": "EMPTY", "visible": True, "monster_level": 0}
-
-    return new_map, f"You entered dungeon level {player['dungeon_level']}! Monsters will be stronger, but rewards will be greater."
 
   def move_player(player, direction, game_map):
     """
@@ -334,7 +279,16 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         player["health"] -= final_damage
         msg += f"You took {final_damage} damage. "
 
-      msg += "You defeated a monster!"
+      # Award XP based on monster level
+      xp_gained = monster_level * 2
+      player["xp"] += xp_gained
+      msg += f"You defeated a monster! +{xp_gained} XP!"
+      
+      # Check for level up
+      leveled_up, level_up_msg = check_level_up(player)
+      if leveled_up:
+          msg += " " + level_up_msg
+          
       tile["type"] = "EMPTY"
 
     elif tile["type"] == "HEALTH":
@@ -457,24 +411,23 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     """Returns extended help instructions."""
     help_text = ("Welcome to Shadowborn!\n"
                  "Instructions:\n"
-                 "- Explore the dungeon using up, down, left, right commands, /move, or WSAD keys.\n"
+                 "- All players explore the SAME dungeon map together!\n"
+                 "- Explore the dungeon using movement commands: up/down/left/right or W/A/S/D keys.\n"
                  "- Check your stats with /status to see health, coins, XP, level, attack, and equipment.\n"
                  "- Defeat monsters to earn XP and level up.\n"
                  "- Collect coins and visit the shop (/shop) to buy upgrades using /buy.\n"
                  "- Use consumable items from your inventory with /use.\n"
                  "- View the map with /map.\n"
-                 "- Explore the map to find the portal (🌀) to the next dungeon level.\n"
-                 "- Each new dungeon has tougher monsters but better rewards.\n"
+                 "- Complete quests and explore the vast map with other players.\n"
                  "\nAvailable Commands:\n"
-                 "1. /start  - Restart the game and begin your epic adventure.\n"
-                 "2. up, down, left, right - Move your character directly with these commands.\n"
-                 "3. /move <up|down|left|right> - Move your character (WSAD keys also supported).\n"
-                 "4. /status - Display your current stats.\n"
-                 "5. /map    - View the map of your surroundings.\n"
-                 "6. /shop   - Visit the shop to browse and buy upgrades/items.\n"
-                 "7. /buy <item_name> - Purchase an item from the shop.\n"
-                 "8. /use <item_name> - Use a consumable item from your inventory.\n"
-                 "9. /help   - Display this help message.")
+                 "1. /start  - Restart your character (keeps the shared map).\n"
+                 "2. up, down, left, right (or W, A, S, D) - Move your character in the specified direction.\n"
+                 "3. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n"
+                 "4. /map    - View the map of your surroundings.\n"
+                 "5. /shop   - Visit the shop to browse and buy upgrades/items.\n"
+                 "6. /buy <item_name> - Purchase an item from the shop.\n"
+                 "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
+                 "8. /help   - Display help information.")
     return help_text
 
   # --------------------------------------------------
@@ -509,7 +462,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   parts = text.split()
   if not parts:
     return ("Available Commands:\n" 
-            "1. /start  - Restart the game and begin your epic adventure.\n" 
+            "1. /start  - Restart your character (keeps the shared map).\n" 
             "2. up, down, left, right - Move your character directly with these commands.\n" 
             "3. /move <up|down|left|right> - Move your character in the specified direction (WSAD keys supported).\n" 
             "4. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n" 
@@ -539,14 +492,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     return move_player(plugin.obj_cache[user_id], direction, plugin.obj_cache["shared_map"])
 
   if command == "/start":
-    # Generate new map for new game
-    plugin.obj_cache["shared_map"] = generate_map()
+    # Only reset the player's state, not the shared map
     plugin.obj_cache[user_id] = create_new_player()
     map_view = visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
     return ("Welcome to Shadowborn!\n" 
             "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
-            "Your goal is to explore the dungeon, find the portal to the next level, and see how deep you can go!\n"
-            "Use up, down, left, right or /move <up|down|left|right> to explore, /status to check your stats, and /shop to buy upgrades.\n\n"
+            "Your goal is to explore the vast map and complete quests along with other players.\n"
+            "All players share the same map - you'll see changes made by other players!\n"
+            "Use up, down, left, right or W, A, S, D keys to explore, /status to check your stats, and /shop to buy upgrades.\n\n"
             "For more detailed instructions, use /help.\n\n"
             f"{map_view}")
 
@@ -621,6 +574,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                      f"🗺️ Position: ({x}, {y})\n"
                      f"❤️ Health: {p['health']}/{p['max_health']}\n"
                      f"💰 Coins: {p['coins']}\n"
+                     f"📊 Level: {p['level']} (XP: {p['xp']}/{p['next_level_xp']})\n"
                      f"⚔️ Attack: {total_attack}\n"
                      f"🛡️ Damage Reduction: {damage_reduction_percent}%\n"
                      f"👟 Dodge Chance: {dodge_percent}%\n\n"
@@ -654,8 +608,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   else:
     return ("Commands:\n"
-            "/start  - Restart the game and start a new adventure\n" 
-            "/move <up|down|left|right> - Move your character (WSAD keys also supported)\n" 
+            "/start  - Restart your character (keeps the shared map)\n" 
+            "up, down, left, right (or W, A, S, D) - Move your character\n" 
             "/status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
             "/map    - Reveal the map of your surroundings\n"
             "/shop   - Visit the shop to buy upgrades and items\n" 
