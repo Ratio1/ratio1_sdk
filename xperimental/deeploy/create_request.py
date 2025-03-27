@@ -26,6 +26,7 @@ if __name__ == '__main__' :
       "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
       "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-7",
     ],
+    "target_nodes_count" : 0,
     "app_params" : {
       "IMAGE" : "repo/image:tag",
       "REGISTRY" : "docker.io",
@@ -48,8 +49,27 @@ if __name__ == '__main__' :
   
   request = deepcopy(REQUEST)
   
+  values = [
+    request["app_name"],
+    request["plugin_signature"],
+    request["nonce"],
+    request["target_nodes"],
+    request["target_nodes_count"],
+    request["app_params"].get("IMAGE",""),
+    request["app_params"].get("REGISTRY", ""),
+  ]
   
-  sign = eng.eth_sign_payload(payload=request)
+  types = [
+    eng.eth_types.ETH_STR,
+    eng.eth_types.ETH_STR,
+    eng.eth_types.ETH_STR,
+    eng.eth_types.ETH_ARRAY_STR,
+    eng.eth_types.ETH_INT,
+    eng.eth_types.ETH_STR,
+    eng.eth_types.ETH_STR,    
+  ]
+  
+  sign = eng.eth_sign_message(values=values, types=types, payload=request)
   
   l.P(f"Result:\n{json.dumps(request, indent=2)}")
   l.P(f"Signature:\n{sign}")
@@ -64,7 +84,9 @@ if __name__ == '__main__' :
       }
   )
   
-  addr = receiver.eth_check_payload_signature(payload=request)
+  addr = receiver.eth_verify_message_signature(
+    values=values, types=types, signature=request[const.BASE_CT.BCctbase.ETH_SIGN]
+  )
   valid = addr == known_sender
   l.P(
     f"Received {'valid' if valid else 'invalid'} and expected request from {addr}",

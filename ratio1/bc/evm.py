@@ -10,7 +10,7 @@ from eth_account import Account
 from eth_utils import keccak, to_checksum_address
 from eth_account.messages import encode_defunct
 
-from ..const.base import EE_VPN_IMPL_ENV_KEY, dAuth, BCctbase
+from ..const.base import EE_VPN_IMPL_ENV_KEY, dAuth, BCctbase, ETHVarTypes
 
 EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
   'true', '1', 'yes', 'y', 't', 'on'
@@ -179,6 +179,10 @@ class _EVMMixin:
       hex_part = address[2:]
       # Ensure all characters in the hex part are valid hex digits
       return all(c in "0123456789abcdefABCDEF" for c in hex_part)
+    
+    @property
+    def eth_types(self) -> ETHVarTypes:
+      return ETHVarTypes
     
     @staticmethod
     def is_valid_eth_address(address: str) -> bool:
@@ -434,7 +438,7 @@ class _EVMMixin:
       return message
     
     
-    def eth_sign_message(self, types, values):
+    def eth_sign_message(self, types : list, values : list, payload: dict = None):
       """
       Signs a message using the private key.
 
@@ -445,6 +449,10 @@ class _EVMMixin:
           
       values : list of any
           The values to sign.
+          
+      payload: dict, optional
+          If provided, the payload will be completed with the signature based on
+          the `values` and `types` provided. The default is None.
 
       Returns
       -------
@@ -464,116 +472,23 @@ class _EVMMixin:
         signed_message_hash = signed_message.message_hash
       else:
         signed_message_hash = signed_message.messageHash
+      signature = "0x" + signed_message.signature.hex()
+      if payload is not None:
+        payload[BCctbase.ETH_SIGN] = signature
+        payload[BCctbase.ETH_SENDER] = self.eth_address
       return {
           "message_hash": message_hash.hex(),
           "r": hex(signed_message.r),
           "s": hex(signed_message.s),
           "v": signed_message.v,
-          "signature": "0x" + signed_message.signature.hex(),
+          "signature": signature,
           "signed_message": signed_message_hash.hex(),
           "sender" : self.eth_address,
           "eth_signed_data" : types,
       }
-
-
-    def eth_sign_text(self, message, signature_only=True):
-      """
-      Signs a text message using the private key.
-
-      Parameters
-      ----------
-      message : str
-          The message to sign.
-          
-      signature_only : bool, optional
-          Whether to return only the signature. The default is True
-
-      Returns
-      -------
-      str
-          The signature of the message.
-      """
-      types = ["string"]
-      values = [message]
-      result = self.eth_sign_message(types, values)
-      if signature_only:
-        return result["signature"]
-      return result     
-    
-    
-    def eth_sign_payload(self, payload: dict, add_data=True):
-      """
-      Signs a payload using the private key.
       
-      Parameters
-      ----------
-      
-      payload : dict
-          The payload to sign. Must be a dictionary.
-          
-      add_data : bool, optional
-          Whether to add the signature and sender address to the payload. The default is True.
-          
-      Returns
-      -------
-      
-      str: 
-          The signature of the payload.
-          
-      """
-      assert isinstance(payload, dict), "Data must be a dictionary" 
-      str_data = self.safe_dict_to_json(payload)
-      signature = self.eth_sign_text(str_data, signature_only=True)
-      if add_data:
-        payload[BCctbase.ETH_SIGN] = signature
-        payload[BCctbase.ETH_SENDER] = self.eth_address
-      return signature
-      
-      
-    def eth_sign_node_epochs(
-      self, 
-      node, 
-      epochs, 
-      epochs_vals, 
-      signature_only=True, 
-      use_evm_node_addr=True
-    ):
-      """
-      Signs the node availability
 
-      Parameters
-      ----------
-      node : str
-          The node address to sign. Either the node address or the Ethereum address based on `use_evm_node_addr`.
-          
-      epochs : list of int
-          The epochs to sign.
-          
-      epochs_vals : list of int
-          The values for each epoch.
-          
-      signature_only : bool, optional
-          Whether to return only the signature. The default is True.
-          
-      use_evm_node_addr : bool, optional
-          Whether to use the Ethereum address of the node. The default is True.
-
-      Returns
-      -------
-      str
-          The signature of the message.
-      """
-      if use_evm_node_addr:
-        types = ["address", "uint256[]", "uint256[]"]  
-      else:
-        types = ["string", "uint256[]", "uint256[]"]
-      values = [node, epochs, epochs_vals]
-      result = self.eth_sign_message(types, values)
-      if signature_only:
-        return result["signature"]
-      return result
-    
-    def eth_check_signature(self, values: list, types: list, signature: str, raise_if_error=False):
+    def eth_verify_message_signature(self, values: list, types: list, signature: str, raise_if_error=False):
       """
       Verifies an EVM-compatible signature by:
         1) Recomputing the message hash from the provided types/values.
@@ -618,10 +533,36 @@ class _EVMMixin:
           self.P("Signature verification failed: {}".format(exc), color='r')
         # Any error (e.g., malformed signature, mismatch) leads to failure
         result = None
-      return result  
-    
-    
-    def eth_check_text_signature(self, text: str, signature: str, raise_if_error=False):
+      return result   
+         
+
+
+    def eth_sign_text(self, message, signature_only=True):
+      """
+      Signs a text message using the private key.
+
+      Parameters
+      ----------
+      message : str
+          The message to sign.
+          
+      signature_only : bool, optional
+          Whether to return only the signature. The default is True
+
+      Returns
+      -------
+      str
+          The signature of the message.
+      """
+      types = ["string"]
+      values = [message]
+      result = self.eth_sign_message(types, values)
+      if signature_only:
+        return result["signature"]
+      return result   
+
+
+    def eth_verify_text_signature(self, text: str, signature: str, raise_if_error=False):
       """
       Verifies the signature of a message by checking if the recovered address matches the expected sender.
 
@@ -640,11 +581,41 @@ class _EVMMixin:
       """
       types = ["string"]
       values = [text]
-      result = self.eth_check_signature(values, types, signature, raise_if_error=raise_if_error)
+      result = self.eth_verify_message_signature(values, types, signature, raise_if_error=raise_if_error)
       return result
+      
     
     
-    def eth_check_payload_signature(self, payload: dict, raise_if_error=False):
+    def eth_sign_payload(self, payload: dict, add_data=True):
+      """
+      Signs a payload using the private key.
+      
+      Parameters
+      ----------
+      
+      payload : dict
+          The payload to sign. Must be a dictionary.
+          
+      add_data : bool, optional
+          Whether to add the signature and sender address to the payload. The default is True.
+          
+      Returns
+      -------
+      
+      str: 
+          The signature of the payload.
+          
+      """
+      assert isinstance(payload, dict), "Data must be a dictionary" 
+      str_data = self.safe_dict_to_json(payload)
+      signature = self.eth_sign_text(str_data, signature_only=True)
+      if add_data:
+        payload[BCctbase.ETH_SIGN] = signature
+        payload[BCctbase.ETH_SENDER] = self.eth_address
+      return signature
+    
+
+    def eth_verify_payload_signature(self, payload: dict, raise_if_error=False):
       """
       Verifies the signature of a payload by checking if the recovered address matches 
       the expected sender.
@@ -675,7 +646,7 @@ class _EVMMixin:
           result = None
       else:
         str_data = self.safe_dict_to_json(_payload)
-        result = self.eth_check_text_signature(
+        result = self.eth_verify_text_signature(
           text=str_data, signature=signature, raise_if_error=raise_if_error
         )
         if result is None:
@@ -686,6 +657,51 @@ class _EVMMixin:
           result = None
       # end if
       return result
+      
+      
+    def eth_sign_node_epochs(
+      self, 
+      node, 
+      epochs, 
+      epochs_vals, 
+      signature_only=True, 
+      use_evm_node_addr=True
+    ):
+      """
+      Signs the node availability
+
+      Parameters
+      ----------
+      node : str
+          The node address to sign. Either the node address or the Ethereum address based on `use_evm_node_addr`.
+          
+      epochs : list of int
+          The epochs to sign.
+          
+      epochs_vals : list of int
+          The values for each epoch.
+          
+      signature_only : bool, optional
+          Whether to return only the signature. The default is True.
+          
+      use_evm_node_addr : bool, optional
+          Whether to use the Ethereum address of the node. The default is True.
+
+      Returns
+      -------
+      str
+          The signature of the message.
+      """
+      if use_evm_node_addr:
+        types = [ETHVarTypes.ETH_ADDR, ETHVarTypes.ETH_ARRAY_INT, ETHVarTypes.ETH_ARRAY_INT]  
+      else:
+        types = [ETHVarTypes.ETH_STR, ETHVarTypes.ETH_ARRAY_INT, ETHVarTypes.ETH_ARRAY_INT]
+      values = [node, epochs, epochs_vals]
+      result = self.eth_sign_message(types, values)
+      if signature_only:
+        return result["signature"]
+      return result
+    
         
       
     
