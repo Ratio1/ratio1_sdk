@@ -473,7 +473,8 @@ class _EVMMixin:
           "sender" : self.eth_address,
           "eth_signed_data" : types,
       }
-      
+
+
     def eth_sign_text(self, message, signature_only=True):
       """
       Signs a text message using the private key.
@@ -496,8 +497,7 @@ class _EVMMixin:
       result = self.eth_sign_message(types, values)
       if signature_only:
         return result["signature"]
-      return result
-      
+      return result      
       
       
     def eth_sign_node_epochs(
@@ -542,6 +542,53 @@ class _EVMMixin:
       if signature_only:
         return result["signature"]
       return result
+    
+    def eth_check_signature(self, values: list, types: list, signature: str, raise_if_error=False):
+      """
+      Verifies an EVM-compatible signature by:
+        1) Recomputing the message hash from the provided types/values.
+        2) Recovering the signer's address from the signature.
+        3) Returning the recovered address or None if verification fails.
+
+      Parameters
+      ----------
+      values : list
+        The original values that were signed.
+        
+      types : list
+        The type definitions (e.g., ["address", "uint256[]", "uint256[]"]).
+        Must match exactly what was used to produce the signature.
+        
+      signature : str
+        The signature in hex form (e.g. "0x1234abcd...").
+
+      Returns
+      -------
+      str or None
+        The recovered address as a string (in checksum format), or None if verification fails.
+      """
+      result = None
+      try:
+        # 1) Recompute the message hash used at signing time
+        message_hash = self.eth_hash_message(types, values, as_hex=False)
+        signable_message = encode_defunct(primitive=message_hash)
+        
+        # 2) Convert the hex signature string into bytes
+        signature_bytes = bytes.fromhex(signature.removeprefix("0x"))
+        
+        # 3) Recover the address from the signature
+        recovered_address = Account.recover_message(signable_message, signature=signature_bytes)
+        
+        result = recovered_address
+
+      except Exception as exc:
+        if raise_if_error:
+          raise exc
+        else:
+          self.P("Signature verification failed: {}".format(exc), color='r')
+        # Any error (e.g., malformed signature, mismatch) leads to failure
+        result = None
+      return result  
     
     
   ### Web3 functions
