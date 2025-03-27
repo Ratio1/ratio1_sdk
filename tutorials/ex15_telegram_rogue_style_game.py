@@ -25,8 +25,6 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # --------------------------------------------------
   GRID_WIDTH = 100
   GRID_HEIGHT = 100
-  # Stats increase per level
-  HEALTH_PER_LEVEL = 2
   MAX_LEVEL = 10
 
   # Player stats for each level
@@ -208,7 +206,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                         f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%"
         else:
             # For levels beyond our predefined table
-            player["max_health"] += HEALTH_PER_LEVEL
+            player["max_health"] += 2
             player["max_energy"] += 2
             player["next_level_xp"] = int(player["next_level_xp"] * 1.3)
             player["hp_regen_rate"] += 0.01
@@ -219,7 +217,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             player["damage_reduction"] += 0.05
             
             return True, f"LEVEL UP! You are now level {player['level']}!\n" \
-                        f"Max Health +{HEALTH_PER_LEVEL}, Max Energy +2\n" \
+                        f"Max Health +2, Max Energy +2\n" \
                         f"HP Regen +0.01/s, Energy Regen +0.02/s\n" \
                         f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%"
             
@@ -722,6 +720,38 @@ def loop_processing(plugin):
   Regeneration rates in LEVEL_DATA are per minute, so we convert them to per-second rates.
   Health and energy values are truncated to whole numbers.
   """
+  
+  def regenerate_player_stats(player, time_elapsed):
+    """
+    Regenerates player's health and energy based on their regeneration rates.
+
+    Args:
+      player: The player object to update
+      time_elapsed: Time in seconds since last update
+
+    Returns:
+      Updated player object with regenerated stats
+    """
+    # Convert per-minute rates to per-second for calculations
+    hp_regen_per_second = player["hp_regen_rate"] / 60.0
+    energy_regen_per_second = player["energy_regen_rate"] / 60.0
+
+    # Regenerate health - only keep whole numbers
+    if int(player["health"]) < player["max_health"]:
+      hp_gain = hp_regen_per_second * time_elapsed
+      player["health"] = min(player["max_health"], player["health"] + hp_gain)
+      # Store only the integer part for display
+      player["health"] = int(player["health"])
+
+    # Regenerate energy - only keep whole numbers
+    if int(player["energy"]) < player["max_energy"]:
+      energy_gain = energy_regen_per_second * time_elapsed
+      player["energy"] = min(player["max_energy"], player["energy"] + energy_gain)
+      # Store only the integer part for display
+      player["energy"] = int(player["energy"])
+
+    return player
+
   result = None
   current_time = plugin.time()  # Get current time using the correct method
   
@@ -740,23 +770,8 @@ def loop_processing(plugin):
     if time_elapsed < 1:
       continue
       
-    # Convert per-minute rates to per-second for calculations
-    hp_regen_per_second = player["hp_regen_rate"] / 60.0
-    energy_regen_per_second = player["energy_regen_rate"] / 60.0
-    
-    # Regenerate health - only keep whole numbers
-    if int(player["health"]) < player["max_health"]:
-      hp_gain = hp_regen_per_second * time_elapsed
-      player["health"] = min(player["max_health"], int(player["health"]) + hp_gain)
-      # Store only the integer part for display
-      player["health"] = int(player["health"])
-    
-    # Regenerate energy - only keep whole numbers
-    if int(player["energy"]) < player["max_energy"]:
-      energy_gain = energy_regen_per_second * time_elapsed
-      player["energy"] = min(player["max_energy"], int(player["energy"]) + energy_gain)
-      # Store only the integer part for display
-      player["energy"] = int(player["energy"])
+    # Update player stats
+    player = regenerate_player_stats(player, time_elapsed)
     
     # Update the player object in cache
     plugin.obj_cache[user] = player
