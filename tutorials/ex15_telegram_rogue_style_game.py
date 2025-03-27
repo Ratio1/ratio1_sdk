@@ -392,9 +392,17 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     Moves the player, applies tile effects, and returns a response message.
     Checks for and consumes energy for different actions.
     """
-    # Check if player is recovering from death
-    if player["status"] == "recovering" and player["health"] < player["max_health"]:
-      return "You are still recovering from your wounds and cannot move. Wait until you are fully healed."
+    # Check if player is in combat
+    if player["status"] == "fighting":
+      return "You cannot move while in combat! You must defeat the monster first."
+
+    # Check if player is recovering
+    if player["status"] == "recovering":
+      return "You cannot move while recovering! Wait until you are fully healed and energized."
+
+    # Check if player is not exploring
+    if player["status"] != "exploring":
+      return "You can only move while exploring!"
 
     # Check if player has enough energy for the basic move
     if player["energy"] < ENERGY_COSTS["move"]:
