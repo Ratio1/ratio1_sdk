@@ -292,7 +292,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     Checks for and consumes energy for different actions.
     """
     # Check if player has enough energy for the basic move
-    if int(player["energy"]) < ENERGY_COSTS["move"]:
+    if player["energy"] < ENERGY_COSTS["move"]:
       return f"You are too exhausted to move! Energy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
 
     x, y = player["position"]
@@ -315,7 +315,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     new_tile = game_map[y][x]
     if new_tile["type"] == "MONSTER":
       # Fighting a monster requires more energy
-      if int(player["energy"]) < ENERGY_COSTS["move"] + ENERGY_COSTS["attack"]:
+      if player["energy"] < ENERGY_COSTS["move"] + ENERGY_COSTS["attack"]:
         return f"You don't have enough energy to fight the monster at ({x},{y})!\nEnergy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
       energy_cost += ENERGY_COSTS["attack"]
 
@@ -468,7 +468,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       return f"You don't have any {item_id} in your inventory."
       
     # Check if player has enough energy to use an item
-    if int(player["energy"]) < ENERGY_COSTS["use_item"]:
+    if player["energy"] < ENERGY_COSTS["use_item"]:
       return f"You don't have enough energy to use this item. Energy: {int(player['energy'])}/{player['max_energy']}"
     
     # Consume energy for using the item
@@ -742,19 +742,16 @@ def loop_processing(plugin):
     hp_regen_per_second = player["hp_regen_rate"] / 60.0
     energy_regen_per_second = player["energy_regen_rate"] / 60.0
 
-    # Regenerate health - only keep whole numbers
-    if int(player["health"]) < player["max_health"]:
+    # Regenerate health 
+    if player["health"] < player["max_health"]:
       hp_gain = hp_regen_per_second * time_elapsed
       player["health"] = min(player["max_health"], player["health"] + hp_gain)
-      # Store only the integer part for display
-      player["health"] = int(player["health"])
+      # No integer truncation here anymore
 
-    # Regenerate energy - only keep whole numbers
-    if int(player["energy"]) < player["max_energy"]:
+    # Regenerate energy 
+    if player["energy"] < player["max_energy"]:
       energy_gain = energy_regen_per_second * time_elapsed
       player["energy"] = min(player["max_energy"], player["energy"] + energy_gain)
-      # Store only the integer part for display
-      player["energy"] = int(player["energy"])
 
     return player
 
