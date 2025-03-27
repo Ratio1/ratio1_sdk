@@ -577,7 +577,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
                  "8. /setstatus <exploring|fighting|recovering> - Manually set your status to affect regeneration rates.\n"
                  "9. /botstatus - View technical information about the bot and world statistics.\n"
-                 "10. /help   - Display help information.")
+                 "10. /help   - Display help information.\n"
+                 "\nGame Initialization:\n"
+                 "The game world needs to be initialized before anyone can play.\n"
+                 "- /init   - Initialize the game world (admin only, can only be used once).")
     return help_text
 
   def update_player_status(player, new_status):
@@ -613,13 +616,13 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   user_id = str(user)
 
   # ---------------------------
-  # Ensure shared game map exists
+  # Ensure bot status tracking exists
   # ---------------------------
   if "bot_status" not in plugin.obj_cache:
     # Initialize bot status tracking
     current_time = plugin.time()
     plugin.obj_cache["bot_status"] = {
-      "status": "initializing",
+      "status": "uninitialized", 
       "initialized": False,
       "map_generation_time": None,
       "last_activity": current_time,
@@ -634,8 +637,43 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       plugin.obj_cache["bot_status"]["creation_time"] = current_time
       plugin.P("Added missing creation_time to bot status tracking in loop_processing")
 
-  if "shared_map" not in plugin.obj_cache:
-    plugin.P("Shared map not found, starting map generation...")
+  # Update last activity timestamp
+  plugin.obj_cache["bot_status"]["last_activity"] = plugin.time()
+
+  # ---------------------------
+  # Check initialization and handle /init command
+  # ---------------------------
+  parts = text.split()
+  if not parts:
+    if plugin.obj_cache["bot_status"]["initialized"]:
+      return ("Available Commands:\n" 
+            "1. /start  - Restart your character (keeps the shared map).\n" 
+            "2. up, down, left, right - Move your character directly with these commands.\n" 
+            "3. /move <up|down|left|right> - Move your character in the specified direction (WSAD keys supported).\n" 
+            "4. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n" 
+            "5. /map    - View the map of your surroundings.\n" 
+            "6. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
+            "7. /buy <item_name> - Purchase an item from the shop.\n" 
+            "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
+            "9. /help   - Display help information.")
+    else:
+      return ("⚠️ GAME NOT INITIALIZED ⚠️\n\n"
+             "The game world hasn't been created yet!\n"
+             "An administrator needs to use the /init command to generate the game world before anyone can play.\n\n"
+             "Available Commands:\n"
+             "1. /init   - Initialize the game world (admin only, first-time setup)\n"
+             "2. /help   - Display help information\n"
+             "3. /botstatus - View technical information about the bot")
+
+  command = parts[0]
+
+  # Handle initialization command
+  if command == "/init":
+    # Only allow /init when not initialized
+    if plugin.obj_cache["bot_status"]["initialized"]:
+      return "Game is already initialized! The world exists and players can join."
+    
+    plugin.P("Initialization command received, starting map generation...")
     plugin.obj_cache["bot_status"]["status"] = "generating_map"
     
     # Generate the map
@@ -648,16 +686,19 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     plugin.obj_cache["bot_status"]["initialized"] = True
     plugin.obj_cache["bot_status"]["map_generation_time"] = map_generation_time
     plugin.P(f"Map generation completed in {map_generation_time:.2f} seconds. Bot is ready!")
-  else:
-    # If map exists but bot status tracking was just added
-    if plugin.obj_cache["bot_status"]["status"] == "initializing":
-      plugin.obj_cache["bot_status"]["status"] = "ready"
-      plugin.obj_cache["bot_status"]["initialized"] = True
-      plugin.P("Bot status tracking initialized for existing map")
+    
+    return (f"🌍 GAME WORLD INITIALIZED! 🌍\n\n"
+           f"Map generation completed in {map_generation_time:.2f} seconds.\n"
+           f"The game world is now ready for players to join!\n"
+           f"Players can use /start to begin their adventure.")
 
-  # Update last activity timestamp
-  plugin.obj_cache["bot_status"]["last_activity"] = plugin.time()
+  # Check if game is initialized before processing any other commands
+  if not plugin.obj_cache["bot_status"]["initialized"] or "shared_map" not in plugin.obj_cache:
+    return ("⚠️ GAME NOT INITIALIZED ⚠️\n\n"
+           "The game world hasn't been created yet!\n"
+           "An administrator needs to use the /init command to generate the game world before anyone can play.")
 
+  # Now that we've confirmed initialization, we can access the game map
   game_map = plugin.obj_cache["shared_map"]
 
   # ---------------------------
@@ -673,24 +714,6 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     plugin.obj_cache["users"][user_id] = create_new_player()
 
   player = plugin.obj_cache["users"][user_id]
-
-  # ---------------------------
-  # Command Handling
-  # ---------------------------
-  parts = text.split()
-  if not parts:
-    return ("Available Commands:\n" 
-            "1. /start  - Restart your character (keeps the shared map).\n" 
-            "2. up, down, left, right - Move your character directly with these commands.\n" 
-            "3. /move <up|down|left|right> - Move your character in the specified direction (WSAD keys supported).\n" 
-            "4. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n" 
-            "5. /map    - View the map of your surroundings.\n" 
-            "6. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
-            "7. /buy <item_name> - Purchase an item from the shop.\n" 
-            "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
-            "9. /help   - Display help information.")
-
-  command = parts[0]
 
   # ---------------------------
   # WASD Controls Processing
@@ -846,6 +869,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     minutes, seconds = divmod(uptime_seconds, 60)
     hours, minutes = divmod(minutes, 60)
     
+    # Check if the world is initialized
+    initialization_status = "✅ Initialized" if status.get("initialized", False) else "❌ Not Initialized"
+    
     # Calculate map statistics if available
     map_stats = ""
     if "shared_map" in plugin.obj_cache:
@@ -874,7 +900,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Format status message
     status_message = (f"🤖 BOT STATUS 🤖\n\n"
                      f"Status: {status['status']}\n"
-                     f"Initialized: {'Yes' if status.get('initialized', False) else 'No'}\n"
+                     f"Initialization: {initialization_status}\n"
                      f"Uptime: {int(hours)}h {int(minutes)}m {int(seconds)}s\n"
                      f"Map Generation Time: {status.get('map_generation_time', 'N/A'):.2f}s\n\n"
                      f"👥 USERS:\n"
@@ -915,7 +941,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "/use <item_name> - Use a consumable item from your inventory\n"
             "/setstatus <exploring|fighting|recovering> - Manually set your status\n"
             "/botstatus - View technical information about the bot\n"
-            "/help   - Display this help message")
+            "/help   - Display this help message"
+            + ("\n/init   - Initialize the game world (admin only)" if not plugin.obj_cache["bot_status"]["initialized"] else ""))
 
 # --------------------------------------------------
 # PROCESSING HANDLER
@@ -928,7 +955,29 @@ def loop_processing(plugin):
   Regeneration rates in LEVEL_DATA are per minute, so we convert them to per-second rates.
   Health and energy values are truncated to whole numbers.
   """
-  
+
+  def update_player_status(player, new_status):
+    """
+    Updates a player's status and records when it changed.
+
+    Args:
+      player: The player object to update
+      new_status: The new status string, one of: "exploring", "fighting", "recovering"
+
+    Returns:
+      Updated player object with new status
+    """
+    if new_status not in ["exploring", "fighting", "recovering"]:
+      plugin.P(f"Warning: Invalid status '{new_status}' being set. Defaulting to 'exploring'")
+      new_status = "exploring"
+
+    if player["status"] != new_status:
+      player["status"] = new_status
+      player["status_since"] = plugin.time()
+      plugin.P(f"Player status changed to {new_status}")
+
+    return player
+
   def regenerate_player_stats(player, time_elapsed):
     """
     Regenerates player's health and energy based on their regeneration rates.
@@ -984,7 +1033,7 @@ def loop_processing(plugin):
   # Initialize or update bot status tracking
   if "bot_status" not in plugin.obj_cache:
     plugin.obj_cache["bot_status"] = {
-      "status": "initializing",
+      "status": "uninitialized",  # Changed from "initializing" to "uninitialized"
       "initialized": False,
       "map_generation_time": None,
       "last_activity": current_time,
@@ -1011,10 +1060,14 @@ def loop_processing(plugin):
                f"Uptime: {uptime_minutes:.1f} minutes")
       
       # If we have users and a map, log some basic stats
-      if 'users' in plugin.obj_cache and 'shared_map' in plugin.obj_cache:
+      if plugin.obj_cache["bot_status"]["initialized"] and 'users' in plugin.obj_cache and 'shared_map' in plugin.obj_cache:
         user_count = len(plugin.obj_cache['users'])
         active_users = sum(1 for user in plugin.obj_cache['users'].values() if user is not None)
         plugin.P(f"Game stats - Users: {user_count}, Active users: {active_users}")
+  
+  # Skip player updates if game isn't initialized yet
+  if not plugin.obj_cache["bot_status"]["initialized"] or "shared_map" not in plugin.obj_cache:
+    return result
   
   # Make sure users dictionary exists
   if 'users' not in plugin.obj_cache:
