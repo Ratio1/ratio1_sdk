@@ -27,11 +27,51 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   GRID_HEIGHT = 100
   MAX_LEVEL = 10
 
+  # Monster types and their stats
+  MONSTER_TYPES = {
+    "goblin": {
+      "name": "Goblin 👹",
+      "min_level": 1,
+      "max_level": 3,
+      "base_hp": 5,
+      "hp_per_level": 2,
+      "min_damage": 1,
+      "max_damage": 3,
+      "damage_per_level": 1,
+      "xp_reward": 2,
+      "coin_reward": (1, 3)
+    },
+    "orc": {
+      "name": "Orc 👺",
+      "min_level": 2,
+      "max_level": 5,
+      "base_hp": 8,
+      "hp_per_level": 3,
+      "min_damage": 2,
+      "max_damage": 4,
+      "damage_per_level": 1,
+      "xp_reward": 3,
+      "coin_reward": (2, 4)
+    },
+    "demon": {
+      "name": "Demon 👿",
+      "min_level": 4,
+      "max_level": 10,
+      "base_hp": 12,
+      "hp_per_level": 4,
+      "min_damage": 3,
+      "max_damage": 6,
+      "damage_per_level": 2,
+      "xp_reward": 5,
+      "coin_reward": (3, 6)
+    }
+  }
+
   # Player stats for each level
   LEVEL_DATA = {
     # Level: {max_hp, max_energy, next_level_xp, hp_regen_rate, energy_regen_rate, damage_reduction}
     # hp_regen_rate and energy_regen_rate are per minute
-    1: {"max_hp": 10, "max_energy": 20, "next_level_xp": 10, "hp_regen_rate": 3, "energy_regen_rate": 6, "damage_reduction": 0.00},
+    1: {"max_hp": 1000, "max_energy": 20, "next_level_xp": 10, "hp_regen_rate": 3, "energy_regen_rate": 6, "damage_reduction": 0.00},
     2: {"max_hp": 12, "max_energy": 22, "next_level_xp": 25, "hp_regen_rate": 3.6, "energy_regen_rate": 7.2, "damage_reduction": 0.05},
     3: {"max_hp": 14, "max_energy": 24, "next_level_xp": 45, "hp_regen_rate": 4.2, "energy_regen_rate": 8.4, "damage_reduction": 0.10},
     4: {"max_hp": 16, "max_energy": 26, "next_level_xp": 70, "hp_regen_rate": 4.8, "energy_regen_rate": 9.6, "damage_reduction": 0.15},
@@ -120,6 +160,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     
     # Track tile distribution for logging
     tile_counts = {"COIN": 0, "TRAP": 0, "MONSTER": 0, "HEALTH": 0, "EMPTY": 0}
+    monster_level_counts = {}
     
     for y in plugin.np.arange(0, GRID_HEIGHT):
       if y % 10 == 0:
@@ -133,8 +174,24 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         )
         tile_counts[tile_type] += 1
         
-        # For monsters, use a constant level of 1
+        # For monsters, calculate level based on distance from center
         monster_level = 1
+        if tile_type == "MONSTER":
+          # Calculate distance from center as a percentage (0-1)
+          center_x, center_y = GRID_WIDTH // 2, GRID_HEIGHT // 2
+          dx, dy = x - center_x, y - center_y
+          distance = plugin.np.sqrt(dx*dx + dy*dy)
+          max_distance = plugin.np.sqrt(center_x*center_x + center_y*center_y)
+          distance_percent = distance / max_distance
+          
+          # Level increases with distance from center
+          monster_level = max(1, min(10, int(1 + distance_percent * 9)))
+          
+          # Track monster level distribution
+          if monster_level not in monster_level_counts:
+            monster_level_counts[monster_level] = 0
+          monster_level_counts[monster_level] += 1
+        
         row.append({
             "type": tile_type,
             "visible": False,
@@ -152,6 +209,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     for tile_type, count in tile_counts.items():
       percentage = (count / total_tiles) * 100
       plugin.P(f"  {tile_type}: {count} tiles ({percentage:.2f}%)")
+    
+    if monster_level_counts:
+      plugin.P(f"\nMonster level distribution:")
+      total_monsters = tile_counts["MONSTER"]
+      for level in sorted(monster_level_counts.keys()):
+        count = monster_level_counts[level]
+        percentage = (count / total_monsters) * 100
+        plugin.P(f"  Level {level}: {count} monsters ({percentage:.2f}%)")
     
     return new_map
 
@@ -327,6 +392,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     Moves the player, applies tile effects, and returns a response message.
     Checks for and consumes energy for different actions.
     """
+    # Check if player is recovering from death
+    if player["status"] == "recovering" and player["health"] < player["max_health"]:
+      return "You are still recovering from your wounds and cannot move. Wait until you are fully healed."
+
     # Check if player has enough energy for the basic move
     if player["energy"] < ENERGY_COSTS["move"]:
       # Set player status to recovering if they're too exhausted to move
@@ -375,8 +444,6 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Basic movement message
     msg = f"You moved {direction} to ({x},{y}). Energy: -{energy_cost} "
     
-    level_up_msg = ""
-    
     if tile["type"] == "COIN":
       base_coins = plugin.np.random.randint(1, 3)
       player["coins"] += base_coins
@@ -393,31 +460,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         msg += f"You triggered a trap! Health -{damage}. "
 
     elif tile["type"] == "MONSTER":
+      # Instead of instant combat, initiate real-time combat
       monster_level = tile["monster_level"]
-      base_damage = plugin.np.random.randint(1, 3) + monster_level
-      if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
-        msg += "You dodged the monster's attack! "
-        final_damage = 0
-      else:
-        final_damage = base_damage
-      if final_damage > 0:
-        player["health"] -= final_damage
-        msg += f"You took {final_damage} damage. "
-
-      # Award XP based on monster level
-      xp_gained = monster_level * 2
-      player["xp"] += xp_gained
-      msg += f"You defeated a monster! +{xp_gained} XP!"
-      
-      # Check for level up
-      leveled_up, level_up_msg = check_level_up(player)
-      if leveled_up:
-        msg += " " + level_up_msg
-          
-      tile["type"] = "EMPTY"
-      
-      # Set player back to exploring after defeating the monster
-      player = update_player_status(player, "exploring")
+      monster_type = get_monster_type_for_level(monster_level)
+      monster_name = MONSTER_TYPES[monster_type]["name"]
+      msg += f"⚔️ You engage in combat with a level {monster_level} {monster_name}!\n"
+      msg += "Combat will proceed automatically. Use /status to check your health and stats."
 
     elif tile["type"] == "HEALTH":
       heal_amount = plugin.np.random.randint(2, 5)
@@ -604,6 +652,170 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       plugin.P(f"Player status changed to {new_status}")
     
     return player
+
+  def get_monster_type_for_level(level):
+    """
+    Returns an appropriate monster type for the given level.
+    """
+    suitable_monsters = [
+        monster_type for monster_type, stats in MONSTER_TYPES.items()
+        if stats["min_level"] <= level <= stats["max_level"]
+    ]
+    if not suitable_monsters:
+        return "goblin"  # Default to goblin if no suitable monster found
+    
+    # Use randint instead of choice for selecting from the list
+    random_index = plugin.np.random.randint(0, len(suitable_monsters))
+    return suitable_monsters[random_index]
+
+  def create_monster(level):
+    """
+    Creates a new monster of appropriate level.
+    """
+    monster_type = get_monster_type_for_level(level)
+    stats = MONSTER_TYPES[monster_type]
+    
+    # Calculate monster stats based on level
+    hp = stats["base_hp"] + (level - 1) * stats["hp_per_level"]
+    min_damage = stats["min_damage"] + (level - 1) * stats["damage_per_level"]
+    max_damage = stats["max_damage"] + (level - 1) * stats["damage_per_level"]
+    
+    return {
+      "type": monster_type,
+      "name": stats["name"],
+      "level": level,
+      "hp": hp,
+      "max_hp": hp,
+      "min_damage": min_damage,
+      "max_damage": max_damage,
+      "xp_reward": stats["xp_reward"] * level,
+      "coin_reward": (stats["coin_reward"][0] * level, stats["coin_reward"][1] * level)
+    }
+
+  def process_combat_round(player, combat_session, game_map):
+    """
+    Process a single round of combat between player and monster.
+    Returns a tuple of (combat_ended, message).
+    """
+    monster = combat_session["monster"]
+    messages = []
+    
+    # Add round start message with combat status
+    messages.append(f"⚔️ COMBAT ROUND ⚔️")
+    messages.append(f"Fighting {monster['name']} (Level {monster['level']})")
+    
+    # Player's attack
+    player_min_damage = max(1, player["attack"])
+    player_max_damage = max(2, player["attack"] * 2)
+    player_damage = plugin.np.random.randint(player_min_damage, player_max_damage + 1)
+    
+    monster["hp"] -= player_damage
+    messages.append(f"\n🗡️ Your attack:")
+    messages.append(f"You hit the {monster['name']} for {player_damage} damage!")
+    
+    # Check if monster died
+    if monster["hp"] <= 0:
+      # Award XP and coins
+      coin_reward = plugin.np.random.randint(monster["coin_reward"][0], monster["coin_reward"][1] + 1)
+      player["coins"] += coin_reward
+      player["xp"] += monster["xp_reward"]
+      
+      # Clear the monster tile
+      x, y = player["position"]
+      game_map[y][x]["type"] = "EMPTY"
+      game_map[y][x]["monster_level"] = 0
+      
+      # Set player back to exploring
+      player = update_player_status(player, "exploring")
+      
+      messages.append(f"\n🎯 VICTORY!")
+      messages.append(f"You defeated the {monster['name']}!")
+      messages.append(f"Rewards: {coin_reward} coins, {monster['xp_reward']} XP")
+      
+      # Check for level up
+      if player["xp"] >= player["next_level_xp"]:
+        old_level = player["level"]
+        player["level"] += 1
+        new_level = player["level"]
+        
+        if new_level in LEVEL_DATA:
+          level_data = LEVEL_DATA[new_level]
+          player["max_health"] = level_data["max_hp"]
+          player["max_energy"] = level_data["max_energy"]
+          player["next_level_xp"] = level_data["next_level_xp"]
+          player["hp_regen_rate"] = level_data["hp_regen_rate"]
+          player["energy_regen_rate"] = level_data["energy_regen_rate"]
+          player["damage_reduction"] = level_data["damage_reduction"]
+          
+          messages.append(f"\n🌟 LEVEL UP!")
+          messages.append(f"You are now level {new_level}!")
+          messages.append(f"Max Health: {player['max_health']}")
+          messages.append(f"Max Energy: {player['max_energy']}")
+      
+      return True, "\n".join(messages)
+    
+    # Monster's counterattack
+    messages.append(f"\n👿 Monster's attack:")
+    monster_damage = plugin.np.random.randint(monster["min_damage"], monster["max_damage"] + 1)
+    
+    # Check for dodge
+    if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
+      messages.append(f"You nimbly dodged the {monster['name']}'s attack!")
+    else:
+      # Apply damage reduction
+      final_damage = max(1, int(monster_damage * (1 - player["damage_reduction"])))
+      player["health"] -= final_damage
+      
+      # Add damage reduction info if player has any
+      if player["damage_reduction"] > 0:
+        reduced_amount = monster_damage - final_damage
+        messages.append(f"The {monster['name']} attacks for {monster_damage} damage")
+        messages.append(f"Your armor reduces it by {reduced_amount} ({int(player['damage_reduction'] * 100)}%)")
+        messages.append(f"You take {final_damage} damage!")
+      else:
+        messages.append(f"The {monster['name']} hits you for {final_damage} damage!")
+      
+      # Check if player died
+      if player["health"] <= 0:
+        # Reset player stats and respawn at a random empty location
+        player["health"] = 1  # Start with 1 HP
+        player["energy"] = 0  # No energy
+        
+        # Find a random empty spot for respawn
+        empty_spots = []
+        for y in range(GRID_HEIGHT):
+          for x in range(GRID_WIDTH):
+            if game_map[y][x]["type"] == "EMPTY":
+              empty_spots.append((x, y))
+        
+        if empty_spots:
+          # Convert empty_spots to numpy array for random choice
+          empty_spots_array = plugin.np.array(empty_spots)
+          random_index = plugin.np.random.randint(0, len(empty_spots))
+          respawn_x, respawn_y = empty_spots_array[random_index]
+          
+          player["position"] = (respawn_x, respawn_y)
+          game_map[respawn_y][respawn_x]["visible"] = True
+          reveal_surroundings(player, game_map)
+        else:
+          # Fallback to starting position if no empty spots
+          player["position"] = (0, 0)
+          game_map[0][0]["visible"] = True
+          reveal_surroundings(player, game_map)
+        
+        # Set status to recovering
+        player = update_player_status(player, "recovering")
+        messages.append(f"\n💀 DEFEAT!")
+        messages.append("You have been defeated and respawned!")
+        messages.append("You must rest until fully healed before continuing your adventure...")
+        return True, "\n".join(messages)
+    
+    # Add combat status at the end of each round
+    messages.append(f"\n📊 Combat Status:")
+    messages.append(f"Your HP: {int(player['health'])}/{player['max_health']}")
+    messages.append(f"Monster HP: {monster['hp']}/{monster['max_hp']}")
+    
+    return False, "\n".join(messages)
 
   # --------------------------------------------------
   try:
@@ -951,21 +1163,84 @@ def loop_processing(plugin):
   """
   This method is continuously called by the plugin approximately every second.
   Used to regenerate health and energy for all users and monitor bot status.
-  
-  Regeneration rates in LEVEL_DATA are per minute, so we convert them to per-second rates.
-  Health and energy values are truncated to whole numbers.
+  Also handles real-time combat rounds for players in combat.
   """
+  # --------------------------------------------------
+  # GAME CONSTANTS
+  # --------------------------------------------------
+  GRID_WIDTH = 100
+  GRID_HEIGHT = 100
+  MAX_LEVEL = 10
 
+  # Monster types and their stats
+  MONSTER_TYPES = {
+    "goblin": {
+      "name": "Goblin 👹",
+      "min_level": 1,
+      "max_level": 3,
+      "base_hp": 5,
+      "hp_per_level": 2,
+      "min_damage": 1,
+      "max_damage": 3,
+      "damage_per_level": 1,
+      "xp_reward": 2,
+      "coin_reward": (1, 3)
+    },
+    "orc": {
+      "name": "Orc 👺",
+      "min_level": 2,
+      "max_level": 5,
+      "base_hp": 8,
+      "hp_per_level": 3,
+      "min_damage": 2,
+      "max_damage": 4,
+      "damage_per_level": 1,
+      "xp_reward": 3,
+      "coin_reward": (2, 4)
+    },
+    "demon": {
+      "name": "Demon 👿",
+      "min_level": 4,
+      "max_level": 10,
+      "base_hp": 12,
+      "hp_per_level": 4,
+      "min_damage": 3,
+      "max_damage": 6,
+      "damage_per_level": 2,
+      "xp_reward": 5,
+      "coin_reward": (3, 6)
+    }
+  }
+
+  # Player stats for each level
+  LEVEL_DATA = {
+    # Level: {max_hp, max_energy, next_level_xp, hp_regen_rate, energy_regen_rate, damage_reduction}
+    # hp_regen_rate and energy_regen_rate are per minute
+    1: {"max_hp": 10, "max_energy": 20, "next_level_xp": 10, "hp_regen_rate": 3, "energy_regen_rate": 6, "damage_reduction": 0.00},
+    2: {"max_hp": 12, "max_energy": 22, "next_level_xp": 25, "hp_regen_rate": 3.6, "energy_regen_rate": 7.2, "damage_reduction": 0.05},
+    3: {"max_hp": 14, "max_energy": 24, "next_level_xp": 45, "hp_regen_rate": 4.2, "energy_regen_rate": 8.4, "damage_reduction": 0.10},
+    4: {"max_hp": 16, "max_energy": 26, "next_level_xp": 70, "hp_regen_rate": 4.8, "energy_regen_rate": 9.6, "damage_reduction": 0.15},
+    5: {"max_hp": 18, "max_energy": 28, "next_level_xp": 100, "hp_regen_rate": 5.4, "energy_regen_rate": 10.8, "damage_reduction": 0.20},
+    6: {"max_hp": 20, "max_energy": 30, "next_level_xp": 140, "hp_regen_rate": 6, "energy_regen_rate": 12, "damage_reduction": 0.25},
+    7: {"max_hp": 22, "max_energy": 32, "next_level_xp": 190, "hp_regen_rate": 6.6, "energy_regen_rate": 13.2, "damage_reduction": 0.30},
+    8: {"max_hp": 24, "max_energy": 34, "next_level_xp": 250, "hp_regen_rate": 7.2, "energy_regen_rate": 14.4, "damage_reduction": 0.35},
+    9: {"max_hp": 26, "max_energy": 36, "next_level_xp": 320, "hp_regen_rate": 7.8, "energy_regen_rate": 15.6, "damage_reduction": 0.40},
+    10: {"max_hp": 28, "max_energy": 40, "next_level_xp": 400, "hp_regen_rate": 9, "energy_regen_rate": 18, "damage_reduction": 0.45},
+  }
+  
+  def reveal_surroundings(player, game_map):
+    """Reveals the tiles around the player."""
+    x, y = player["position"]
+    for dy in range(-1, 2):
+      for dx in range(-1, 2):
+        nx, ny = x + dx, y + dy
+        if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
+          game_map[ny][nx]["visible"] = True
+
+  
   def update_player_status(player, new_status):
     """
     Updates a player's status and records when it changed.
-
-    Args:
-      player: The player object to update
-      new_status: The new status string, one of: "exploring", "fighting", "recovering"
-
-    Returns:
-      Updated player object with new status
     """
     if new_status not in ["exploring", "fighting", "recovering"]:
       plugin.P(f"Warning: Invalid status '{new_status}' being set. Defaulting to 'exploring'")
@@ -985,13 +1260,6 @@ def loop_processing(plugin):
     - "recovering": faster regeneration (1.5x)
     - "exploring": normal regeneration
     - "fighting": slower health regeneration (0.5x) but normal energy regeneration
-
-    Args:
-      player: The player object to update
-      time_elapsed: Time in seconds since last update
-
-    Returns:
-      Updated player object with regenerated stats
     """
     # Apply status modifiers to regeneration rates
     status_modifiers = {
@@ -1007,6 +1275,9 @@ def loop_processing(plugin):
     hp_regen_per_second = (player["hp_regen_rate"] / 60.0) * modifiers["health"]
     energy_regen_per_second = (player["energy_regen_rate"] / 60.0) * modifiers["energy"]
 
+    # Store old health for checking recovery completion
+    old_health = player["health"]
+
     # Regenerate health 
     if player["health"] < player["max_health"]:
       hp_gain = hp_regen_per_second * time_elapsed
@@ -1015,6 +1286,8 @@ def loop_processing(plugin):
       # If health is fully regenerated and player was recovering, set status back to exploring
       if player["health"] >= player["max_health"] and player["status"] == "recovering":
         player = update_player_status(player, "exploring")
+        # Return a notification that the player has recovered
+        return player, "🌟 You have fully recovered and can now continue your adventure!"
 
     # Regenerate energy 
     if player["energy"] < player["max_energy"]:
@@ -1025,15 +1298,179 @@ def loop_processing(plugin):
       if player["energy"] >= player["max_energy"] and player["status"] == "recovering" and player["health"] >= player["max_health"]:
         player = update_player_status(player, "exploring")
 
-    return player
+    return player, None
+
+  def get_monster_type_for_level(level):
+    """
+    Returns an appropriate monster type for the given level.
+    """
+    suitable_monsters = [
+        monster_type for monster_type, stats in MONSTER_TYPES.items()
+        if stats["min_level"] <= level <= stats["max_level"]
+    ]
+    if not suitable_monsters:
+        return "goblin"  # Default to goblin if no suitable monster found
+    
+    # Use randint instead of choice for selecting from the list
+    random_index = plugin.np.random.randint(0, len(suitable_monsters))
+    return suitable_monsters[random_index]
+
+  def create_monster(level):
+    """
+    Creates a new monster of appropriate level.
+    """
+    monster_type = get_monster_type_for_level(level)
+    stats = MONSTER_TYPES[monster_type]
+    
+    # Calculate monster stats based on level
+    hp = stats["base_hp"] + (level - 1) * stats["hp_per_level"]
+    min_damage = stats["min_damage"] + (level - 1) * stats["damage_per_level"]
+    max_damage = stats["max_damage"] + (level - 1) * stats["damage_per_level"]
+    
+    return {
+      "type": monster_type,
+      "name": stats["name"],
+      "level": level,
+      "hp": hp,
+      "max_hp": hp,
+      "min_damage": min_damage,
+      "max_damage": max_damage,
+      "xp_reward": stats["xp_reward"] * level,
+      "coin_reward": (stats["coin_reward"][0] * level, stats["coin_reward"][1] * level)
+    }
+
+  def process_combat_round(player, combat_session, game_map):
+    """
+    Process a single round of combat between player and monster.
+    Returns a tuple of (combat_ended, message).
+    """
+    monster = combat_session["monster"]
+    messages = []
+    
+    # Add round start message with combat status
+    messages.append(f"⚔️ COMBAT ROUND ⚔️")
+    messages.append(f"Fighting {monster['name']} (Level {monster['level']})")
+    
+    # Player's attack
+    player_min_damage = max(1, player["attack"])
+    player_max_damage = max(2, player["attack"] * 2)
+    player_damage = plugin.np.random.randint(player_min_damage, player_max_damage + 1)
+    
+    monster["hp"] -= player_damage
+    messages.append(f"\n🗡️ Your attack:")
+    messages.append(f"You hit the {monster['name']} for {player_damage} damage!")
+    
+    # Check if monster died
+    if monster["hp"] <= 0:
+      # Award XP and coins
+      coin_reward = plugin.np.random.randint(monster["coin_reward"][0], monster["coin_reward"][1] + 1)
+      player["coins"] += coin_reward
+      player["xp"] += monster["xp_reward"]
+      
+      # Clear the monster tile
+      x, y = player["position"]
+      game_map[y][x]["type"] = "EMPTY"
+      game_map[y][x]["monster_level"] = 0
+      
+      # Set player back to exploring
+      player = update_player_status(player, "exploring")
+      
+      messages.append(f"\n🎯 VICTORY!")
+      messages.append(f"You defeated the {monster['name']}!")
+      messages.append(f"Rewards: {coin_reward} coins, {monster['xp_reward']} XP")
+      
+      # Check for level up
+      if player["xp"] >= player["next_level_xp"]:
+        old_level = player["level"]
+        player["level"] += 1
+        new_level = player["level"]
+        
+        if new_level in LEVEL_DATA:
+          level_data = LEVEL_DATA[new_level]
+          player["max_health"] = level_data["max_hp"]
+          player["max_energy"] = level_data["max_energy"]
+          player["next_level_xp"] = level_data["next_level_xp"]
+          player["hp_regen_rate"] = level_data["hp_regen_rate"]
+          player["energy_regen_rate"] = level_data["energy_regen_rate"]
+          player["damage_reduction"] = level_data["damage_reduction"]
+          
+          messages.append(f"\n🌟 LEVEL UP!")
+          messages.append(f"You are now level {new_level}!")
+          messages.append(f"Max Health: {player['max_health']}")
+          messages.append(f"Max Energy: {player['max_energy']}")
+      
+      return True, "\n".join(messages)
+    
+    # Monster's counterattack
+    messages.append(f"\n👿 Monster's attack:")
+    monster_damage = plugin.np.random.randint(monster["min_damage"], monster["max_damage"] + 1)
+    
+    # Check for dodge
+    if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
+      messages.append(f"You nimbly dodged the {monster['name']}'s attack!")
+    else:
+      # Apply damage reduction
+      final_damage = max(1, int(monster_damage * (1 - player["damage_reduction"])))
+      player["health"] -= final_damage
+      
+      # Add damage reduction info if player has any
+      if player["damage_reduction"] > 0:
+        reduced_amount = monster_damage - final_damage
+        messages.append(f"The {monster['name']} attacks for {monster_damage} damage")
+        messages.append(f"Your armor reduces it by {reduced_amount} ({int(player['damage_reduction'] * 100)}%)")
+        messages.append(f"You take {final_damage} damage!")
+      else:
+        messages.append(f"The {monster['name']} hits you for {final_damage} damage!")
+      
+      # Check if player died
+      if player["health"] <= 0:
+        # Reset player stats and respawn at a random empty location
+        player["health"] = 1  # Start with 1 HP
+        player["energy"] = 0  # No energy
+        
+        # Find a random empty spot for respawn
+        empty_spots = []
+        for y in range(GRID_HEIGHT):
+          for x in range(GRID_WIDTH):
+            if game_map[y][x]["type"] == "EMPTY":
+              empty_spots.append((x, y))
+        
+        if empty_spots:
+          # Convert empty_spots to numpy array for random choice
+          empty_spots_array = plugin.np.array(empty_spots)
+          random_index = plugin.np.random.randint(0, len(empty_spots))
+          respawn_x, respawn_y = empty_spots_array[random_index]
+          
+          player["position"] = (respawn_x, respawn_y)
+          game_map[respawn_y][respawn_x]["visible"] = True
+          reveal_surroundings(player, game_map)
+        else:
+          # Fallback to starting position if no empty spots
+          player["position"] = (0, 0)
+          game_map[0][0]["visible"] = True
+          reveal_surroundings(player, game_map)
+        
+        # Set status to recovering
+        player = update_player_status(player, "recovering")
+        messages.append(f"\n💀 DEFEAT!")
+        messages.append("You have been defeated and respawned!")
+        messages.append("You must rest until fully healed before continuing your adventure...")
+        return True, "\n".join(messages)
+    
+    # Add combat status at the end of each round
+    messages.append(f"\n📊 Combat Status:")
+    messages.append(f"Your HP: {int(player['health'])}/{player['max_health']}")
+    messages.append(f"Monster HP: {monster['hp']}/{monster['max_hp']}")
+    
+    return False, "\n".join(messages)
 
   result = None
-  current_time = plugin.time()  # Get current time using the correct method
+  current_time = plugin.time()
   
   # Initialize or update bot status tracking
   if "bot_status" not in plugin.obj_cache:
     plugin.obj_cache["bot_status"] = {
-      "status": "uninitialized",  # Changed from "initializing" to "uninitialized"
+      "status": "uninitialized",
       "initialized": False,
       "map_generation_time": None,
       "last_activity": current_time,
@@ -1043,23 +1480,19 @@ def loop_processing(plugin):
     }
     plugin.P("Bot status tracking initialized in loop_processing")
   else:
-    # Make sure creation_time is always set
     if "creation_time" not in plugin.obj_cache["bot_status"]:
       plugin.obj_cache["bot_status"]["creation_time"] = current_time
       plugin.P("Added missing creation_time to bot status tracking in loop_processing")
       
-    # Update uptime and run periodic status checks
     plugin.obj_cache["bot_status"]["uptime"] = current_time - plugin.obj_cache["bot_status"].get("creation_time", current_time)
     plugin.obj_cache["bot_status"]["status_checks"] += 1
     
-    # Log status every 60 checks (approximately every minute)
     if plugin.obj_cache["bot_status"]["status_checks"] % 60 == 0:
       uptime_minutes = plugin.obj_cache["bot_status"]["uptime"] / 60
       plugin.P(f"Bot status update - Status: {plugin.obj_cache['bot_status']['status']}, "
                f"Initialized: {plugin.obj_cache['bot_status']['initialized']}, "
                f"Uptime: {uptime_minutes:.1f} minutes")
       
-      # If we have users and a map, log some basic stats
       if plugin.obj_cache["bot_status"]["initialized"] and 'users' in plugin.obj_cache and 'shared_map' in plugin.obj_cache:
         user_count = len(plugin.obj_cache['users'])
         active_users = sum(1 for user in plugin.obj_cache['users'].values() if user is not None)
@@ -1069,30 +1502,70 @@ def loop_processing(plugin):
   if not plugin.obj_cache["bot_status"]["initialized"] or "shared_map" not in plugin.obj_cache:
     return result
   
+  # Initialize combat tracking if it doesn't exist
+  if "combat" not in plugin.obj_cache:
+    plugin.obj_cache["combat"] = {}
+  
   # Make sure users dictionary exists
   if 'users' not in plugin.obj_cache:
     plugin.obj_cache['users'] = {}
   
-  for user in plugin.users:
+  for user_id in plugin.obj_cache['users']:
     # Skip if user has no player data yet
-    if user not in plugin.obj_cache['users'] or plugin.obj_cache['users'][user] is None:
+    if user_id not in plugin.obj_cache['users'] or plugin.obj_cache['users'][user_id] is None:
       continue
       
-    player = plugin.obj_cache['users'][user]
+    player = plugin.obj_cache['users'][user_id]
     
     # Calculate time elapsed since last update
     time_elapsed = current_time - player.get("last_update_time", current_time)
-    player["last_update_time"] = current_time  # Update the timestamp
+    player["last_update_time"] = current_time
     
     # Don't process if less than 1 second has passed
     if time_elapsed < 1:
       continue
       
     # Update player stats
-    player = regenerate_player_stats(player, time_elapsed)
+    player, recovery_message = regenerate_player_stats(player, time_elapsed)
+    
+    # Process combat if player is fighting
+    if player["status"] == "fighting":
+      # Initialize or get combat session
+      if user_id not in plugin.obj_cache["combat"]:
+        # Get player's position and monster level
+        x, y = player["position"]
+        monster_level = plugin.obj_cache["shared_map"][y][x]["monster_level"]
+        
+        # Create new combat session
+        plugin.obj_cache["combat"][user_id] = {
+          "monster": create_monster(monster_level),
+          "last_round_time": current_time
+        }
+      
+      combat_session = plugin.obj_cache["combat"][user_id]
+      
+      # Check if enough time has passed for next combat round (5 seconds)
+      time_since_last_round = current_time - combat_session["last_round_time"]
+      if time_since_last_round >= 5:
+        # Process combat round
+        combat_ended, message = process_combat_round(player, combat_session, plugin.obj_cache["shared_map"])
+        
+        # Send combat message to player
+        plugin.send_message_to_user(user_id, message)
+        
+        if combat_ended:
+          # Clean up combat session
+          del plugin.obj_cache["combat"][user_id]
+        else:
+          # Update last round time
+          combat_session["last_round_time"] = current_time
     
     # Update the player object in cache
-    plugin.obj_cache['users'][user] = player
+    plugin.obj_cache['users'][user_id] = player
+    
+    # Send recovery message if player has fully recovered
+    if recovery_message:
+      plugin.send_message_to_user(user_id, recovery_message)
     
   return result
 
