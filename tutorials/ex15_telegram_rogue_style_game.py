@@ -174,6 +174,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         "hp_regen_rate": level_1_data["hp_regen_rate"],
         "energy_regen_rate": level_1_data["energy_regen_rate"],
         "last_update_time": plugin.time(),  # Track last update for regeneration with correct function
+        "status": "exploring",  # Player's current state: exploring, fighting, recovering
+        "status_since": plugin.time(),  # When the current status was set
         "inventory": {
             "health_potion": 0,
             "map_scroll": 0
@@ -277,12 +279,20 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     """Creates a visual representation of the nearby map."""
     x, y = player["position"]
     view_distance = 2
-    map_view = f"🗺️ Your location: ({x}, {y}) | Map size: {GRID_WIDTH}×{GRID_HEIGHT}\n\n"
+    
+    # Get status emoji for the player
+    player_emoji = "🧙"  # Default player emoji
+    if player["status"] == "fighting":
+      player_emoji = "⚔️"  # Fighting emoji
+    elif player["status"] == "recovering":
+      player_emoji = "💤"  # Recovering emoji
+      
+    map_view = f"🗺️ Your location: ({x}, {y}) | Status: {player_emoji} {player['status'].capitalize()}\n\n"
 
     for ny in range(max(0, y - view_distance), min(GRID_HEIGHT, y + view_distance + 1)):
       for nx in range(max(0, x - view_distance), min(GRID_WIDTH, x + view_distance + 1)):
         if (nx, ny) == (x, y):
-          map_view += "🧙 "  # Player
+          map_view += f"{player_emoji} "  # Player with status-specific emoji
         elif game_map[ny][nx]["visible"]:
           tile_type = game_map[ny][nx]["type"]
           if tile_type == "COIN":
@@ -319,6 +329,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     """
     # Check if player has enough energy for the basic move
     if player["energy"] < ENERGY_COSTS["move"]:
+      # Set player status to recovering if they're too exhausted to move
+      player = update_player_status(player, "recovering")
       return f"You are too exhausted to move! Energy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
 
     x, y = player["position"]
@@ -342,8 +354,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     if new_tile["type"] == "MONSTER":
       # Fighting a monster requires more energy
       if player["energy"] < ENERGY_COSTS["move"] + ENERGY_COSTS["attack"]:
+        player = update_player_status(player, "recovering")
         return f"You don't have enough energy to fight the monster at ({x},{y})!\nEnergy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
       energy_cost += ENERGY_COSTS["attack"]
+      # Set player status to fighting
+      player = update_player_status(player, "fighting")
+    else:
+      # Set player status to exploring for normal movement
+      player = update_player_status(player, "exploring")
 
     # Consume energy
     player["energy"] -= energy_cost
@@ -397,6 +415,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         msg += " " + level_up_msg
           
       tile["type"] = "EMPTY"
+      
+      # Set player back to exploring after defeating the monster
+      player = update_player_status(player, "exploring")
 
     elif tile["type"] == "HEALTH":
       heal_amount = plugin.np.random.randint(2, 5)
@@ -495,6 +516,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       
     # Check if player has enough energy to use an item
     if player["energy"] < ENERGY_COSTS["use_item"]:
+      player = update_player_status(player, "recovering")
       return f"You don't have enough energy to use this item. Energy: {int(player['energy'])}/{player['max_energy']}"
     
     # Consume energy for using the item
@@ -511,6 +533,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       old_health = player["health"]
       player["health"] = min(player["max_health"], player["health"] + heal_amount)
       player["inventory"][item_id] -= 1
+      
+      # Set player status to recovering when using a health potion
+      player = update_player_status(player, "recovering")
 
       return f"You used a Health Potion. Health: {int(old_health)} → {int(player['health'])}\nEnergy: -{ENERGY_COSTS['use_item']}"
 
@@ -536,6 +561,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- Use consumable items from your inventory with /use.\n"
                  "- View the map with /map.\n"
                  "- Complete quests and explore the vast map with other players.\n"
+                 "\nPlayer Status System:\n"
+                 "Your character can be in one of three states that affect gameplay:\n"
+                 "- Exploring: Normal movement with standard regeneration rates.\n"
+                 "- Fighting: Engaged in combat with reduced health regeneration.\n"
+                 "- Recovering: Resting with increased health and energy regeneration.\n"
+                 "Your status changes automatically based on your actions, but you can also set it manually.\n"
                  "\nAvailable Commands:\n"
                  "1. /start  - Restart your character (keeps the shared map).\n"
                  "2. up, down, left, right (or W, A, S, D) - Move your character in the specified direction.\n"
@@ -544,9 +575,32 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "5. /shop   - Visit the shop to browse and buy upgrades/items.\n"
                  "6. /buy <item_name> - Purchase an item from the shop.\n"
                  "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
-                 "8. /botstatus - View technical information about the bot and world statistics.\n" # FIXME: Remove this later
-                 "9. /help   - Display help information.")
+                 "8. /setstatus <exploring|fighting|recovering> - Manually set your status to affect regeneration rates.\n"
+                 "9. /botstatus - View technical information about the bot and world statistics.\n"
+                 "10. /help   - Display help information.")
     return help_text
+
+  def update_player_status(player, new_status):
+    """
+    Updates a player's status and records when it changed.
+    
+    Args:
+      player: The player object to update
+      new_status: The new status string, one of: "exploring", "fighting", "recovering"
+      
+    Returns:
+      Updated player object with new status
+    """
+    if new_status not in ["exploring", "fighting", "recovering"]:
+      plugin.P(f"Warning: Invalid status '{new_status}' being set. Defaulting to 'exploring'")
+      new_status = "exploring"
+      
+    if player["status"] != new_status:
+      player["status"] = new_status
+      player["status_since"] = plugin.time()
+      plugin.P(f"Player status changed to {new_status}")
+    
+    return player
 
   # --------------------------------------------------
   try:
@@ -712,6 +766,13 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     damage_reduction_percent = int(total_damage_reduction * 100)
     dodge_percent = int(total_dodge * 100)
 
+    # Calculate how long the player has been in their current status
+    status_duration = int(plugin.time() - p["status_since"])
+    minutes, seconds = divmod(status_duration, 60)
+    
+    # Get status emoji
+    status_emoji = "🔍" if p["status"] == "exploring" else "⚔️" if p["status"] == "fighting" else "💤"
+    
     # Build equipment list
     equipment_list = []
     if p["equipment"]["weapon"]:
@@ -736,6 +797,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     status_message = (f"📊 STATUS 📊\n"
                      f"🗺️ Position: ({x}, {y})\n"
+                     f"👤 Status: {status_emoji} {p['status'].capitalize()} ({minutes}m {seconds}s)\n"
                      f"❤️ Health: {int(p['health'])}/{p['max_health']} (Regen: {p['hp_regen_rate']:.1f}/min)\n"
                      f"⚡ Energy: {int(p['energy'])}/{p['max_energy']} (Regen: {p['energy_regen_rate']:.1f}/min)\n"
                      f"💰 Coins: {p['coins']}\n"
@@ -822,6 +884,26 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     
     return status_message
 
+  elif command == "/setstatus":
+    if len(parts) < 2:
+      return "Usage: /setstatus <exploring|fighting|recovering>\nThis allows you to manually set your status."
+      
+    requested_status = parts[1].lower()
+    if requested_status not in ["exploring", "fighting", "recovering"]:
+      return f"Invalid status: '{requested_status}'. Valid statuses are: exploring, fighting, recovering"
+      
+    old_status = player["status"]
+    player = update_player_status(player, requested_status)
+    
+    if requested_status == "exploring":
+      status_desc = "You're now actively exploring the dungeon. Normal health and energy regeneration."
+    elif requested_status == "fighting":
+      status_desc = "You're now in combat mode. Reduced health regeneration but normal energy regeneration."
+    elif requested_status == "recovering":
+      status_desc = "You're now recovering. Increased health and energy regeneration rates!"
+      
+    return f"Status changed from {old_status} to {requested_status}.\n{status_desc}"
+
   else:
     return ("Commands:\n"
             "/start  - Restart your character (keeps the shared map)\n" 
@@ -831,6 +913,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "/shop   - Visit the shop to buy upgrades and items\n" 
             "/buy <item_name> - Purchase an item from the shop\n" 
             "/use <item_name> - Use a consumable item from your inventory\n"
+            "/setstatus <exploring|fighting|recovering> - Manually set your status\n"
             "/botstatus - View technical information about the bot\n"
             "/help   - Display this help message")
 
@@ -849,6 +932,10 @@ def loop_processing(plugin):
   def regenerate_player_stats(player, time_elapsed):
     """
     Regenerates player's health and energy based on their regeneration rates.
+    Status affects regeneration rate:
+    - "recovering": faster regeneration (1.5x)
+    - "exploring": normal regeneration
+    - "fighting": slower health regeneration (0.5x) but normal energy regeneration
 
     Args:
       player: The player object to update
@@ -857,20 +944,37 @@ def loop_processing(plugin):
     Returns:
       Updated player object with regenerated stats
     """
+    # Apply status modifiers to regeneration rates
+    status_modifiers = {
+      "recovering": {"health": 1.5, "energy": 1.5},
+      "exploring": {"health": 1.0, "energy": 1.0},
+      "fighting": {"health": 0.5, "energy": 1.0}
+    }
+    
+    # Default to exploring modifiers if status is invalid
+    modifiers = status_modifiers.get(player["status"], status_modifiers["exploring"])
+    
     # Convert per-minute rates to per-second for calculations
-    hp_regen_per_second = player["hp_regen_rate"] / 60.0
-    energy_regen_per_second = player["energy_regen_rate"] / 60.0
+    hp_regen_per_second = (player["hp_regen_rate"] / 60.0) * modifiers["health"]
+    energy_regen_per_second = (player["energy_regen_rate"] / 60.0) * modifiers["energy"]
 
     # Regenerate health 
     if player["health"] < player["max_health"]:
       hp_gain = hp_regen_per_second * time_elapsed
       player["health"] = min(player["max_health"], player["health"] + hp_gain)
-      # No integer truncation here anymore
+      
+      # If health is fully regenerated and player was recovering, set status back to exploring
+      if player["health"] >= player["max_health"] and player["status"] == "recovering":
+        player = update_player_status(player, "exploring")
 
     # Regenerate energy 
     if player["energy"] < player["max_energy"]:
       energy_gain = energy_regen_per_second * time_elapsed
       player["energy"] = min(player["max_energy"], player["energy"] + energy_gain)
+      
+      # If energy is fully regenerated and player was recovering, set status back to exploring
+      if player["energy"] >= player["max_energy"] and player["status"] == "recovering" and player["health"] >= player["max_health"]:
+        player = update_player_status(player, "exploring")
 
     return player
 
