@@ -10,17 +10,12 @@ from ratio1.bc import DefaultBlockEngine
 if __name__ == '__main__' :
   l = Logger("ENC", base_folder=".", app_folder="_local_cache")
   eng1 = DefaultBlockEngine(
-    log=l, name="test1", 
-    config={
-        "PEM_FILE"     : "test1.pem",
-        "PASSWORD"     : None,      
-        "PEM_LOCATION" : "data"
-      }
+    log=l, name="default", 
   )
   eng2 = DefaultBlockEngine(
     log=l, name="test2", 
     config={
-        "PEM_FILE"     : "test2.pem",
+        "PEM_FILE"     : "test.pem",
         "PASSWORD"     : None,      
         "PEM_LOCATION" : "data"
       }
@@ -58,3 +53,20 @@ if __name__ == '__main__' :
   eth_signature = res["signature"]
   inputs = res["eth_signed_data"]
   l.P(f"Results:\n  Signature: {eth_signature}\n  Inputs: {inputs}")
+  
+  # check if the signature is valid
+  sender = eng2.eth_check_signature(
+    values=[node_data, epochs, [124, 37, 30, 6, 19, 1]],
+    types=types,
+    signature=eth_signature,
+  )
+  valid = sender == eng1.eth_address
+  l.P(f"Signature from {sender} {'vali' if valid else 'invalid'}", color='g' if valid else 'r')
+  
+  sender = eng2.eth_check_signature(
+    values=[node_data, epochs, epochs_vals],
+    types=types,
+    signature=eth_signature,
+  )
+  valid = sender == eng1.eth_address
+  l.P(f"Signature from {sender} {'valid' if valid else 'invalid'}", color='g' if valid else 'r')  
