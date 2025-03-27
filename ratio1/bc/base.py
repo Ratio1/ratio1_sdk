@@ -1168,6 +1168,19 @@ class BaseBlockEngine(
       inplace=True # will replace inplace the np.nan and np.inf with None
     )
     return str_data
+  
+  def safe_dict_to_json(self, dct_data, replace_nan=True):
+    """
+    Will convert the dict to json (removing the non-data fields) and return the json string. 
+    The dict will be modified inplace to replace NaN and Inf with None.
+    """
+    assert isinstance(dct_data, dict), "Cannot compute hash on non-dict data"
+    str_data = self._dict_to_json(
+      dct_data, 
+      replace_nan=replace_nan, 
+      inplace=True # will replace inplace the np.nan and np.inf with None
+    )
+    return str_data
     
   
   def compute_hash(self, dct_data, return_all=False, replace_nan=True):

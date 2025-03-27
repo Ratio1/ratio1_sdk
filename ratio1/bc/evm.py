@@ -2,6 +2,7 @@ import json
 import os
 
 from collections import namedtuple
+from copy import deepcopy
 
 from datetime import timezone, datetime
 
@@ -9,7 +10,7 @@ from eth_account import Account
 from eth_utils import keccak, to_checksum_address
 from eth_account.messages import encode_defunct
 
-from ..const.base import EE_VPN_IMPL_ENV_KEY, dAuth
+from ..const.base import EE_VPN_IMPL_ENV_KEY, dAuth, BCctbase
 
 EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
   'true', '1', 'yes', 'y', 't', 'on'
@@ -468,7 +469,7 @@ class _EVMMixin:
           "r": hex(signed_message.r),
           "s": hex(signed_message.s),
           "v": signed_message.v,
-          "signature": signed_message.signature.hex(),
+          "signature": "0x" + signed_message.signature.hex(),
           "signed_message": signed_message_hash.hex(),
           "sender" : self.eth_address,
           "eth_signed_data" : types,
@@ -497,7 +498,36 @@ class _EVMMixin:
       result = self.eth_sign_message(types, values)
       if signature_only:
         return result["signature"]
-      return result      
+      return result     
+    
+    
+    def eth_sign_payload(self, payload: dict, add_data=True):
+      """
+      Signs a payload using the private key.
+      
+      Parameters
+      ----------
+      
+      payload : dict
+          The payload to sign. Must be a dictionary.
+          
+      add_data : bool, optional
+          Whether to add the signature and sender address to the payload. The default is True.
+          
+      Returns
+      -------
+      
+      str: 
+          The signature of the payload.
+          
+      """
+      assert isinstance(payload, dict), "Data must be a dictionary" 
+      str_data = self.safe_dict_to_json(payload)
+      signature = self.eth_sign_text(str_data, signature_only=True)
+      if add_data:
+        payload[BCctbase.ETH_SIGN] = signature
+        payload[BCctbase.ETH_SENDER] = self.eth_address
+      return signature
       
       
     def eth_sign_node_epochs(
@@ -589,6 +619,75 @@ class _EVMMixin:
         # Any error (e.g., malformed signature, mismatch) leads to failure
         result = None
       return result  
+    
+    
+    def eth_check_text_signature(self, text: str, signature: str, raise_if_error=False):
+      """
+      Verifies the signature of a message by checking if the recovered address matches the expected sender.
+
+      Parameters
+      ----------
+      message : str
+          The message that was signed.
+          
+      signature : str
+          The signature in hex form (e.g. "0x1234abcd...").
+
+      Returns
+      -------
+      bool or None
+          True if the signature is valid, False otherwise.
+      """
+      types = ["string"]
+      values = [text]
+      result = self.eth_check_signature(values, types, signature, raise_if_error=raise_if_error)
+      return result
+    
+    
+    def eth_check_payload_signature(self, payload: dict, raise_if_error=False):
+      """
+      Verifies the signature of a payload by checking if the recovered address matches 
+      the expected sender.
+      
+      Parameters
+      ----------
+      
+      payload : dict
+          The payload that was signed. Must contain the keys ETH_SENDER and ETH_SIGN.
+                  
+        
+      """
+      result = None
+      _payload = deepcopy(payload)
+      sender = _payload.pop(BCctbase.ETH_SENDER, None)
+      signature = _payload.pop(BCctbase.ETH_SIGN, None)
+      error_msg = ""
+      if sender is None or signature is None:
+        error_msg += "Payload must contain both ETH_SENDER and ETH_SIGN fields. "
+      if not self.is_valid_eth_address(sender):
+        error_msg += "Invalid Ethereum address in ETH_SENDER field. "
+      
+      if error_msg:
+        if raise_if_error:
+          raise Exception(error_msg)
+        else:
+          self.P(error_msg, color='r')
+          result = None
+      else:
+        str_data = self.safe_dict_to_json(_payload)
+        result = self.eth_check_text_signature(
+          text=str_data, signature=signature, raise_if_error=raise_if_error
+        )
+        if result is None:
+          if raise_if_error:
+            raise Exception("Signature verification failed.")
+          else:
+            self.P("Signature verification failed.", color='r')
+          result = None
+      # end if
+      return result
+        
+      
     
     
   ### Web3 functions
