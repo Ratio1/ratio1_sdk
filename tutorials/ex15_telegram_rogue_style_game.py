@@ -540,12 +540,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   game_map = plugin.obj_cache["shared_map"]
 
   # ---------------------------
+  # Ensure users dictionary exists
+  # ---------------------------
+  if "users" not in plugin.obj_cache:
+    plugin.obj_cache["users"] = {}
+
+  # ---------------------------
   # Ensure player data exists
   # ---------------------------
-  if user_id not in plugin.obj_cache or plugin.obj_cache[user_id] is None:
-    plugin.obj_cache[user_id] = create_new_player()
+  if user_id not in plugin.obj_cache["users"] or plugin.obj_cache["users"][user_id] is None:
+    plugin.obj_cache["users"][user_id] = create_new_player()
 
-  player = plugin.obj_cache[user_id]
+  player = plugin.obj_cache["users"][user_id]
 
   # ---------------------------
   # Command Handling
@@ -573,19 +579,19 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Map WASD to directions
     direction_map = {"w": "up", "a": "left", "s": "down", "d": "right"}
     direction = direction_map[command]
-    return move_player(plugin.obj_cache[user_id], direction, plugin.obj_cache["shared_map"])
+    return move_player(plugin.obj_cache["users"][user_id], direction, plugin.obj_cache["shared_map"])
       
   # ---------------------------
   # Direct direction commands (up, down, left, right)
   # ---------------------------
   if command in ["up", "down", "left", "right"]:
     direction = command
-    return move_player(plugin.obj_cache[user_id], direction, plugin.obj_cache["shared_map"])
+    return move_player(plugin.obj_cache["users"][user_id], direction, plugin.obj_cache["shared_map"])
 
   if command == "/start":
     # Only reset the player's state, not the shared map
-    plugin.obj_cache[user_id] = create_new_player()
-    map_view = visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
+    plugin.obj_cache["users"][user_id] = create_new_player()
+    map_view = visualize_map(plugin.obj_cache["users"][user_id], plugin.obj_cache["shared_map"])
     return ("Welcome to Shadowborn!\n" 
             "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
             "Your goal is to explore the vast map and complete quests along with other players.\n"
@@ -605,10 +611,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       direction_map = {"w": "up", "a": "left", "s": "down", "d": "right"}
       direction = direction_map[direction]
 
-    return move_player(plugin.obj_cache[user_id], direction, plugin.obj_cache["shared_map"])
+    return move_player(plugin.obj_cache["users"][user_id], direction, plugin.obj_cache["shared_map"])
 
   elif command == "/status":
-    p = plugin.obj_cache[user_id]
+    p = plugin.obj_cache["users"][user_id]
     x, y = p["position"]
 
     # Calculate total stats including equipment bonuses
@@ -676,7 +682,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     return status_message
 
   elif command == "/map":
-    return visualize_map(plugin.obj_cache[user_id], plugin.obj_cache["shared_map"])
+    return visualize_map(plugin.obj_cache["users"][user_id], plugin.obj_cache["shared_map"])
 
   elif command == "/shop":
     return display_shop(player)
@@ -755,12 +761,16 @@ def loop_processing(plugin):
   result = None
   current_time = plugin.time()  # Get current time using the correct method
   
+  # Make sure users dictionary exists
+  if 'users' not in plugin.obj_cache:
+    plugin.obj_cache['users'] = {}
+  
   for user in plugin.users:
     # Skip if user has no player data yet
-    if user not in plugin.obj_cache or plugin.obj_cache[user] is None:
+    if user not in plugin.obj_cache['users'] or plugin.obj_cache['users'][user] is None:
       continue
       
-    player = plugin.obj_cache[user]
+    player = plugin.obj_cache['users'][user]
     
     # Calculate time elapsed since last update
     time_elapsed = current_time - player.get("last_update_time", current_time)
@@ -774,7 +784,7 @@ def loop_processing(plugin):
     player = regenerate_player_stats(player, time_elapsed)
     
     # Update the player object in cache
-    plugin.obj_cache[user] = player
+    plugin.obj_cache['users'][user] = player
     
   return result
 
