@@ -76,7 +76,7 @@ if __name__ == '__main__' :
   known_sender = eng.eth_address
   
   receiver = DefaultBlockEngine(
-    log=l, name="default", 
+    log=l, name="test", 
     config={
         "PEM_FILE"     : "test.pem",
         "PASSWORD"     : None,      
