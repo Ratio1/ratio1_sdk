@@ -103,21 +103,36 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # --------------------------------------------------
   def generate_map():
     """Creates a 100x100 map with random 'COIN', 'TRAP', 'MONSTER', 'HEALTH', or 'EMPTY' tiles."""
+    plugin.P(f"Starting map generation for a {GRID_WIDTH}x{GRID_HEIGHT} grid")
+    start_time = plugin.time()
+    
     # Use fixed probabilities for a balanced 100x100 map
     coin_prob = 0.10
     trap_prob = 0.10
     monster_prob = 0.15
     health_prob = 0.05
     empty_prob = 1 - (coin_prob + trap_prob + monster_prob + health_prob)  # 0.60
+    
+    plugin.P(f"Tile distribution - Coin: {coin_prob*100}%, Trap: {trap_prob*100}%, Monster: {monster_prob*100}%, Health: {health_prob*100}%, Empty: {empty_prob*100}%")
 
     new_map = []
+    plugin.P("Starting to populate map rows...")
+    
+    # Track tile distribution for logging
+    tile_counts = {"COIN": 0, "TRAP": 0, "MONSTER": 0, "HEALTH": 0, "EMPTY": 0}
+    
     for y in plugin.np.arange(0, GRID_HEIGHT):
+      if y % 10 == 0:
+        plugin.P(f"Generating row {y}/{GRID_HEIGHT}...")
+        
       row = []
       for x in plugin.np.arange(0, GRID_WIDTH):
         tile_type = plugin.np.random.choice(
             ["COIN", "TRAP", "MONSTER", "HEALTH", "EMPTY"],
             p=[coin_prob, trap_prob, monster_prob, health_prob, empty_prob]
         )
+        tile_counts[tile_type] += 1
+        
         # For monsters, use a constant level of 1
         monster_level = 1
         row.append({
@@ -126,7 +141,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "monster_level": monster_level if tile_type == "MONSTER" else 0
         })
       new_map.append(row)
+    
+    # Set starting point to empty and visible
     new_map[0][0] = {"type": "EMPTY", "visible": True, "monster_level": 0}
+    
+    # Log tile distribution statistics
+    total_tiles = GRID_WIDTH * GRID_HEIGHT
+    plugin.P(f"Map generation complete! Generated {total_tiles} tiles in {plugin.time() - start_time:.2f} seconds")
+    plugin.P(f"Tile distribution summary:")
+    for tile_type, count in tile_counts.items():
+      percentage = (count / total_tiles) * 100
+      plugin.P(f"  {tile_type}: {count} tiles ({percentage:.2f}%)")
+    
     return new_map
 
   def create_new_player():
@@ -518,7 +544,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "5. /shop   - Visit the shop to browse and buy upgrades/items.\n"
                  "6. /buy <item_name> - Purchase an item from the shop.\n"
                  "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
-                 "8. /help   - Display help information.")
+                 "8. /botstatus - View technical information about the bot and world statistics.\n" # FIXME: Remove this later
+                 "9. /help   - Display help information.")
     return help_text
 
   # --------------------------------------------------
@@ -534,8 +561,48 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # ---------------------------
   # Ensure shared game map exists
   # ---------------------------
+  if "bot_status" not in plugin.obj_cache:
+    # Initialize bot status tracking
+    current_time = plugin.time()
+    plugin.obj_cache["bot_status"] = {
+      "status": "initializing",
+      "initialized": False,
+      "map_generation_time": None,
+      "last_activity": current_time,
+      "creation_time": current_time,
+      "uptime": 0,
+      "status_checks": 0
+    }
+    plugin.P("Initializing bot status tracking")
+  else:
+    # Make sure creation_time is always set
+    if "creation_time" not in plugin.obj_cache["bot_status"]:
+      plugin.obj_cache["bot_status"]["creation_time"] = current_time
+      plugin.P("Added missing creation_time to bot status tracking in loop_processing")
+
   if "shared_map" not in plugin.obj_cache:
+    plugin.P("Shared map not found, starting map generation...")
+    plugin.obj_cache["bot_status"]["status"] = "generating_map"
+    
+    # Generate the map
+    map_generation_start = plugin.time()
     plugin.obj_cache["shared_map"] = generate_map()
+    map_generation_time = plugin.time() - map_generation_start
+    
+    # Update bot status
+    plugin.obj_cache["bot_status"]["status"] = "ready"
+    plugin.obj_cache["bot_status"]["initialized"] = True
+    plugin.obj_cache["bot_status"]["map_generation_time"] = map_generation_time
+    plugin.P(f"Map generation completed in {map_generation_time:.2f} seconds. Bot is ready!")
+  else:
+    # If map exists but bot status tracking was just added
+    if plugin.obj_cache["bot_status"]["status"] == "initializing":
+      plugin.obj_cache["bot_status"]["status"] = "ready"
+      plugin.obj_cache["bot_status"]["initialized"] = True
+      plugin.P("Bot status tracking initialized for existing map")
+
+  # Update last activity timestamp
+  plugin.obj_cache["bot_status"]["last_activity"] = plugin.time()
 
   game_map = plugin.obj_cache["shared_map"]
 
@@ -704,6 +771,57 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   elif command == "/help":
     return display_help()
 
+  elif command == "/botstatus":
+    # Show bot status information
+    if "bot_status" not in plugin.obj_cache:
+      return "Bot status information not available."
+    
+    status = plugin.obj_cache["bot_status"]
+    current_time = plugin.time()
+    
+    # Calculate uptime
+    uptime_seconds = current_time - status.get("creation_time", current_time)
+    minutes, seconds = divmod(uptime_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    
+    # Calculate map statistics if available
+    map_stats = ""
+    if "shared_map" in plugin.obj_cache:
+      total_tiles = GRID_WIDTH * GRID_HEIGHT
+      visible_tiles = sum(1 for row in plugin.obj_cache["shared_map"] for tile in row if tile["visible"])
+      exploration_percentage = (visible_tiles / total_tiles) * 100
+      
+      # Count different tile types
+      tile_counts = {"COIN": 0, "TRAP": 0, "MONSTER": 0, "HEALTH": 0, "EMPTY": 0}
+      for row in plugin.obj_cache["shared_map"]:
+        for tile in row:
+          if tile["type"] in tile_counts:
+            tile_counts[tile["type"]] += 1
+      
+      map_stats = (f"\n\n🗺️ MAP STATISTICS:\n"
+                  f"Map Size: {GRID_WIDTH}×{GRID_HEIGHT} ({total_tiles} tiles)\n"
+                  f"Explored: {visible_tiles} tiles ({exploration_percentage:.1f}%)\n"
+                  f"Coins remaining: {tile_counts['COIN']}\n"
+                  f"Monsters remaining: {tile_counts['MONSTER']}\n"
+                  f"Health pickups remaining: {tile_counts['HEALTH']}")
+    
+    # Count users
+    user_count = len(plugin.obj_cache.get("users", {}))
+    active_users = sum(1 for user in plugin.obj_cache.get("users", {}).values() if user is not None)
+    
+    # Format status message
+    status_message = (f"🤖 BOT STATUS 🤖\n\n"
+                     f"Status: {status['status']}\n"
+                     f"Initialized: {'Yes' if status.get('initialized', False) else 'No'}\n"
+                     f"Uptime: {int(hours)}h {int(minutes)}m {int(seconds)}s\n"
+                     f"Map Generation Time: {status.get('map_generation_time', 'N/A'):.2f}s\n\n"
+                     f"👥 USERS:\n"
+                     f"Total Users: {user_count}\n"
+                     f"Active Players: {active_users}"
+                     f"{map_stats}")
+    
+    return status_message
+
   else:
     return ("Commands:\n"
             "/start  - Restart your character (keeps the shared map)\n" 
@@ -713,6 +831,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "/shop   - Visit the shop to buy upgrades and items\n" 
             "/buy <item_name> - Purchase an item from the shop\n" 
             "/use <item_name> - Use a consumable item from your inventory\n"
+            "/botstatus - View technical information about the bot\n"
             "/help   - Display this help message")
 
 # --------------------------------------------------
@@ -721,7 +840,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 def loop_processing(plugin):
   """
   This method is continuously called by the plugin approximately every second.
-  Used to regenerate health and energy for all users.
+  Used to regenerate health and energy for all users and monitor bot status.
   
   Regeneration rates in LEVEL_DATA are per minute, so we convert them to per-second rates.
   Health and energy values are truncated to whole numbers.
@@ -757,6 +876,41 @@ def loop_processing(plugin):
 
   result = None
   current_time = plugin.time()  # Get current time using the correct method
+  
+  # Initialize or update bot status tracking
+  if "bot_status" not in plugin.obj_cache:
+    plugin.obj_cache["bot_status"] = {
+      "status": "initializing",
+      "initialized": False,
+      "map_generation_time": None,
+      "last_activity": current_time,
+      "creation_time": current_time,
+      "uptime": 0,
+      "status_checks": 0
+    }
+    plugin.P("Bot status tracking initialized in loop_processing")
+  else:
+    # Make sure creation_time is always set
+    if "creation_time" not in plugin.obj_cache["bot_status"]:
+      plugin.obj_cache["bot_status"]["creation_time"] = current_time
+      plugin.P("Added missing creation_time to bot status tracking in loop_processing")
+      
+    # Update uptime and run periodic status checks
+    plugin.obj_cache["bot_status"]["uptime"] = current_time - plugin.obj_cache["bot_status"].get("creation_time", current_time)
+    plugin.obj_cache["bot_status"]["status_checks"] += 1
+    
+    # Log status every 60 checks (approximately every minute)
+    if plugin.obj_cache["bot_status"]["status_checks"] % 60 == 0:
+      uptime_minutes = plugin.obj_cache["bot_status"]["uptime"] / 60
+      plugin.P(f"Bot status update - Status: {plugin.obj_cache['bot_status']['status']}, "
+               f"Initialized: {plugin.obj_cache['bot_status']['initialized']}, "
+               f"Uptime: {uptime_minutes:.1f} minutes")
+      
+      # If we have users and a map, log some basic stats
+      if 'users' in plugin.obj_cache and 'shared_map' in plugin.obj_cache:
+        user_count = len(plugin.obj_cache['users'])
+        active_users = sum(1 for user in plugin.obj_cache['users'].values() if user is not None)
+        plugin.P(f"Game stats - Users: {user_count}, Active users: {active_users}")
   
   # Make sure users dictionary exists
   if 'users' not in plugin.obj_cache:
