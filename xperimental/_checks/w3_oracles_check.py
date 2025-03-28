@@ -26,6 +26,8 @@ if __name__ == '__main__' :
     eng.reset_network(network)
 
     oracles = eng.web3_get_oracles(debug=True)
-    l.P("\nOracles for {}:\n {}".format(network, json.dumps(oracles, indent=2)), 
+    l.P("\nOracles for {}:\n {}".format(
+        network, json.dumps(oracles, indent=2)
+      ), 
       color='b', show=True
     )

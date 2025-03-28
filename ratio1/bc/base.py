@@ -1582,7 +1582,7 @@ class BaseBlockEngine(
               if error is not None:
                 self.P(f"Server message: {error}", color='y')
             else:
-              self.P(f"dAuth reject response. Your node is not licensed. Error: {error}", color='r')
+              self.P(f"dAuth rejected node: {error}", color='r')
             done = True
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')

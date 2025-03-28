@@ -18,7 +18,7 @@ if __name__ == '__main__' :
       }
   )
   
-  REQUEST = {
+  CREATE_REQUEST = {
     "app_name" : "SOME_APP_NAME", 
     "plugin_signature" : "SOME_PLUGIN_01",
     "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)
@@ -47,19 +47,35 @@ if __name__ == '__main__' :
     }    
   }
   
-  request = deepcopy(REQUEST)
+  GET_APPS_REQUEST = {
+    "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)    
+  }
   
-  values = [
-    request["app_name"],
-    request["plugin_signature"],
-    request["nonce"],
-    request["target_nodes"],
-    request["target_nodes_count"],
-    request["app_params"].get("IMAGE",""),
-    request["app_params"].get("REGISTRY", ""),
+  DELETE_REQUEST = {
+    "app_name" : "SOME_APP_NAME",
+    "target_nodes" : [
+      "0xai_node_1",
+        "0xai_node_2",
+    ],
+    "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)    
+  }  
+  
+  
+  create_request = deepcopy(CREATE_REQUEST)
+  get_apps_request = deepcopy(GET_APPS_REQUEST)
+  delete_request = deepcopy(DELETE_REQUEST)
+  
+  create_values = [
+    create_request["app_name"],
+    create_request["plugin_signature"],
+    create_request["nonce"],
+    create_request["target_nodes"],
+    create_request["target_nodes_count"],
+    create_request["app_params"].get("IMAGE",""),
+    create_request["app_params"].get("REGISTRY", ""),
   ]
   
-  types = [
+  create_types = [
     eng.eth_types.ETH_STR,
     eng.eth_types.ETH_STR,
     eng.eth_types.ETH_STR,
@@ -69,9 +85,34 @@ if __name__ == '__main__' :
     eng.eth_types.ETH_STR,    
   ]
   
-  sign = eng.eth_sign_message(values=values, types=types, payload=request)
+  get_apps_values  = [
+    get_apps_request["nonce"],
+  ]
   
-  l.P(f"Result:\n{json.dumps(request, indent=2)}")
+  get_apps_types  = [
+    eng.eth_types.ETH_STR,
+  ]
+  
+  delete_values = [
+    delete_request["app_name"],
+    delete_request["target_nodes"],
+    delete_request["nonce"],
+  ]
+  
+  delete_types = [
+    eng.eth_types.ETH_STR,
+    eng.eth_types.ETH_ARRAY_STR,
+    eng.eth_types.ETH_STR,
+  ]
+  
+  # Now the sign-and-check process
+  
+  sign = eng.eth_sign_message(
+    values=create_values, types=create_types, 
+    payload=create_request
+  )
+  
+  l.P(f"Result:\n{json.dumps(create_request, indent=2)}")
   l.P(f"Signature:\n{sign}")
   known_sender = eng.eth_address
   
@@ -85,12 +126,32 @@ if __name__ == '__main__' :
   )
   
   addr = receiver.eth_verify_message_signature(
-    values=values, types=types, signature=request[const.BASE_CT.BCctbase.ETH_SIGN]
+    values=create_values, types=create_types, 
+    signature=create_request[const.BASE_CT.BCctbase.ETH_SIGN]
   )
   valid = addr == known_sender
   l.P(
     f"Received {'valid' if valid else 'invalid'} and expected request from {addr}",
     color='g' if valid else 'r'
   )
+  
+  # get-apps and delete
+  
+  get_apps_sign = eng.eth_sign_message(
+    values=get_apps_values, types=get_apps_types, 
+    payload=get_apps_request
+  )
+  
+  delete_sign = eng.eth_sign_message(
+    values=delete_values, types=delete_types, 
+    payload=delete_request
+  )
+  
+  l.P("REQUESTS:\nCreate request:\n{}\nGet apps request:\n{}\nDelete request:\n{}".format(
+    json.dumps(create_request, indent=2),
+    json.dumps(get_apps_request, indent=2),
+    json.dumps(delete_request, indent=2)
+  ))
+  
   
   
