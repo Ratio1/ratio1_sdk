@@ -438,7 +438,12 @@ class _EVMMixin:
       return message
     
     
-    def eth_sign_message(self, types : list, values : list, payload: dict = None):
+    def eth_sign_message(
+      self, 
+      types : list, values : list, 
+      payload: dict = None,
+      verbose: bool = False,
+    ):
       """
       Signs a message using the private key.
 
@@ -465,6 +470,9 @@ class _EVMMixin:
       This function is using the `eth_account` property generated from the private key via
       the `_get_eth_account` method at the time of the object creation.
       """
+      if verbose:
+        msg_size = len(values)
+        self.P(f"Signing {msg_size=} with {types=}")
       message_hash = self.eth_hash_message(types, values, as_hex=False)
       signable_message = encode_defunct(primitive=message_hash)
       signed_message = Account.sign_message(signable_message, private_key=self.eth_account.key)
@@ -475,7 +483,7 @@ class _EVMMixin:
       signature = "0x" + signed_message.signature.hex()
       if payload is not None:
         payload[BCctbase.ETH_SIGN] = signature
-        payload[BCctbase.ETH_SENDER] = self.eth_address
+        payload[BCctbase.ETH_SENDER] = self.eth_address      
       return {
           "message_hash": message_hash.hex(),
           "r": hex(signed_message.r),

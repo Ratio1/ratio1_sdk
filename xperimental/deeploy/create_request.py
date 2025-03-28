@@ -18,10 +18,14 @@ if __name__ == '__main__' :
       }
   )
   
+  _time = time()  #- 25 * 3600
+  
+  hex_time = hex(int(_time * 1000))
+  
   CREATE_REQUEST = {
     "app_name" : "SOME_APP_NAME", 
     "plugin_signature" : "SOME_PLUGIN_01",
-    "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)
+    "nonce" : hex_time, # recoverable via int(nonce, 16)
     "target_nodes" : [
       "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
       "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-7",
@@ -48,7 +52,7 @@ if __name__ == '__main__' :
   }
   
   GET_APPS_REQUEST = {
-    "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)    
+    "nonce" : hex_time, # recoverable via int(nonce, 16)    
   }
   
   DELETE_REQUEST = {
@@ -57,7 +61,7 @@ if __name__ == '__main__' :
       "0xai_node_1",
         "0xai_node_2",
     ],
-    "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)    
+    "nonce" : hex_time, # recoverable via int(nonce, 16)    
   }  
   
   
@@ -109,7 +113,7 @@ if __name__ == '__main__' :
   
   sign = eng.eth_sign_message(
     values=create_values, types=create_types, 
-    payload=create_request
+    payload=create_request, verbose=True
   )
   
   l.P(f"Result:\n{json.dumps(create_request, indent=2)}")
@@ -139,18 +143,18 @@ if __name__ == '__main__' :
   
   get_apps_sign = eng.eth_sign_message(
     values=get_apps_values, types=get_apps_types, 
-    payload=get_apps_request
+    payload=get_apps_request, verbose=True
   )
   
   delete_sign = eng.eth_sign_message(
     values=delete_values, types=delete_types, 
-    payload=delete_request
+    payload=delete_request, verbose=True
   )
   
-  l.P("REQUESTS:\nCreate request:\n{}\nGet apps request:\n{}\nDelete request:\n{}".format(
-    json.dumps(create_request, indent=2),
-    json.dumps(get_apps_request, indent=2),
-    json.dumps(delete_request, indent=2)
+  l.P("REQUESTS:\nCreate request:\n{}\n\nGet apps request:\n{}\n\nDelete request:\n{}".format(
+    json.dumps({'request':create_request}, indent=2),
+    json.dumps({'request':get_apps_request}, indent=2),
+    json.dumps({'request':delete_request}, indent=2),
   ))
   
   
