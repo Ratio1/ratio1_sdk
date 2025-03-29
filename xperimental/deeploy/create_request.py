@@ -6,6 +6,7 @@ from copy import deepcopy
 
 from ratio1 import Logger, const
 from ratio1.bc import DefaultBlockEngine
+from uuid import uuid4
 
 
 
@@ -21,15 +22,17 @@ if __name__ == '__main__' :
   _time = time()  #- 25 * 3600
   
   hex_time = hex(int(_time * 1000))
+  app_name = "app_" + str(uuid4())[:8]
+  
+  NODES = [
+    "0x4bc05c6d0856ea0F437C640B77415e8fCaB09Bd0"
+  ]
   
   CREATE_REQUEST = {
-    "app_name" : "SOME_APP_NAME", 
-    "plugin_signature" : "SOME_PLUGIN_01",
+    "app_name" : app_name,
+    "plugin_signature" : "A_SIMPLE_PLUGIN",
     "nonce" : hex_time, # recoverable via int(nonce, 16)
-    "target_nodes" : [
-      "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
-      "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-7",
-    ],
+    "target_nodes" : NODES,
     "target_nodes_count" : 0,
     "app_params" : {
       "IMAGE" : "repo/image:tag",
@@ -48,7 +51,9 @@ if __name__ == '__main__' :
         "ENV3" : "value3",
         "ENV4" : "value4",
       }
-    }    
+    },
+    "pipeline_input_type"  : "ExampleDatastream",
+    "pipeline_input_uri" : None,       
   }
   
   GET_APPS_REQUEST = {
@@ -56,11 +61,8 @@ if __name__ == '__main__' :
   }
   
   DELETE_REQUEST = {
-    "app_name" : "SOME_APP_NAME",
-    "target_nodes" : [
-      "0xai_node_1",
-        "0xai_node_2",
-    ],
+    "app_name" : app_name,
+    "target_nodes" : NODES,
     "nonce" : hex_time, # recoverable via int(nonce, 16)    
   }  
   
@@ -96,6 +98,8 @@ if __name__ == '__main__' :
   get_apps_types  = [
     eng.eth_types.ETH_STR,
   ]
+  
+  delete_request["app_name"] = "app_d526764c"
   
   delete_values = [
     delete_request["app_name"],
@@ -151,11 +155,23 @@ if __name__ == '__main__' :
     payload=delete_request, verbose=True
   )
   
-  l.P("REQUESTS:\nCreate request:\n{}\n\nGet apps request:\n{}\n\nDelete request:\n{}".format(
-    json.dumps({'request':create_request}, indent=2),
-    json.dumps({'request':get_apps_request}, indent=2),
-    json.dumps({'request':delete_request}, indent=2),
-  ))
+  l.P("Create request nonce {}:\n{}".format(
+      l.time_to_str(_time),
+      json.dumps({'request':create_request}, indent=2)
+    ), color='y'
+  )
+  
+  l.P("Get apps request nonce {}:\n{}".format(
+      l.time_to_str(_time),
+      json.dumps({'request':get_apps_request}, indent=2)
+    ), color='g'
+  )
+  
+  l.P("Delete request nonce {}:\n{}".format(
+      l.time_to_str(_time),
+      json.dumps({'request':delete_request}, indent=2)
+    ), color='m'
+  )
   
   
   
