@@ -327,6 +327,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     monster_type = get_monster_type_for_level(monster_level)
     monster_name = MONSTER_TYPES[monster_type]["name"]
     
+    # Store the monster_type in player data for combat consistency
+    player["current_monster_type"] = monster_type
+    
     # Consume energy for combat
     player["energy"] -= ENERGY_COSTS["attack"]
     
@@ -603,6 +606,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       min_damage = monster_info["min_damage"] + (monster_level - 1) * monster_info["damage_per_level"]
       max_damage = monster_info["max_damage"] + (monster_level - 1) * monster_info["damage_per_level"]
       
+      # Store the monster type for combat consistency
+      player["current_monster_type"] = monster_type
+      
       # Set player status to prepare_to_fight
       player = update_player_status(player, "prepare_to_fight")
       
@@ -816,6 +822,33 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Use randint instead of choice for selecting from the list
     random_index = plugin.np.random.randint(0, len(suitable_monsters))
     return suitable_monsters[random_index]
+
+  def create_monster_of_type(monster_type, level):
+    """
+    Creates a new monster of a specific type with appropriate level.
+    """
+    # Fallback if monster_type doesn't exist in MONSTER_TYPES
+    if monster_type not in MONSTER_TYPES:
+      return create_monster(level)
+      
+    stats = MONSTER_TYPES[monster_type]
+    
+    # Calculate monster stats based on level
+    hp = stats["base_hp"] + (level - 1) * stats["hp_per_level"]
+    min_damage = stats["min_damage"] + (level - 1) * stats["damage_per_level"]
+    max_damage = stats["max_damage"] + (level - 1) * stats["damage_per_level"]
+    
+    return {
+      "type": monster_type,
+      "name": stats["name"],
+      "level": level,
+      "hp": hp,
+      "max_hp": hp,
+      "min_damage": min_damage,
+      "max_damage": max_damage,
+      "xp_reward": stats["xp_reward"] * level,
+      "coin_reward": (stats["coin_reward"][0] * level, stats["coin_reward"][1] * level)
+    }
 
   def create_monster(level):
     """
@@ -1566,6 +1599,33 @@ def loop_processing(plugin):
     random_index = plugin.np.random.randint(0, len(suitable_monsters))
     return suitable_monsters[random_index]
 
+  def create_monster_of_type(monster_type, level):
+    """
+    Creates a new monster of a specific type with appropriate level.
+    """
+    # Fallback if monster_type doesn't exist in MONSTER_TYPES
+    if monster_type not in MONSTER_TYPES:
+      return create_monster(level)
+      
+    stats = MONSTER_TYPES[monster_type]
+    
+    # Calculate monster stats based on level
+    hp = stats["base_hp"] + (level - 1) * stats["hp_per_level"]
+    min_damage = stats["min_damage"] + (level - 1) * stats["damage_per_level"]
+    max_damage = stats["max_damage"] + (level - 1) * stats["damage_per_level"]
+    
+    return {
+      "type": monster_type,
+      "name": stats["name"],
+      "level": level,
+      "hp": hp,
+      "max_hp": hp,
+      "min_damage": min_damage,
+      "max_damage": max_damage,
+      "xp_reward": stats["xp_reward"] * level,
+      "coin_reward": (stats["coin_reward"][0] * level, stats["coin_reward"][1] * level)
+    }
+
   def create_monster(level):
     """
     Creates a new monster of appropriate level.
@@ -1778,10 +1838,19 @@ def loop_processing(plugin):
           update_player_status(player, "fighting")
           
           # Create combat session
-          plugin.obj_cache["combat"][user_id] = {
-            "monster": create_monster(monster_level),
-            "last_round_time": current_time
-          }
+          if "current_monster_type" in player:
+            # Use stored monster type if available
+            monster_type = player["current_monster_type"]
+            plugin.obj_cache["combat"][user_id] = {
+              "monster": create_monster_of_type(monster_type, monster_level),
+              "last_round_time": current_time
+            }
+          else:
+            # Fallback to old behavior
+            plugin.obj_cache["combat"][user_id] = {
+              "monster": create_monster(monster_level),
+              "last_round_time": current_time
+            }
           
           # Send timeout message
           plugin.send_message_to_user(user_id, "⏱️ Time's up! You couldn't decide in time. The monster attacks!")
@@ -1794,11 +1863,19 @@ def loop_processing(plugin):
           x, y = player["position"]
           monster_level = plugin.obj_cache["shared_map"][y][x]["monster_level"]
           
-          # Create new combat session
-          plugin.obj_cache["combat"][user_id] = {
-            "monster": create_monster(monster_level),
-            "last_round_time": current_time
-          }
+          # Create new combat session using the stored monster type if available
+          if "current_monster_type" in player:
+            monster_type = player["current_monster_type"]
+            plugin.obj_cache["combat"][user_id] = {
+              "monster": create_monster_of_type(monster_type, monster_level),
+              "last_round_time": current_time
+            }
+          else:
+            # Fallback to old behavior if no stored monster type
+            plugin.obj_cache["combat"][user_id] = {
+              "monster": create_monster(monster_level),
+              "last_round_time": current_time
+            }
         
         combat_session = plugin.obj_cache["combat"][user_id]
         
