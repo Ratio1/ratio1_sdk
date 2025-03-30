@@ -71,7 +71,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   LEVEL_DATA = {
     # Level: {max_hp, max_energy, next_level_xp, hp_regen_rate, energy_regen_rate, damage_reduction}
     # hp_regen_rate and energy_regen_rate are per minute
-    1: {"max_hp": 1000, "max_energy": 20, "next_level_xp": 10, "hp_regen_rate": 3, "energy_regen_rate": 6, "damage_reduction": 0.00},
+    1: {"max_hp": 10, "max_energy": 20, "next_level_xp": 10, "hp_regen_rate": 3, "energy_regen_rate": 6, "damage_reduction": 0.00},
     2: {"max_hp": 12, "max_energy": 22, "next_level_xp": 25, "hp_regen_rate": 3.6, "energy_regen_rate": 7.2, "damage_reduction": 0.05},
     3: {"max_hp": 14, "max_energy": 24, "next_level_xp": 45, "hp_regen_rate": 4.2, "energy_regen_rate": 8.4, "damage_reduction": 0.10},
     4: {"max_hp": 16, "max_energy": 26, "next_level_xp": 70, "hp_regen_rate": 4.8, "energy_regen_rate": 9.6, "damage_reduction": 0.15},
