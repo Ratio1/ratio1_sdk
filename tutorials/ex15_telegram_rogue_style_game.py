@@ -149,9 +149,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Use fixed probabilities for a balanced 100x100 map
     coin_prob = 0.10
     trap_prob = 0.10
-    monster_prob = 0.15
+    monster_prob = 0.10  # Reduced from 0.15 to 0.10
     health_prob = 0.05
-    empty_prob = 1 - (coin_prob + trap_prob + monster_prob + health_prob)  # 0.60
+    empty_prob = 1 - (coin_prob + trap_prob + monster_prob + health_prob)  # 0.65
     
     plugin.P(f"Tile distribution - Coin: {coin_prob*100}%, Trap: {trap_prob*100}%, Monster: {monster_prob*100}%, Health: {health_prob*100}%, Empty: {empty_prob*100}%")
 
@@ -174,7 +174,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         )
         tile_counts[tile_type] += 1
         
-        # For monsters, calculate level based on distance from center
+        # For monsters, calculate level with bias towards lower levels
         monster_level = 1
         if tile_type == "MONSTER":
           # Calculate distance from center as a percentage (0-1)
@@ -184,8 +184,31 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           max_distance = plugin.np.sqrt(center_x*center_x + center_y*center_y)
           distance_percent = distance / max_distance
           
-          # Level increases with distance from center
-          monster_level = max(1, min(10, int(1 + distance_percent * 9)))
+          # Apply a pyramid distribution for monster levels
+          # Use random number with weighted probability
+          rand = plugin.np.random.random()
+          
+          # Probability weights for each level (must sum to 1.0)
+          level_weights = {
+            1: 0.30,  # 30% chance for level 1
+            2: 0.20,  # 20% chance for level 2
+            3: 0.15,  # 15% chance for level 3
+            4: 0.10,  # 10% chance for level 4
+            5: 0.08,  # 8% chance for level 5
+            6: 0.07,  # 7% chance for level 6
+            7: 0.05,  # 5% chance for level 7
+            8: 0.03,  # 3% chance for level 8
+            9: 0.02   # 2% chance for level 9
+          }
+          
+          # Determine monster level based on random number and weights
+          cumulative_prob = 0
+          monster_level = 1  # Default to level 1
+          for level, weight in level_weights.items():
+            cumulative_prob += weight
+            if rand <= cumulative_prob:
+              monster_level = level
+              break
           
           # Track monster level distribution
           if monster_level not in monster_level_counts:
@@ -220,11 +243,37 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     
     return new_map
 
+  def find_random_empty_spot(game_map):
+    """
+    Finds a random empty spot on the map.
+    Returns tuple of (x, y) coordinates or (0, 0) if no empty spots found.
+    """
+    empty_spots = []
+    for y in range(GRID_HEIGHT):
+      for x in range(GRID_WIDTH):
+        if game_map[y][x]["type"] == "EMPTY":
+          empty_spots.append((x, y))
+    
+    if empty_spots:
+      # Convert empty_spots to numpy array for random choice
+      empty_spots_array = plugin.np.array(empty_spots)
+      random_index = plugin.np.random.randint(0, len(empty_spots))
+      return tuple(empty_spots_array[random_index])
+    
+    return (0, 0)  # Fallback to origin if no empty spots found
+
   def create_new_player():
     """Creates a new player dict with default stats."""
     level_1_data = LEVEL_DATA[1]
+    
+    # Find random empty spot for initial spawn
+    spawn_x, spawn_y = find_random_empty_spot(plugin.obj_cache["shared_map"])
+    
+    # Make spawn location and surroundings visible
+    plugin.obj_cache["shared_map"][spawn_y][spawn_x]["visible"] = True
+    
     return {
-        "position": (0, 0),
+        "position": (spawn_x, spawn_y),
         "coins": 0,
         "health": level_1_data["max_hp"],
         "max_health": level_1_data["max_hp"],
@@ -296,7 +345,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                         f"Max Energy: {old_max_energy} → {player['max_energy']}\n" \
                         f"HP Regen: {old_hp_regen:.1f}/min → {player['hp_regen_rate']:.1f}/min\n" \
                         f"Energy Regen: {old_energy_regen:.1f}/min → {player['energy_regen_rate']:.1f}/min\n" \
-                        f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%"
+                        f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%\n\n" \
+                        f"🌟 You can continue exploring the dungeon! Use /map to see your surroundings."
         else:
             # For levels beyond our predefined table
             player["max_health"] += 2
@@ -312,7 +362,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             return True, f"LEVEL UP! You are now level {player['level']}!\n" \
                         f"Max Health +2, Max Energy +2\n" \
                         f"HP Regen +0.01/s, Energy Regen +0.02/s\n" \
-                        f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%"
+                        f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%\n\n" \
+                        f"🌟 You can continue exploring the dungeon! Use /map to see your surroundings."
             
     return False, ""
 
@@ -759,6 +810,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           messages.append(f"You are now level {new_level}!")
           messages.append(f"Max Health: {player['max_health']}")
           messages.append(f"Max Energy: {player['max_energy']}")
+          messages.append(f"\n🌟 You can continue exploring the dungeon! Use /map to see your surroundings.")
       
       return True, "\n".join(messages)
     
@@ -789,32 +841,16 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         player["health"] = 1  # Start with 1 HP
         player["energy"] = 0  # No energy
         
-        # Find a random empty spot for respawn
-        empty_spots = []
-        for y in range(GRID_HEIGHT):
-          for x in range(GRID_WIDTH):
-            if game_map[y][x]["type"] == "EMPTY":
-              empty_spots.append((x, y))
-        
-        if empty_spots:
-          # Convert empty_spots to numpy array for random choice
-          empty_spots_array = plugin.np.array(empty_spots)
-          random_index = plugin.np.random.randint(0, len(empty_spots))
-          respawn_x, respawn_y = empty_spots_array[random_index]
-          
-          player["position"] = (respawn_x, respawn_y)
-          game_map[respawn_y][respawn_x]["visible"] = True
-          reveal_surroundings(player, game_map)
-        else:
-          # Fallback to starting position if no empty spots
-          player["position"] = (0, 0)
-          game_map[0][0]["visible"] = True
-          reveal_surroundings(player, game_map)
+        # Find random empty spot for respawn
+        respawn_x, respawn_y = find_random_empty_spot(game_map)
+        player["position"] = (respawn_x, respawn_y)
+        game_map[respawn_y][respawn_x]["visible"] = True
+        reveal_surroundings(player, game_map)
         
         # Set status to recovering
         player = update_player_status(player, "recovering")
         messages.append(f"\n💀 DEFEAT!")
-        messages.append("You have been defeated and respawned!")
+        messages.append("You have been defeated and respawned at a random location!")
         messages.append("You must rest until fully healed before continuing your adventure...")
         return True, "\n".join(messages)
     
@@ -1406,6 +1442,7 @@ def loop_processing(plugin):
           messages.append(f"You are now level {new_level}!")
           messages.append(f"Max Health: {player['max_health']}")
           messages.append(f"Max Energy: {player['max_energy']}")
+          messages.append(f"\n🌟 You can continue exploring the dungeon! Use /map to see your surroundings.")
       
       return True, "\n".join(messages)
     
@@ -1436,32 +1473,16 @@ def loop_processing(plugin):
         player["health"] = 1  # Start with 1 HP
         player["energy"] = 0  # No energy
         
-        # Find a random empty spot for respawn
-        empty_spots = []
-        for y in range(GRID_HEIGHT):
-          for x in range(GRID_WIDTH):
-            if game_map[y][x]["type"] == "EMPTY":
-              empty_spots.append((x, y))
-        
-        if empty_spots:
-          # Convert empty_spots to numpy array for random choice
-          empty_spots_array = plugin.np.array(empty_spots)
-          random_index = plugin.np.random.randint(0, len(empty_spots))
-          respawn_x, respawn_y = empty_spots_array[random_index]
-          
-          player["position"] = (respawn_x, respawn_y)
-          game_map[respawn_y][respawn_x]["visible"] = True
-          reveal_surroundings(player, game_map)
-        else:
-          # Fallback to starting position if no empty spots
-          player["position"] = (0, 0)
-          game_map[0][0]["visible"] = True
-          reveal_surroundings(player, game_map)
+        # Find random empty spot for respawn
+        respawn_x, respawn_y = find_random_empty_spot(game_map)
+        player["position"] = (respawn_x, respawn_y)
+        game_map[respawn_y][respawn_x]["visible"] = True
+        reveal_surroundings(player, game_map)
         
         # Set status to recovering
         player = update_player_status(player, "recovering")
         messages.append(f"\n💀 DEFEAT!")
-        messages.append("You have been defeated and respawned!")
+        messages.append("You have been defeated and respawned at a random location!")
         messages.append("You must rest until fully healed before continuing your adventure...")
         return True, "\n".join(messages)
     
