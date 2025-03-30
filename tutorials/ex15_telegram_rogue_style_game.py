@@ -269,9 +269,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Find random empty spot for initial spawn
     spawn_x, spawn_y = find_random_empty_spot(plugin.obj_cache["shared_map"])
     
-    # Create the player object
-    player = {
+    # Make spawn location and surroundings visible
+    plugin.obj_cache["shared_map"][spawn_y][spawn_x]["visible"] = True
+    
+    return {
         "position": (spawn_x, spawn_y),
+        "previous_position": (spawn_x, spawn_y),  # Initialize previous position
         "coins": 0,
         "health": level_1_data["max_hp"],
         "max_health": level_1_data["max_hp"],
@@ -298,12 +301,79 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "accessory": []
         }
     }
+
+  def handle_fight_command(player, game_map):
+    """
+    Handles the /fight command when a player decides to fight a monster.
+    Changes player status from prepare_to_fight to fighting.
+    """
+    # Only allow if player is in prepare_to_fight status
+    if player["status"] != "prepare_to_fight":
+      return "You are not in a position to fight. Find a monster first!"
+
+    # Check if player has enough energy for combat
+    if player["energy"] < ENERGY_COSTS["attack"]:
+      # If not enough energy, set to recovering and return to previous position
+      player = update_player_status(player, "recovering")
+      player["position"] = player["previous_position"]
+      return f"You don't have enough energy to fight! Energy: {int(player['energy'])}/{player['max_energy']}\nYou retreat to your previous position."
+
+    # Set player status to fighting
+    player = update_player_status(player, "fighting")
     
-    # Make spawn location visible and reveal surroundings
-    plugin.obj_cache["shared_map"][spawn_y][spawn_x]["visible"] = True
-    reveal_surroundings(player, plugin.obj_cache["shared_map"])
+    # Get monster info at current position
+    x, y = player["position"]
+    monster_level = game_map[y][x]["monster_level"]
+    monster_type = get_monster_type_for_level(monster_level)
+    monster_name = MONSTER_TYPES[monster_type]["name"]
     
-    return player
+    # Consume energy for combat
+    player["energy"] -= ENERGY_COSTS["attack"]
+    
+    return f"⚔️ You decide to fight the {monster_name}!\nCombat will proceed automatically. Use /status to check your health and stats."
+
+  def handle_flee_command(player, game_map):
+    """
+    Handles the /flee command when a player decides to flee from a monster.
+    Moves player back to previous position and sets status to exploring.
+    """
+    # Allow fleeing if player is in prepare_to_fight or fighting status
+    if player["status"] != "prepare_to_fight" and player["status"] != "fighting":
+      return "You're not in danger! No need to flee."
+    
+    # Get monster info at current position
+    x, y = player["position"]
+    monster_level = game_map[y][x]["monster_level"]
+    monster_type = get_monster_type_for_level(monster_level)
+    monster_name = MONSTER_TYPES[monster_type]["name"]
+    
+    # Small energy cost for fleeing
+    flee_energy_cost = 1
+    if player["energy"] < flee_energy_cost:
+      # If not enough energy, player still flees but with consequences
+      player["energy"] = 0
+      player = update_player_status(player, "recovering")
+    else:
+      player["energy"] -= flee_energy_cost
+      player = update_player_status(player, "exploring")
+    
+    # Move player back to previous position
+    old_pos = player["position"]
+    player["position"] = player["previous_position"]
+    
+    # Ensure the monster remains on the tile player fled from
+    # (this is important to preserve the game state)
+    if game_map[old_pos[1]][old_pos[0]]["type"] == "MONSTER":
+      # Monster remains on the tile
+      pass
+    
+    # Reveal surroundings at the new position
+    reveal_surroundings(player, game_map)
+    
+    # Generate map view from new position
+    map_view = visualize_map(player, game_map)
+    
+    return f"{map_view}\n\n💨 You wisely decide to flee from the {monster_name}!\nYou return to your previous position at {player['position']}.\nEnergy: -{flee_energy_cost}"
 
   def check_health(player):
     """Checks if the player's health is below 0 and returns a restart message if true."""
@@ -406,6 +476,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       player_emoji = "⚔️"  # Fighting emoji
     elif player["status"] == "recovering":
       player_emoji = "💤"  # Recovering emoji
+    elif player["status"] == "prepare_to_fight":
+      player_emoji = "⚠️"  # Warning emoji for prepare_to_fight
       
     map_view = f"🗺️ Your location: ({x}, {y}) | Status: {player_emoji} {player['status'].capitalize()}\n\n"
 
@@ -451,6 +523,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     if player["status"] == "fighting":
       return "You cannot move while in combat! You must defeat the monster first."
 
+    # Check if player is in prepare_to_fight state
+    if player["status"] == "prepare_to_fight":
+      return "You are facing a monster! Use /fight to engage or /flee to retreat."
+
     # Check if player is recovering
     if player["status"] == "recovering":
       return "You cannot move while recovering! Wait until you are fully healed and energized."
@@ -465,6 +541,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       player = update_player_status(player, "recovering")
       return f"You are too exhausted to move! Energy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
 
+    # Store current position as previous position before moving
+    prev_x, prev_y = player["position"]
+    player["previous_position"] = (prev_x, prev_y)
+    
     x, y = player["position"]
 
     if direction == "up" and y > 0:
@@ -483,18 +563,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     
     # Check what's on the tile we're moving to
     new_tile = game_map[y][x]
-    if new_tile["type"] == "MONSTER":
-      # Fighting a monster requires more energy
-      if player["energy"] < ENERGY_COSTS["move"] + ENERGY_COSTS["attack"]:
-        player = update_player_status(player, "recovering")
-        return f"You don't have enough energy to fight the monster at ({x},{y})!\nEnergy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
-      energy_cost += ENERGY_COSTS["attack"]
-      # Set player status to fighting
-      player = update_player_status(player, "fighting")
-    else:
-      # Set player status to exploring for normal movement
-      player = update_player_status(player, "exploring")
-
+    
     # Consume energy
     player["energy"] -= energy_cost
     
@@ -523,12 +592,29 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         msg += f"You triggered a trap! Health -{damage}. "
 
     elif tile["type"] == "MONSTER":
-      # Instead of instant combat, initiate real-time combat
+      # Instead of instant combat, initiate prepare_to_fight state
       monster_level = tile["monster_level"]
       monster_type = get_monster_type_for_level(monster_level)
-      monster_name = MONSTER_TYPES[monster_type]["name"]
-      msg += f"⚔️ You engage in combat with a level {monster_level} {monster_name}!\n"
-      msg += "Combat will proceed automatically. Use /status to check your health and stats."
+      monster_info = MONSTER_TYPES[monster_type]
+      monster_name = monster_info["name"]
+      
+      # Calculate monster stats
+      hp = monster_info["base_hp"] + (monster_level - 1) * monster_info["hp_per_level"]
+      min_damage = monster_info["min_damage"] + (monster_level - 1) * monster_info["damage_per_level"]
+      max_damage = monster_info["max_damage"] + (monster_level - 1) * monster_info["damage_per_level"]
+      
+      # Set player status to prepare_to_fight
+      player = update_player_status(player, "prepare_to_fight")
+      
+      msg += f"\n⚠️⚠️⚠️ You encountered a level {monster_level} {monster_name}!⚠️⚠️⚠️\n\n"
+      msg += f"Monster Stats:\n"
+      msg += f"❤️ HP: {hp}\n"
+      msg += f"⚔️ Damage: {min_damage}-{max_damage}\n"
+      msg += f"✨ XP Reward: {monster_info['xp_reward'] * monster_level}\n"
+      msg += f"💰 Coin Reward: {monster_info['coin_reward'][0] * monster_level}-{monster_info['coin_reward'][1] * monster_level}\n\n"
+      msg += f"You have 5 seconds to decide:\n"
+      msg += f"/fight - Attack the monster\n"
+      msg += f"/flee - Return to your previous position"
 
     elif tile["type"] == "HEALTH":
       heal_amount = plugin.np.random.randint(2, 5)
@@ -672,9 +758,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- Use consumable items from your inventory with /use.\n"
                  "- View the map with /map.\n"
                  "- Complete quests and explore the vast map with other players.\n"
+                 "\nMonster Encounters:\n"
+                 "- When encountering a monster, you have 5 seconds to decide what to do.\n"
+                 "- Use /fight to engage in battle, or /flee to return to your previous position.\n"
+                 "- If you don't respond within 5 seconds, battle starts automatically.\n"
                  "\nPlayer Status System:\n"
-                 "Your character can be in one of three states that affect gameplay:\n"
+                 "Your character can be in one of four states that affect gameplay:\n"
                  "- Exploring: Normal movement with standard regeneration rates.\n"
+                 "- Prepare to Fight: You've encountered a monster and must decide to fight or flee.\n"
                  "- Fighting: Engaged in combat with reduced health regeneration.\n"
                  "- Recovering: Resting with increased health and energy regeneration.\n"
                  "Your status changes automatically based on your actions, but you can also set it manually.\n"
@@ -686,9 +777,11 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "5. /shop   - Visit the shop to browse and buy upgrades/items.\n"
                  "6. /buy <item_name> - Purchase an item from the shop.\n"
                  "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
-                 "8. /setstatus <exploring|fighting|recovering> - Manually set your status to affect regeneration rates.\n"
-                 "9. /botstatus - View technical information about the bot and world statistics.\n"
-                 "10. /help   - Display help information.\n"
+                 "8. /fight  - Engage in combat with a monster you've encountered.\n"
+                 "9. /flee   - Retreat from a monster encounter back to your previous position.\n"
+                 "10. /setstatus <exploring|fighting|recovering> - Manually set your status to affect regeneration rates.\n"
+                 "11. /botstatus - View technical information about the bot and world statistics.\n"
+                 "12. /help   - Display help information.\n"
                  "\nGame Initialization:\n"
                  "The game world needs to be initialized before anyone can play.\n"
                  "- /init   - Initialize the game world (admin only, can only be used once).")
@@ -697,23 +790,16 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   def update_player_status(player, new_status):
     """
     Updates a player's status and records when it changed.
-    
-    Args:
-      player: The player object to update
-      new_status: The new status string, one of: "exploring", "fighting", "recovering"
-      
-    Returns:
-      Updated player object with new status
     """
-    if new_status not in ["exploring", "fighting", "recovering"]:
+    if new_status not in ["exploring", "fighting", "recovering", "prepare_to_fight"]:
       plugin.P(f"Warning: Invalid status '{new_status}' being set. Defaulting to 'exploring'")
       new_status = "exploring"
-      
+
     if player["status"] != new_status:
       player["status"] = new_status
       player["status_since"] = plugin.time()
       plugin.P(f"Player status changed to {new_status}")
-    
+
     return player
 
   def get_monster_type_for_level(level):
@@ -915,7 +1001,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "6. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
             "7. /buy <item_name> - Purchase an item from the shop.\n" 
             "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
-            "9. /help   - Display help information.")
+            "9. /fight  - Engage in combat with a monster you've encountered.\n"
+            "10. /flee   - Retreat from a monster encounter back to your previous position.\n"
+            "11. /help   - Display help information.")
     else:
       return ("⚠️ GAME NOT INITIALIZED ⚠️\n\n"
              "The game world hasn't been created yet!\n"
@@ -1053,8 +1141,19 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     status_duration = int(plugin.time() - p["status_since"])
     minutes, seconds = divmod(status_duration, 60)
     
-    # Get status emoji
-    status_emoji = "🔍" if p["status"] == "exploring" else "⚔️" if p["status"] == "fighting" else "💤"
+    # Get status emoji and formatted status name
+    status_emoji = "🔍"
+    status_display = "Exploring"
+    
+    if p["status"] == "fighting":
+      status_emoji = "⚔️"
+      status_display = "Fighting"
+    elif p["status"] == "recovering":
+      status_emoji = "💤"
+      status_display = "Recovering"
+    elif p["status"] == "prepare_to_fight":
+      status_emoji = "⚠️"
+      status_display = "Deciding to Fight"
     
     # Build equipment list
     equipment_list = []
@@ -1080,7 +1179,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     status_message = (f"📊 STATUS 📊\n"
                      f"🗺️ Position: ({x}, {y})\n"
-                     f"👤 Status: {status_emoji} {p['status'].capitalize()} ({minutes}m {seconds}s)\n"
+                     f"👤 Status: {status_emoji} {status_display} ({minutes}m {seconds}s)\n"
                      f"❤️ Health: {int(p['health'])}/{p['max_health']} (Regen: {p['hp_regen_rate']:.1f}/min)\n"
                      f"⚡ Energy: {int(p['energy'])}/{p['max_energy']} (Regen: {p['energy_regen_rate']:.1f}/min)\n"
                      f"💰 Coins: {p['coins']}\n"
@@ -1258,6 +1357,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       
     return f"Status changed from {old_status} to {requested_status}.\n{status_desc}"
 
+  elif command == "/fight":
+    return handle_fight_command(player, game_map)
+
+  elif command == "/flee":
+    response = handle_flee_command(player, game_map)
+    
+    # Clean up combat session if user was in combat
+    if user_id in plugin.obj_cache.get("combat", {}):
+      del plugin.obj_cache["combat"][user_id]
+    
+    return response
+
   else:
     return ("Commands:\n"
             "/start  - Restart your character (keeps the shared map)\n" 
@@ -1267,6 +1378,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "/shop   - Visit the shop to buy upgrades and items\n" 
             "/buy <item_name> - Purchase an item from the shop\n" 
             "/use <item_name> - Use a consumable item from your inventory\n"
+            "/fight  - Engage in combat with a monster you've encountered\n"
+            "/flee   - Retreat from a monster encounter back to your previous position\n"
             "/setstatus <exploring|fighting|recovering> - Manually set your status\n"
             "/botstatus - View technical information about the bot\n"
             "/help   - Display this help message"
@@ -1287,6 +1400,7 @@ def loop_processing(plugin):
   GRID_WIDTH = 100
   GRID_HEIGHT = 100
   MAX_LEVEL = 10
+  COMBAT_DECISION_TIME = 5  # Seconds player has to decide to fight or flee
 
   # Monster types and their stats
   MONSTER_TYPES = {
@@ -1344,6 +1458,25 @@ def loop_processing(plugin):
     10: {"max_hp": 28, "max_energy": 40, "next_level_xp": 400, "hp_regen_rate": 9, "energy_regen_rate": 18, "damage_reduction": 0.45},
   }
   
+  def find_random_empty_spot(game_map):
+    """
+    Finds a random empty spot on the map.
+    Returns tuple of (x, y) coordinates or (0, 0) if no empty spots found.
+    """
+    empty_spots = []
+    for y in range(GRID_HEIGHT):
+      for x in range(GRID_WIDTH):
+        if game_map[y][x]["type"] == "EMPTY":
+          empty_spots.append((x, y))
+      
+    if empty_spots:
+      # Convert empty_spots to numpy array for random choice
+      empty_spots_array = plugin.np.array(empty_spots)
+      random_index = plugin.np.random.randint(0, len(empty_spots))
+      return tuple(empty_spots_array[random_index])
+    
+    return (0, 0)  # Fallback to origin if no empty spots found
+  
   def reveal_surroundings(player, game_map):
     """Reveals the tiles around the player."""
     x, y = player["position"]
@@ -1353,12 +1486,12 @@ def loop_processing(plugin):
         if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
           game_map[ny][nx]["visible"] = True
 
-  
+    
   def update_player_status(player, new_status):
     """
     Updates a player's status and records when it changed.
     """
-    if new_status not in ["exploring", "fighting", "recovering"]:
+    if new_status not in ["exploring", "fighting", "recovering", "prepare_to_fight"]:
       plugin.P(f"Warning: Invalid status '{new_status}' being set. Defaulting to 'exploring'")
       new_status = "exploring"
 
@@ -1376,12 +1509,14 @@ def loop_processing(plugin):
     - "recovering": faster regeneration (1.5x)
     - "exploring": normal regeneration
     - "fighting": slower health regeneration (0.5x) but normal energy regeneration
+    - "prepare_to_fight": slower regeneration like fighting
     """
     # Apply status modifiers to regeneration rates
     status_modifiers = {
       "recovering": {"health": 1.5, "energy": 1.5},
       "exploring": {"health": 1.0, "energy": 1.0},
-      "fighting": {"health": 0.5, "energy": 1.0}
+      "fighting": {"health": 0.5, "energy": 1.0},
+      "prepare_to_fight": {"health": 0.5, "energy": 1.0}  # Same as fighting
     }
     
     # Default to exploring modifiers if status is invalid
@@ -1598,77 +1733,99 @@ def loop_processing(plugin):
         user_count = len(plugin.obj_cache['users'])
         active_users = sum(1 for user in plugin.obj_cache['users'].values() if user is not None)
         plugin.P(f"Game stats - Users: {user_count}, Active users: {active_users}")
-  
-  # Skip player updates if game isn't initialized yet
-  if not plugin.obj_cache["bot_status"]["initialized"] or "shared_map" not in plugin.obj_cache:
+    
+    # Skip player updates if game isn't initialized yet
+    if not plugin.obj_cache["bot_status"]["initialized"] or "shared_map" not in plugin.obj_cache:
+      return result
+    
+    # Initialize combat tracking if it doesn't exist
+    if "combat" not in plugin.obj_cache:
+      plugin.obj_cache["combat"] = {}
+    
+    # Make sure users dictionary exists
+    if 'users' not in plugin.obj_cache:
+      plugin.obj_cache['users'] = {}
+    
+    for user_id in plugin.obj_cache['users']:
+      # Skip if user has no player data yet
+      if user_id not in plugin.obj_cache['users'] or plugin.obj_cache['users'][user_id] is None:
+        continue
+        
+      player = plugin.obj_cache['users'][user_id]
+      
+      # Calculate time elapsed since last update
+      time_elapsed = current_time - player.get("last_update_time", current_time)
+      player["last_update_time"] = current_time
+      
+      # Don't process if less than 1 second has passed
+      if time_elapsed < 1:
+        continue
+        
+      # Update player stats
+      player, recovery_message = regenerate_player_stats(player, time_elapsed)
+      
+      # Check for players in "prepare_to_fight" status
+      if player["status"] == "prepare_to_fight":
+        time_in_status = current_time - player["status_since"]
+        
+        # If 5 seconds have passed, automatically start combat
+        if time_in_status >= COMBAT_DECISION_TIME:
+          # Get player position and create monster for combat
+          x, y = player["position"]
+          monster_level = plugin.obj_cache["shared_map"][y][x]["monster_level"]
+          
+          # Set player to fighting status
+          update_player_status(player, "fighting")
+          
+          # Create combat session
+          plugin.obj_cache["combat"][user_id] = {
+            "monster": create_monster(monster_level),
+            "last_round_time": current_time
+          }
+          
+          # Send timeout message
+          plugin.send_message_to_user(user_id, "⏱️ Time's up! You couldn't decide in time. The monster attacks!")
+      
+      # Process combat if player is fighting
+      elif player["status"] == "fighting":
+        # Initialize or get combat session
+        if user_id not in plugin.obj_cache["combat"]:
+          # Get player's position and monster level
+          x, y = player["position"]
+          monster_level = plugin.obj_cache["shared_map"][y][x]["monster_level"]
+          
+          # Create new combat session
+          plugin.obj_cache["combat"][user_id] = {
+            "monster": create_monster(monster_level),
+            "last_round_time": current_time
+          }
+        
+        combat_session = plugin.obj_cache["combat"][user_id]
+        
+        # Check if enough time has passed for next combat round (5 seconds)
+        time_since_last_round = current_time - combat_session["last_round_time"]
+        if time_since_last_round >= 5:
+          # Process combat round
+          combat_ended, message = process_combat_round(player, combat_session, plugin.obj_cache["shared_map"])
+          
+          # Send combat message to player
+          plugin.send_message_to_user(user_id, message)
+          
+          if combat_ended:
+            # Clean up combat session
+            del plugin.obj_cache["combat"][user_id]
+          else:
+            # Update last round time
+            combat_session["last_round_time"] = current_time
+      
+      # Update the player object in cache
+      plugin.obj_cache['users'][user_id] = player
+      
+      # Send recovery message if player has fully recovered
+      if recovery_message:
+        plugin.send_message_to_user(user_id, recovery_message)
+      
     return result
-  
-  # Initialize combat tracking if it doesn't exist
-  if "combat" not in plugin.obj_cache:
-    plugin.obj_cache["combat"] = {}
-  
-  # Make sure users dictionary exists
-  if 'users' not in plugin.obj_cache:
-    plugin.obj_cache['users'] = {}
-  
-  for user_id in plugin.obj_cache['users']:
-    # Skip if user has no player data yet
-    if user_id not in plugin.obj_cache['users'] or plugin.obj_cache['users'][user_id] is None:
-      continue
-      
-    player = plugin.obj_cache['users'][user_id]
-    
-    # Calculate time elapsed since last update
-    time_elapsed = current_time - player.get("last_update_time", current_time)
-    player["last_update_time"] = current_time
-    
-    # Don't process if less than 1 second has passed
-    if time_elapsed < 1:
-      continue
-      
-    # Update player stats
-    player, recovery_message = regenerate_player_stats(player, time_elapsed)
-    
-    # Process combat if player is fighting
-    if player["status"] == "fighting":
-      # Initialize or get combat session
-      if user_id not in plugin.obj_cache["combat"]:
-        # Get player's position and monster level
-        x, y = player["position"]
-        monster_level = plugin.obj_cache["shared_map"][y][x]["monster_level"]
-        
-        # Create new combat session
-        plugin.obj_cache["combat"][user_id] = {
-          "monster": create_monster(monster_level),
-          "last_round_time": current_time
-        }
-      
-      combat_session = plugin.obj_cache["combat"][user_id]
-      
-      # Check if enough time has passed for next combat round (5 seconds)
-      time_since_last_round = current_time - combat_session["last_round_time"]
-      if time_since_last_round >= 5:
-        # Process combat round
-        combat_ended, message = process_combat_round(player, combat_session, plugin.obj_cache["shared_map"])
-        
-        # Send combat message to player
-        plugin.send_message_to_user(user_id, message)
-        
-        if combat_ended:
-          # Clean up combat session
-          del plugin.obj_cache["combat"][user_id]
-        else:
-          # Update last round time
-          combat_session["last_round_time"] = current_time
-    
-    # Update the player object in cache
-    plugin.obj_cache['users'][user_id] = player
-    
-    # Send recovery message if player has fully recovered
-    if recovery_message:
-      plugin.send_message_to_user(user_id, recovery_message)
-    
-  return result
 
 
 
