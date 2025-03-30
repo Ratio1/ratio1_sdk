@@ -882,8 +882,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     monster = combat_session["monster"]
     messages = []
     
+    # Increment round counter
+    combat_session["round_number"] += 1
+    round_number = combat_session["round_number"]
+    
     # Add round start message with combat status
-    messages.append(f"⚔️ COMBAT ROUND ⚔️")
+    messages.append(f"⚔️ COMBAT ROUND {round_number} ⚔️")
     messages.append(f"Fighting {monster['name']} (Level {monster['level']})")
     
     # Player's attack
@@ -902,6 +906,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       player["coins"] += coin_reward
       player["xp"] += monster["xp_reward"]
       
+      # Calculate combat summary
+      total_rounds = combat_session["round_number"]
+      total_health_lost = combat_session["initial_player_health"] - player["health"]
+      
       # Clear the monster tile
       x, y = player["position"]
       game_map[y][x]["type"] = "EMPTY"
@@ -913,6 +921,11 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       messages.append(f"\n🎯 VICTORY!")
       messages.append(f"You defeated the {monster['name']}!")
       messages.append(f"Rewards: {coin_reward} coins, {monster['xp_reward']} XP")
+      
+      # Add combat summary
+      messages.append(f"\n📈 COMBAT SUMMARY:")
+      messages.append(f"Total Rounds: {total_rounds}")
+      messages.append(f"Health Lost: {total_health_lost:.1f}")
       
       # Check for level up
       if player["xp"] >= player["next_level_xp"]:
@@ -975,6 +988,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         messages.append(f"\n💀 DEFEAT!")
         messages.append("You have been defeated and respawned at a random location!")
         messages.append("You must rest until fully healed before continuing your adventure...")
+        
+        # Calculate combat summary for defeat
+        total_rounds = combat_session["round_number"]
+        total_health_lost = combat_session["initial_player_health"] - 0  # Player lost all health
+        
+        messages.append(f"\n📈 COMBAT SUMMARY:")
+        messages.append(f"Total Rounds: {total_rounds}")
+        messages.append(f"Health Lost: {total_health_lost:.1f}")
         return True, "\n".join(messages)
     
     # Add combat status at the end of each round
@@ -1658,8 +1679,12 @@ def loop_processing(plugin):
     monster = combat_session["monster"]
     messages = []
     
+    # Increment round counter
+    combat_session["round_number"] += 1
+    round_number = combat_session["round_number"]
+    
     # Add round start message with combat status
-    messages.append(f"⚔️ COMBAT ROUND ⚔️")
+    messages.append(f"⚔️ COMBAT ROUND {round_number} ⚔️")
     messages.append(f"Fighting {monster['name']} (Level {monster['level']})")
     
     # Player's attack
@@ -1678,6 +1703,10 @@ def loop_processing(plugin):
       player["coins"] += coin_reward
       player["xp"] += monster["xp_reward"]
       
+      # Calculate combat summary
+      total_rounds = combat_session["round_number"]
+      total_health_lost = combat_session["initial_player_health"] - player["health"]
+      
       # Clear the monster tile
       x, y = player["position"]
       game_map[y][x]["type"] = "EMPTY"
@@ -1689,6 +1718,11 @@ def loop_processing(plugin):
       messages.append(f"\n🎯 VICTORY!")
       messages.append(f"You defeated the {monster['name']}!")
       messages.append(f"Rewards: {coin_reward} coins, {monster['xp_reward']} XP")
+      
+      # Add combat summary
+      messages.append(f"\n📈 COMBAT SUMMARY:")
+      messages.append(f"Total Rounds: {total_rounds}")
+      messages.append(f"Health Lost: {total_health_lost:.1f}")
       
       # Check for level up
       if player["xp"] >= player["next_level_xp"]:
@@ -1751,6 +1785,14 @@ def loop_processing(plugin):
         messages.append(f"\n💀 DEFEAT!")
         messages.append("You have been defeated and respawned at a random location!")
         messages.append("You must rest until fully healed before continuing your adventure...")
+        
+        # Calculate combat summary for defeat
+        total_rounds = combat_session["round_number"]
+        total_health_lost = combat_session["initial_player_health"] - 0  # Player lost all health
+        
+        messages.append(f"\n📈 COMBAT SUMMARY:")
+        messages.append(f"Total Rounds: {total_rounds}")
+        messages.append(f"Health Lost: {total_health_lost:.1f}")
         return True, "\n".join(messages)
     
     # Add combat status at the end of each round
@@ -1843,13 +1885,17 @@ def loop_processing(plugin):
             monster_type = player["current_monster_type"]
             plugin.obj_cache["combat"][user_id] = {
               "monster": create_monster_of_type(monster_type, monster_level),
-              "last_round_time": current_time
+              "last_round_time": current_time,
+              "round_number": 0,
+              "initial_player_health": player["health"]
             }
           else:
-            # Fallback to old behavior
+            # Fallback to old behavior if no stored monster type
             plugin.obj_cache["combat"][user_id] = {
               "monster": create_monster(monster_level),
-              "last_round_time": current_time
+              "last_round_time": current_time,
+              "round_number": 0,
+              "initial_player_health": player["health"]
             }
           
           # Send timeout message
@@ -1868,13 +1914,17 @@ def loop_processing(plugin):
             monster_type = player["current_monster_type"]
             plugin.obj_cache["combat"][user_id] = {
               "monster": create_monster_of_type(monster_type, monster_level),
-              "last_round_time": current_time
+              "last_round_time": current_time,
+              "round_number": 0,
+              "initial_player_health": player["health"]
             }
           else:
             # Fallback to old behavior if no stored monster type
             plugin.obj_cache["combat"][user_id] = {
               "monster": create_monster(monster_level),
-              "last_round_time": current_time
+              "last_round_time": current_time,
+              "round_number": 0,
+              "initial_player_health": player["health"]
             }
         
         combat_session = plugin.obj_cache["combat"][user_id]
