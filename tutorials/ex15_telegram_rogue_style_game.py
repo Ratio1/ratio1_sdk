@@ -272,6 +272,13 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Make spawn location and surroundings visible
     plugin.obj_cache["shared_map"][spawn_y][spawn_x]["visible"] = True
     
+    # Reveal surroundings around the spawn point
+    for dy in range(-1, 2):
+      for dx in range(-1, 2):
+        nx, ny = spawn_x + dx, spawn_y + dy
+        if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
+          plugin.obj_cache["shared_map"][ny][nx]["visible"] = True
+    
     return {
         "position": (spawn_x, spawn_y),
         "previous_position": (spawn_x, spawn_y),  # Initialize previous position
@@ -1140,7 +1147,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     map_view = visualize_map(plugin.obj_cache["users"][user_id], plugin.obj_cache["shared_map"])
     return ("Welcome to Shadowborn!\n" 
             "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
-            "Your goal is to explore the vast map and complete quests along with other players.\n"
+            "Your goal is to explore the vast map and complete quests.\n"
             "All players share the same map - you'll see changes made by other players!\n"
             "Use up, down, left, right or W, A, S, D keys to explore, /status to check your stats, and /shop to buy upgrades.\n\n"
             "For more detailed instructions, use /help.\n\n"
