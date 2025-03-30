@@ -146,20 +146,64 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     plugin.P(f"Starting map generation for a {GRID_WIDTH}x{GRID_HEIGHT} grid")
     start_time = plugin.time()
     
-    # Use fixed probabilities for a balanced 100x100 map
-    coin_prob = 0.10
-    trap_prob = 0.10
-    monster_prob = 0.10  # Reduced from 0.15 to 0.10
-    health_prob = 0.05
-    empty_prob = 1 - (coin_prob + trap_prob + monster_prob + health_prob)  # 0.65
+    # Define biomes and their specifications
+    biomes = {
+      "FOREST": {
+        "emoji": "🌲",
+        "description": "A dense forest with healing herbs",
+        "tile_probs": {
+          "COIN": 0.10,
+          "TRAP": 0.05,   # Fewer traps in forest
+          "MONSTER": 0.10,
+          "HEALTH": 0.15, # More health tiles in forest
+          "EMPTY": 0.60
+        }
+      },
+      "LAVA_CAVES": {
+        "emoji": "🌋",
+        "description": "Hot caves with dangerous traps but valuable treasures",
+        "tile_probs": {
+          "COIN": 0.15,   # More treasures in caves
+          "TRAP": 0.20,   # More traps in caves
+          "MONSTER": 0.15,
+          "HEALTH": 0.05,
+          "EMPTY": 0.45
+        }
+      },
+      "ICE_WASTES": {
+        "emoji": "❄️",
+        "description": "Frozen wasteland that slows movement",
+        "tile_probs": {
+          "COIN": 0.10,
+          "TRAP": 0.10,
+          "MONSTER": 0.15,
+          "HEALTH": 0.05,
+          "EMPTY": 0.60
+        },
+        "energy_multiplier": 1.5  # Movement costs more energy here
+      },
+      "PLAINS": {  # Default biome
+        "emoji": "🌾",
+        "description": "Flat plains with balanced features",
+        "tile_probs": {
+          "COIN": 0.10,
+          "TRAP": 0.10,
+          "MONSTER": 0.10,
+          "HEALTH": 0.05,
+          "EMPTY": 0.65
+        }
+      }
+    }
     
-    plugin.P(f"Tile distribution - Coin: {coin_prob*100}%, Trap: {trap_prob*100}%, Monster: {monster_prob*100}%, Health: {health_prob*100}%, Empty: {empty_prob*100}%")
-
+    # Generate biome regions using noise (simplified with basic division)
+    plugin.P("Generating biome regions...")
+    
     new_map = []
     plugin.P("Starting to populate map rows...")
     
     # Track tile distribution for logging
     tile_counts = {"COIN": 0, "TRAP": 0, "MONSTER": 0, "HEALTH": 0, "EMPTY": 0}
+    biome_counts = {biome: 0 for biome in biomes}
     monster_level_counts = {}
     
     for y in plugin.np.arange(0, GRID_HEIGHT):
@@ -168,9 +212,24 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         
       row = []
       for x in plugin.np.arange(0, GRID_WIDTH):
+        # Determine biome based on location in the map (simple division into quadrants)
+        if x < GRID_WIDTH/2 and y < GRID_HEIGHT/2:
+          biome_type = "FOREST"
+        elif x >= GRID_WIDTH/2 and y < GRID_HEIGHT/2:
+          biome_type = "LAVA_CAVES"
+        elif x < GRID_WIDTH/2 and y >= GRID_HEIGHT/2:
+          biome_type = "ICE_WASTES"
+        else:
+          biome_type = "PLAINS"
+        
+        biome_counts[biome_type] += 1
+        biome_data = biomes[biome_type]
+        
+        # Use biome-specific tile probabilities
+        probs = biome_data["tile_probs"]
         tile_type = plugin.np.random.choice(
             ["COIN", "TRAP", "MONSTER", "HEALTH", "EMPTY"],
-            p=[coin_prob, trap_prob, monster_prob, health_prob, empty_prob]
+            p=[probs["COIN"], probs["TRAP"], probs["MONSTER"], probs["HEALTH"], probs["EMPTY"]]
         )
         tile_counts[tile_type] += 1
         
@@ -218,12 +277,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         row.append({
             "type": tile_type,
             "visible": False,
-            "monster_level": monster_level if tile_type == "MONSTER" else 0
+            "monster_level": monster_level if tile_type == "MONSTER" else 0,
+            "biome": biome_type,
+            "biome_emoji": biome_data["emoji"]
         })
       new_map.append(row)
     
     # Set starting point to empty and visible
-    new_map[0][0] = {"type": "EMPTY", "visible": True, "monster_level": 0}
+    new_map[0][0] = {"type": "EMPTY", "visible": True, "monster_level": 0, "biome": "PLAINS", "biome_emoji": biomes["PLAINS"]["emoji"]}
     
     # Log tile distribution statistics
     total_tiles = GRID_WIDTH * GRID_HEIGHT
@@ -232,6 +293,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     for tile_type, count in tile_counts.items():
       percentage = (count / total_tiles) * 100
       plugin.P(f"  {tile_type}: {count} tiles ({percentage:.2f}%)")
+    
+    # Log biome distribution
+    plugin.P(f"\nBiome distribution:")
+    for biome_type, count in biome_counts.items():
+      percentage = (count / total_tiles) * 100
+      plugin.P(f"  {biome_type}: {count} tiles ({percentage:.2f}%)")
     
     if monster_level_counts:
       plugin.P(f"\nMonster level distribution:")
@@ -340,7 +407,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Consume energy for combat
     player["energy"] -= ENERGY_COSTS["attack"]
     
-    return f"⚔️ You decide to fight the {monster_name}!\nCombat will proceed automatically. Use /status to check your health and stats."
+    return f"⚔️ You decide to fight the {monster_name}!\nCombat will proceed automatically."
 
   def handle_flee_command(player, game_map):
     """
@@ -357,8 +424,26 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     monster_type = get_monster_type_for_level(monster_level)
     monster_name = MONSTER_TYPES[monster_type]["name"]
     
-    # Small energy cost for fleeing
+    # Get biome information for energy cost
+    biome_type = game_map[y][x].get("biome", "PLAINS")
+    
+    # Small energy cost for fleeing, adjusted by biome
     flee_energy_cost = 1
+    
+    # Define biomes and their energy multipliers (reference)
+    biomes = {
+      "FOREST": { "energy_multiplier": 1.0 },
+      "LAVA_CAVES": { "energy_multiplier": 1.2 },
+      "ICE_WASTES": { "energy_multiplier": 1.5 },
+      "PLAINS": { "energy_multiplier": 1.0 }
+    }
+    
+    # Apply biome-specific energy multiplier
+    if biome_type in biomes:
+      energy_multiplier = biomes[biome_type].get("energy_multiplier", 1.0)
+      flee_energy_cost = int(flee_energy_cost * energy_multiplier)
+    
+    # Apply flee action
     if player["energy"] < flee_energy_cost:
       # If not enough energy, player still flees but with consequences
       player["energy"] = 0
@@ -488,8 +573,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       player_emoji = "💤"  # Recovering emoji
     elif player["status"] == "prepare_to_fight":
       player_emoji = "⚠️"  # Warning emoji for prepare_to_fight
+    
+    # Get player's current biome
+    current_tile = game_map[y][x]
+    current_biome = current_tile.get("biome", "PLAINS")
+    biome_emoji = current_tile.get("biome_emoji", "🌾")
       
-    map_view = f"🗺️ Your location: ({x}, {y}) | Status: {player_emoji} {player['status'].capitalize()}\n\n"
+    map_view = f"🗺️ Your location: ({x}, {y}) | Status: {player_emoji} {player['status'].capitalize()}\n"
+    map_view += f"Biome: {biome_emoji} {current_biome.replace('_', ' ')}\n\n"
 
     for ny in range(max(0, y - view_distance), min(GRID_HEIGHT, y + view_distance + 1)):
       for nx in range(max(0, x - view_distance), min(GRID_WIDTH, x + view_distance + 1)):
@@ -497,6 +588,11 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           map_view += f"{player_emoji} "  # Player with status-specific emoji
         elif game_map[ny][nx]["visible"]:
           tile_type = game_map[ny][nx]["type"]
+          # Get biome information
+          biome_type = game_map[ny][nx].get("biome", "PLAINS")
+          biome_emoji = game_map[ny][nx].get("biome_emoji", "")
+          
+          # Add a small indicator of biome to the background
           if tile_type == "COIN":
             map_view += "💰 "
           elif tile_type == "TRAP":
@@ -513,7 +609,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           elif tile_type == "HEALTH":
             map_view += "❤️ "
           else:
-            map_view += "⬜ "  # Empty
+            # For empty tiles, show the biome background
+            map_view += f"{biome_emoji} "
         else:
           map_view += "⬛ "  # Unexplored
       map_view += "\n"
@@ -545,15 +642,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     if player["status"] != "exploring":
       return "You can only move while exploring!"
 
-    # Check if player has enough energy for the basic move
-    if player["energy"] < ENERGY_COSTS["move"]:
-      # Set player status to recovering if they're too exhausted to move
-      player = update_player_status(player, "recovering")
-      return f"You are too exhausted to move! Energy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
-
     # Store current position as previous position before moving
     prev_x, prev_y = player["position"]
     player["previous_position"] = (prev_x, prev_y)
+    
+    # Get the current biome of the player before moving
+    prev_biome_type = game_map[prev_y][prev_x].get("biome", "PLAINS")
     
     x, y = player["position"]
 
@@ -568,11 +662,55 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     else:
       return "You cannot move that way!"
 
+    # Check what's on the tile we're moving to
+    new_tile = game_map[y][x]
+    
     # Calculate energy cost for this move
     energy_cost = ENERGY_COSTS["move"]
     
-    # Check what's on the tile we're moving to
-    new_tile = game_map[y][x]
+    # Adjust energy cost based on biome
+    biome_type = new_tile.get("biome", "PLAINS")
+    biome_message = ""
+    
+    # Define biomes and their specifications (reference to match generate_map)
+    biomes = {
+      "FOREST": {
+        "emoji": "🌲",
+        "description": "A dense forest with healing herbs",
+        "energy_multiplier": 1.0
+      },
+      "LAVA_CAVES": {
+        "emoji": "🌋",
+        "description": "Hot caves with dangerous traps but valuable treasures",
+        "energy_multiplier": 1.2  # Slightly more energy in hot caves
+      },
+      "ICE_WASTES": {
+        "emoji": "❄️",
+        "description": "Frozen wasteland that slows movement",
+        "energy_multiplier": 1.5  # Movement costs more energy here
+      },
+      "PLAINS": {  # Default biome
+        "emoji": "🌾",
+        "description": "Flat plains with balanced features",
+        "energy_multiplier": 1.0
+      }
+    }
+    
+    # Apply biome-specific energy multiplier
+    if biome_type in biomes:
+      biome_data = biomes[biome_type]
+      energy_multiplier = biome_data.get("energy_multiplier", 1.0)
+      energy_cost = int(energy_cost * energy_multiplier)
+      
+      # Add biome message ONLY if the player is entering a different biome
+      if biome_type != prev_biome_type:
+        biome_message = f"\nYou've entered {biome_data['emoji']} {biome_type.replace('_', ' ')}! {biome_data['description']}."
+    
+    # Check if player has enough energy for the move
+    if player["energy"] < energy_cost:
+      # Set player status to recovering if they're too exhausted to move
+      player = update_player_status(player, "recovering")
+      return f"You are too exhausted to move! Energy: {int(player['energy'])}/{player['max_energy']}\nWait for your energy to regenerate."
     
     # Consume energy
     player["energy"] -= energy_cost
@@ -586,20 +724,23 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Basic movement message
     msg = f"You moved {direction} to ({x},{y}). Energy: -{energy_cost} "
     
+    if biome_message:
+      msg += biome_message
+    
     if tile["type"] == "COIN":
       base_coins = plugin.np.random.randint(1, 3)
       player["coins"] += base_coins
       tile["type"] = "EMPTY"
-      msg += f"You found {base_coins} coin(s)! "
+      msg += f"\nYou found {base_coins} coin(s)! "
 
     elif tile["type"] == "TRAP":
       if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
-        msg += "You nimbly avoided a trap! "
+        msg += "\nYou nimbly avoided a trap! "
       else:
         base_damage = plugin.np.random.randint(1, 3)
         damage = max(1, base_damage)
         player["health"] -= damage
-        msg += f"You triggered a trap! Health -{damage}. "
+        msg += f"\nYou triggered a trap! Health -{damage}. "
 
     elif tile["type"] == "MONSTER":
       # Instead of instant combat, initiate prepare_to_fight state
@@ -771,6 +912,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- Use consumable items from your inventory with /use.\n"
                  "- View the map with /map.\n"
                  "- Complete quests and explore the vast map with other players.\n"
+                 "\nMap Biomes:\n"
+                 "The world is divided into distinct regions, each with unique characteristics:\n"
+                 "- 🌲 Forest: Dense woods with abundant health pickups. Normal movement cost.\n"
+                 "- 🌋 Lava Caves: Dangerous areas with more traps but valuable treasures. Slightly increased movement cost.\n"
+                 "- ❄️ Ice Wastes: Frozen lands where movement is difficult, requiring 50% more energy to traverse.\n"
+                 "- 🌾 Plains: Balanced areas with no special effects. Standard movement cost.\n"
                  "\nMonster Encounters:\n"
                  "- When encountering a monster, you have 5 seconds to decide what to do.\n"
                  "- Use /fight to engage in battle, or /flee to return to your previous position.\n"
@@ -1169,30 +1316,45 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   elif command == "/status":
     p = plugin.obj_cache["users"][user_id]
     x, y = p["position"]
+    
+    # Get biome information for current position
+    current_tile = game_map[y][x]
+    current_biome = current_tile.get("biome", "PLAINS")
+    biome_emoji = current_tile.get("biome_emoji", "🌾")
 
     # Calculate total stats including equipment bonuses
     total_attack = p["attack"]
     total_damage_reduction = p["damage_reduction"]
-    total_max_health = p["max_health"]
+    total_max_health = 0
     total_dodge = p["dodge_chance"]
 
-    # Add equipment bonuses
-    if p["equipment"]["weapon"]:
-      item = SHOP_ITEMS[p["equipment"]["weapon"]]
-      if "attack_bonus" in item:
-        total_attack += item["attack_bonus"]
-
-    if p["equipment"]["armor"]:
-      item = SHOP_ITEMS[p["equipment"]["armor"]]
-      if "damage_reduction_bonus" in item:
-        total_damage_reduction += item["damage_reduction_bonus"]
-
-    for accessory in p["equipment"]["accessory"]:
-      item = SHOP_ITEMS[accessory]
-      if "max_health_bonus" in item:
-        total_max_health += item["max_health_bonus"]
-      if "dodge_chance" in item:
-        total_dodge += item["dodge_chance"]
+    # Get equipment bonuses
+    for slot, item_id in p["equipment"].items():
+      if slot == "accessory":
+        # Handle multiple accessories
+        for acc_id in item_id:
+          if acc_id and acc_id in SHOP_ITEMS:
+            item = SHOP_ITEMS[acc_id]
+            if "attack_bonus" in item:
+              total_attack += item["attack_bonus"]
+            if "damage_reduction" in item:
+              total_damage_reduction += item["damage_reduction"]
+            if "max_health_bonus" in item:
+              total_max_health += item["max_health_bonus"]
+            if "dodge_chance" in item:
+              total_dodge += item["dodge_chance"]
+      else:
+        # Handle single equipment items (weapon, armor)
+        if item_id and item_id in SHOP_ITEMS:
+          item = SHOP_ITEMS[item_id]
+          if "attack_bonus" in item:
+            total_attack += item["attack_bonus"]
+          if "damage_reduction" in item:
+            total_damage_reduction += item["damage_reduction"]
+          if "max_health_bonus" in item:
+            total_max_health += item["max_health_bonus"]
+          if "dodge_chance" in item:
+            total_dodge += item["dodge_chance"]
 
     # Format damage reduction and dodge chance as percentages
     damage_reduction_percent = int(total_damage_reduction * 100)
@@ -1238,8 +1400,40 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     inventory_str = "\n".join(inventory_list) if inventory_list else "Empty"
 
+    # Define biomes and their specifications (reference)
+    biomes = {
+      "FOREST": {
+        "emoji": "🌲",
+        "description": "A dense forest with healing herbs",
+        "energy_multiplier": 1.0
+      },
+      "LAVA_CAVES": {
+        "emoji": "🌋",
+        "description": "Hot caves with dangerous traps but valuable treasures",
+        "energy_multiplier": 1.2
+      },
+      "ICE_WASTES": {
+        "emoji": "❄️",
+        "description": "Frozen wasteland that slows movement",
+        "energy_multiplier": 1.5
+      },
+      "PLAINS": {
+        "emoji": "🌾",
+        "description": "Flat plains with balanced features",
+        "energy_multiplier": 1.0
+      }
+    }
+    
+    # Get biome effects description
+    biome_effects = ""
+    if current_biome in biomes:
+      biome_data = biomes[current_biome]
+      if biome_data.get("energy_multiplier", 1.0) > 1.0:
+        biome_effects = f"(Movement Energy: x{biome_data['energy_multiplier']})"
+
     status_message = (f"📊 STATUS 📊\n"
                      f"🗺️ Position: ({x}, {y})\n"
+                     f"🌍 Biome: {biome_emoji} {current_biome.replace('_', ' ')} {biome_effects}\n"
                      f"👤 Status: {status_emoji} {status_display} ({minutes}m {seconds}s)\n"
                      f"❤️ Health: {int(p['health'])}/{p['max_health']} (Regen: {p['hp_regen_rate']:.1f}/min)\n"
                      f"⚡ Energy: {int(p['energy'])}/{p['max_energy']} (Regen: {p['energy_regen_rate']:.1f}/min)\n"
