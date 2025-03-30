@@ -269,10 +269,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Find random empty spot for initial spawn
     spawn_x, spawn_y = find_random_empty_spot(plugin.obj_cache["shared_map"])
     
-    # Make spawn location and surroundings visible
-    plugin.obj_cache["shared_map"][spawn_y][spawn_x]["visible"] = True
-    
-    return {
+    # Create the player object
+    player = {
         "position": (spawn_x, spawn_y),
         "coins": 0,
         "health": level_1_data["max_hp"],
@@ -300,6 +298,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "accessory": []
         }
     }
+    
+    # Make spawn location visible and reveal surroundings
+    plugin.obj_cache["shared_map"][spawn_y][spawn_x]["visible"] = True
+    reveal_surroundings(player, plugin.obj_cache["shared_map"])
+    
+    return player
 
   def check_health(player):
     """Checks if the player's health is below 0 and returns a restart message if true."""
@@ -1111,6 +1115,74 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   elif command == "/help":
     return display_help()
+
+  elif command == "/wiki":
+    wiki_text = (
+      "📚 SHADOWBORN WIKI 📚\n\n"
+      "🎯 MONSTER TYPES & LEVELS:\n"
+      "1. 👹 Goblin (Levels 1-3)\n"
+      "   • Base HP: 5\n"
+      "   • Damage: 1-3\n"
+      "   • XP Reward: 2\n"
+      "   • Coin Reward: 1-3\n\n"
+      "2. 👺 Orc (Levels 4-6)\n"
+      "   • Base HP: 8\n"
+      "   • Damage: 2-4\n"
+      "   • XP Reward: 3\n"
+      "   • Coin Reward: 2-4\n\n"
+      "3. 👿 Demon (Levels 7-9)\n"
+      "   • Base HP: 12\n"
+      "   • Damage: 3-6\n"
+      "   • XP Reward: 5\n"
+      "   • Coin Reward: 3-6\n\n"
+      "📊 MONSTER LEVEL DISTRIBUTION:\n"
+      "• Level 1: 30% (Most Common)\n"
+      "• Level 2: 20%\n"
+      "• Level 3: 15%\n"
+      "• Level 4: 10%\n"
+      "• Level 5: 8%\n"
+      "• Level 6: 7%\n"
+      "• Level 7: 5%\n"
+      "• Level 8: 3%\n"
+      "• Level 9: 2% (Rarest)\n\n"
+      "⚔️ COMBAT MECHANICS:\n"
+      "• Combat starts automatically when moving onto a monster tile\n"
+      "• Each combat round takes 5 seconds\n"
+      "• Energy cost for combat: 3\n"
+      "• Dodge chance reduces incoming damage to 0\n"
+      "• Damage reduction reduces incoming damage by percentage\n\n"
+      "💫 PLAYER STATUS EFFECTS:\n"
+      "1. Exploring (🔍)\n"
+      "   • Normal health and energy regeneration\n"
+      "   • Standard movement speed\n\n"
+      "2. Fighting (⚔️)\n"
+      "   • Reduced health regeneration (50%)\n"
+      "   • Normal energy regeneration\n"
+      "   • Cannot move until combat ends\n\n"
+      "3. Recovering (💤)\n"
+      "   • Increased health regeneration (150%)\n"
+      "   • Increased energy regeneration (150%)\n"
+      "   • Cannot move until fully healed\n\n"
+      "🎒 INVENTORY ITEMS:\n"
+      "• Health Potion (🧪): Restores 5 HP\n"
+      "• Map Scroll (📜): Reveals larger area\n\n"
+      "🛍️ SHOP ITEMS:\n"
+      "• Health Potion: 5 coins\n"
+      "• Sword (⚔️): +1 Attack, 15 coins\n"
+      "• Shield (🛡️): +10% Damage Reduction, 20 coins\n"
+      "• Magic Amulet (🔮): +3 Max Health, 25 coins\n"
+      "• Speed Boots (👢): +5% Dodge Chance, 30 coins\n"
+      "• Map Scroll: 10 coins\n\n"
+      "💡 TIPS:\n"
+      "• Use /status to check your stats\n"
+      "• Use /map to view your surroundings\n"
+      "• Use /setstatus to manually change your status\n"
+      "• Higher level monsters give better rewards\n"
+      "• Always keep some health potions for emergencies\n"
+      "• Use map scrolls to plan your route\n"
+      "• Consider your energy before engaging in combat"
+    )
+    return wiki_text
 
   elif command == "/botstatus":
     # Show bot status information
