@@ -416,14 +416,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
           elif tile_type == "TRAP":
             map_view += "🔥 "
           elif tile_type == "MONSTER":
-            # Different monster emoji based on level
+            # Different monster emoji based on level clusters
             monster_level = game_map[ny][nx]["monster_level"]
-            if monster_level <= 2:
-                map_view += "👹 "  # Regular monster
-            elif monster_level <= 4:
-                map_view += "👺 "  # Stronger monster
-            else:
-                map_view += "👿 "  # Boss monster
+            if monster_level <= 3:
+                map_view += "👹 "  # Levels 1-3: Goblin
+            elif monster_level <= 6:
+                map_view += "👺 "  # Levels 4-6: Orc
+            elif monster_level <= 9:
+                map_view += "👿 "  # Levels 7-9: Demon
           elif tile_type == "HEALTH":
             map_view += "❤️ "
           else:
