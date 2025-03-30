@@ -1289,16 +1289,26 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     return move_player(plugin.obj_cache["users"][user_id], direction, plugin.obj_cache["shared_map"])
 
   if command == "/start":
-    # Only reset the player's state, not the shared map
+    # First send welcome message and initialization notification
+    welcome_message = ("Welcome to Shadowborn!\n" 
+                      "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
+                      "Your goal is to explore the vast map and complete quests.\n"
+                      "All players share the same map - you'll see changes made by other players!\n\n"
+                      "⏳ Initializing your character... Please wait a moment as your hero materializes in the world... ⏳\n\n"
+                      "Use up, down, left, right or W, A, S, D keys to explore, /status to check your stats, and /shop to buy upgrades.\n\n"
+                      "For more detailed instructions, use /help.")
+    
+    # Send the welcome message first
+    plugin.send_message_to_user(user_id, welcome_message)
+    
+    # Now create the player
     plugin.obj_cache["users"][user_id] = create_new_player()
+    
+    # Generate the map view
     map_view = visualize_map(plugin.obj_cache["users"][user_id], plugin.obj_cache["shared_map"])
-    return ("Welcome to Shadowborn!\n" 
-            "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
-            "Your goal is to explore the vast map and complete quests.\n"
-            "All players share the same map - you'll see changes made by other players!\n"
-            "Use up, down, left, right or W, A, S, D keys to explore, /status to check your stats, and /shop to buy upgrades.\n\n"
-            "For more detailed instructions, use /help.\n\n"
-            f"{map_view}")
+    
+    # Return the map view as a separate message
+    return f"✅ Character initialization complete! Your adventure begins now!\n\n{map_view}"
 
   elif command == "/move":
     if len(parts) < 2:
