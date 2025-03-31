@@ -477,63 +477,27 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     return False, ""
 
   def check_level_up(player):
-    """Checks if player has enough XP to level up and applies level up benefits."""
-    if player["level"] >= MAX_LEVEL:
-        return False, ""
-
+    """Check if player has leveled up and apply level up benefits."""
     if player["xp"] >= player["next_level_xp"]:
-        old_level = player["level"]
-        player["level"] += 1
-        new_level = player["level"]
+      old_level = player["level"]
+      player["level"] += 1
+      new_level = player["level"]
+      
+      if new_level in LEVEL_DATA:
+        level_data = LEVEL_DATA[new_level]
+        player["max_health"] = level_data["max_hp"]
+        player["max_energy"] = level_data["max_energy"]
+        player["next_level_xp"] = level_data["next_level_xp"]
+        player["hp_regen_rate"] = level_data["hp_regen_rate"]
+        player["energy_regen_rate"] = level_data["energy_regen_rate"]
+        player["damage_reduction"] = level_data["damage_reduction"]
         
-        # Get stats for the new level
-        if new_level in LEVEL_DATA:
-            level_data = LEVEL_DATA[new_level]
-            
-            # Store old stats for message
-            old_max_health = player["max_health"]
-            old_max_energy = player["max_energy"]
-            old_hp_regen = player["hp_regen_rate"]
-            old_energy_regen = player["energy_regen_rate"]
-            old_damage_reduction = player["damage_reduction"]
-            
-            # Update stats based on new level data
-            player["max_health"] = level_data["max_hp"]
-            player["max_energy"] = level_data["max_energy"]
-            player["next_level_xp"] = level_data["next_level_xp"]
-            player["hp_regen_rate"] = level_data["hp_regen_rate"]
-            player["energy_regen_rate"] = level_data["energy_regen_rate"]
-            player["damage_reduction"] = level_data["damage_reduction"]
-            
-            # Also heal the player on level up (bonus!)
-            player["health"] = min(player["health"] + 5, player["max_health"])
-            player["energy"] = player["max_energy"]  # Refill energy on level up
-            
-            return True, f"LEVEL UP! You are now level {player['level']}!\n" \
-                        f"Max Health: {old_max_health} → {player['max_health']}\n" \
-                        f"Max Energy: {old_max_energy} → {player['max_energy']}\n" \
-                        f"HP Regen: {old_hp_regen:.1f}/min → {player['hp_regen_rate']:.1f}/min\n" \
-                        f"Energy Regen: {old_energy_regen:.1f}/min → {player['energy_regen_rate']:.1f}/min\n" \
-                        f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%\n\n" \
-                        f"🌟 You can continue exploring the dungeon! Use /map to see your surroundings."
-        else:
-            # For levels beyond our predefined table
-            player["max_health"] += 2
-            player["max_energy"] += 2
-            player["next_level_xp"] = int(player["next_level_xp"] * 1.3)
-            player["hp_regen_rate"] += 0.01
-            player["energy_regen_rate"] += 0.02
-            
-            # Increment damage reduction by 5% for levels beyond our table
-            old_damage_reduction = player["damage_reduction"]
-            player["damage_reduction"] += 0.05
-            
-            return True, f"LEVEL UP! You are now level {player['level']}!\n" \
-                        f"Max Health +2, Max Energy +2\n" \
-                        f"HP Regen +0.01/s, Energy Regen +0.02/s\n" \
-                        f"Damage Reduction: {int(old_damage_reduction * 100)}% → {int(player['damage_reduction'] * 100)}%\n\n" \
-                        f"🌟 You can continue exploring the dungeon! Use /map to see your surroundings."
-            
+        level_up_msg = (f"🌟 LEVEL UP!\n"
+                        f"You are now level {new_level}!\n"
+                        f"Max Health: {player['max_health']}\n"
+                        f"Max Energy: {player['max_energy']}\n"
+                        f"🌟 You can continue exploring the dungeon! Use /map to see your surroundings.")
+        return True, level_up_msg
     return False, ""
 
   def reveal_surroundings(player, game_map):
@@ -1044,6 +1008,54 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     messages.append(f"⚔️ COMBAT ROUND {round_number} ⚔️")
     messages.append(f"Fighting {monster['name']} (Level {monster['level']})")
     
+    # Apply bomb damage in first round if player used a bomb
+    if round_number == 1 and player.get("bomb_used", False):
+      bomb_damage = 5
+      monster["hp"] -= bomb_damage
+      messages.append(f"\n💣 BOMB DAMAGE:")
+      messages.append(f"Your bomb explodes, dealing {bomb_damage} damage to the {monster['name']}!")
+      # Reset the bomb usage flag
+      player["bomb_used"] = False
+      
+      # Check if monster died from the bomb
+      if monster["hp"] <= 0:
+        # Award XP and coins
+        coin_reward = plugin.np.random.randint(monster["coin_reward"][0], monster["coin_reward"][1] + 1)
+        player["coins"] += coin_reward
+        player["xp"] += monster["xp_reward"]
+        
+        # Calculate combat summary
+        total_rounds = combat_session["round_number"]
+        total_health_lost = combat_session["initial_player_health"] - player["health"]
+        
+        # Clear the monster tile
+        x, y = player["position"]
+        game_map[y][x]["type"] = "EMPTY"
+        game_map[y][x]["monster_level"] = 0
+        
+        # Set player back to exploring
+        player = update_player_status(player, "exploring")
+        
+        messages.append(f"\n🎯 VICTORY!")
+        messages.append(f"The {monster['name']} was defeated by your bomb!")
+        messages.append(f"Rewards: {coin_reward} coins, {monster['xp_reward']} XP")
+        
+        # Add combat summary
+        messages.append(f"\n📈 COMBAT SUMMARY:")
+        messages.append(f"Total Rounds: {total_rounds}")
+        messages.append(f"Health Lost: {total_health_lost:.1f}")
+        
+        # Check for level up
+        leveled_up, level_up_msg = check_level_up(player)
+        if leveled_up:
+          messages.append(f"\n{level_up_msg}")
+        
+        # Check exploration progress
+        progress = check_exploration_progress(game_map)
+        messages.append(f"\n🌍 Map Exploration: {progress}% complete")
+        
+        return True, "\n".join(messages)
+    
     # Player's attack
     player_min_damage = max(1, player["attack"])
     player_max_damage = max(2, player["attack"] * 2)
@@ -1082,31 +1094,21 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       messages.append(f"Health Lost: {total_health_lost:.1f}")
       
       # Check for level up
-      if player["xp"] >= player["next_level_xp"]:
-        old_level = player["level"]
-        player["level"] += 1
-        new_level = player["level"]
-        
-        if new_level in LEVEL_DATA:
-          level_data = LEVEL_DATA[new_level]
-          player["max_health"] = level_data["max_hp"]
-          player["max_energy"] = level_data["max_energy"]
-          player["next_level_xp"] = level_data["next_level_xp"]
-          player["hp_regen_rate"] = level_data["hp_regen_rate"]
-          player["energy_regen_rate"] = level_data["energy_regen_rate"]
-          player["damage_reduction"] = level_data["damage_reduction"]
-          
-          messages.append(f"\n🌟 LEVEL UP!")
-          messages.append(f"You are now level {new_level}!")
-          messages.append(f"Max Health: {player['max_health']}")
-          messages.append(f"Max Energy: {player['max_energy']}")
-          messages.append(f"\n🌟 You can continue exploring the dungeon! Use /map to see your surroundings.")
+      leveled_up, level_up_msg = check_level_up(player)
+      if leveled_up:
+        messages.append(f"\n{level_up_msg}")
+      
+      # Check exploration progress
+      progress = check_exploration_progress(game_map)
+      messages.append(f"\n🌍 Map Exploration: {progress}% complete")
       
       return True, "\n".join(messages)
     
-    # Monster's counterattack
-    messages.append(f"\n👿 Monster's attack:")
-    monster_damage = plugin.np.random.randint(monster["min_damage"], monster["max_damage"] + 1)
+    # Monster's attack
+    monster_min_damage = max(1, monster["min_damage"] - player["attack"])
+    monster_max_damage = max(2, monster["max_damage"])
+    monster_damage = plugin.np.random.randint(monster_min_damage, monster_max_damage + 1)
+    messages.append(f"\n🐾 Monster's attack:")
     
     # Check for dodge
     if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
@@ -1172,9 +1174,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # ---------------------------
   # Ensure bot status tracking exists
   # ---------------------------
+  current_time = plugin.time()
   if "bot_status" not in plugin.obj_cache:
     # Initialize bot status tracking
-    current_time = plugin.time()
     plugin.obj_cache["bot_status"] = {
       "status": "uninitialized", 
       "initialized": False,
@@ -1722,7 +1724,37 @@ def loop_processing(plugin):
     9: {"max_hp": 26, "max_energy": 36, "next_level_xp": 320, "hp_regen_rate": 7.8, "energy_regen_rate": 15.6, "damage_reduction": 0.40},
     10: {"max_hp": 28, "max_energy": 40, "next_level_xp": 400, "hp_regen_rate": 9, "energy_regen_rate": 18, "damage_reduction": 0.45},
   }
-  
+
+  def check_level_up(player):
+    """Check if player has leveled up and apply level up benefits."""
+    if player["xp"] >= player["next_level_xp"]:
+      old_level = player["level"]
+      player["level"] += 1
+      new_level = player["level"]
+
+      if new_level in LEVEL_DATA:
+        level_data = LEVEL_DATA[new_level]
+        player["max_health"] = level_data["max_hp"]
+        player["max_energy"] = level_data["max_energy"]
+        player["next_level_xp"] = level_data["next_level_xp"]
+        player["hp_regen_rate"] = level_data["hp_regen_rate"]
+        player["energy_regen_rate"] = level_data["energy_regen_rate"]
+        player["damage_reduction"] = level_data["damage_reduction"]
+
+        level_up_msg = (f"🌟 LEVEL UP!\n"
+                        f"You are now level {new_level}!\n"
+                        f"Max Health: {player['max_health']}\n"
+                        f"Max Energy: {player['max_energy']}\n"
+                        f"🌟 You can continue exploring the dungeon! Use /map to see your surroundings.")
+        return True, level_up_msg
+    return False, ""
+
+  def check_exploration_progress(game_map):
+    """Calculates the percentage of the map that has been explored (for informational purposes only)."""
+    total_tiles = GRID_WIDTH * GRID_HEIGHT
+    visible_tiles = sum(1 for row in game_map for tile in row if tile["visible"])
+    return (visible_tiles / total_tiles) * 100
+
   def find_random_empty_spot(game_map):
     """
     Finds a random empty spot on the map.
@@ -1936,31 +1968,21 @@ def loop_processing(plugin):
       messages.append(f"Health Lost: {total_health_lost:.1f}")
       
       # Check for level up
-      if player["xp"] >= player["next_level_xp"]:
-        old_level = player["level"]
-        player["level"] += 1
-        new_level = player["level"]
-        
-        if new_level in LEVEL_DATA:
-          level_data = LEVEL_DATA[new_level]
-          player["max_health"] = level_data["max_hp"]
-          player["max_energy"] = level_data["max_energy"]
-          player["next_level_xp"] = level_data["next_level_xp"]
-          player["hp_regen_rate"] = level_data["hp_regen_rate"]
-          player["energy_regen_rate"] = level_data["energy_regen_rate"]
-          player["damage_reduction"] = level_data["damage_reduction"]
-          
-          messages.append(f"\n🌟 LEVEL UP!")
-          messages.append(f"You are now level {new_level}!")
-          messages.append(f"Max Health: {player['max_health']}")
-          messages.append(f"Max Energy: {player['max_energy']}")
-          messages.append(f"\n🌟 You can continue exploring the dungeon! Use /map to see your surroundings.")
+      leveled_up, level_up_msg = check_level_up(player)
+      if leveled_up:
+        messages.append(f"\n{level_up_msg}")
+      
+      # Check exploration progress
+      progress = check_exploration_progress(game_map)
+      messages.append(f"\n🌍 Map Exploration: {progress}% complete")
       
       return True, "\n".join(messages)
     
-    # Monster's counterattack
-    messages.append(f"\n👿 Monster's attack:")
-    monster_damage = plugin.np.random.randint(monster["min_damage"], monster["max_damage"] + 1)
+    # Monster's attack
+    monster_min_damage = max(1, monster["min_damage"] - player["attack"])
+    monster_max_damage = max(2, monster["max_damage"])
+    monster_damage = plugin.np.random.randint(monster_min_damage, monster_max_damage + 1)
+    messages.append(f"\n🐾 Monster's attack:")
     
     # Check for dodge
     if player["dodge_chance"] > 0 and plugin.np.random.random() < player["dodge_chance"]:
