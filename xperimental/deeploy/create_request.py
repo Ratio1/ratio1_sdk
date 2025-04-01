@@ -25,7 +25,8 @@ if __name__ == '__main__' :
   app_name = "app_" + str(uuid4())[:8]
   
   NODES = [
-    "0x4bc05c6d0856ea0F437C640B77415e8fCaB09Bd0"
+    "0x4bc05c6d0856ea0F437C640B77415e8fCaB09Bd0",    
+    "0x4Bb528D985f11e2530ADb3eaB22F4c5AA028Fe13"
   ]
   
   CREATE_REQUEST = {
@@ -36,9 +37,9 @@ if __name__ == '__main__' :
     "target_nodes_count" : 0,
     "app_params" : {
       "IMAGE" : "repo/image:tag",
-      "REGISTRY" : "docker.io",
-      "USERNAME" : "user",
-      "PASSWORD" : "password",
+      "CR" : "docker.io",
+      "CR_USERNAME" : "user",
+      "CR_PASSWORD" : "password",
       "PORT" : 5000,
       "OTHER_PARAM1" : "value1",
       "OTHER_PARAM2" : "value2",
@@ -78,7 +79,7 @@ if __name__ == '__main__' :
     create_request["target_nodes"],
     create_request["target_nodes_count"],
     create_request["app_params"].get("IMAGE",""),
-    create_request["app_params"].get("REGISTRY", ""),
+    create_request["app_params"].get("CR", ""),
   ]
   
   create_types = [
