@@ -128,7 +128,8 @@ def require_ipfs_started(method):
   """
   def wrapper(self, *args, **kwargs):
     if not self.ipfs_started:
-      raise RuntimeError(f"{method.__name__} FAILED. R1FS.ipfs_started=={self.ipfs_started}")
+      msg = f"R1FS ERROR: {method.__name__} FAILED. R1FS.ipfs_started=={self.ipfs_started}"
+      raise RuntimeError(msg)
     return method(self, *args, **kwargs)
   return wrapper  
 
@@ -877,8 +878,11 @@ class R1FSEngine:
         if ipfs_daemon_running:
           self.P("IPFS daemon already running", color='g')
         else:
-          self.P("IPFS daemon not running. Trying to start...", color='r')          
           # If not running, start the daemon in the background.
+          self.P("IPFS daemon not running. Trying to start...", color='r')     
+          ###################################################
+          #######             CLEANUP PHASE            ######
+          ###################################################                       
           # first delete the repository lock file if it exists
           lock_file = os.path.join(self.__ipfs_home, "repo.lock")
           if os.path.isfile(lock_file):
@@ -886,7 +890,16 @@ class R1FSEngine:
             os.remove(lock_file)
           else:
             self.P(f"Lock file {lock_file} not found.")
+          # next check if the api is zero-length - if so, delete it
+          api_file = os.path.join(self.__ipfs_home, "api")
+          if os.path.isfile(api_file) and os.path.getsize(api_file) == 0:
+            self.P(f"Deleting zero-length api file {api_file}...")
+            os.remove(api_file)
+          #endif            
           # now we can start the daemon
+          ###################################################
+          #######        END OF CLEANUP PHASE        ########
+          ###################################################
           self.__set_reprovider_interval()
           self.__set_relay()
           self.P("Starting IPFS daemon in background...")
