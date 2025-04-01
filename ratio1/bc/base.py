@@ -910,7 +910,7 @@ class BaseBlockEngine(
     return str_pem  
   
   
-  def _dict_to_json(self, dct_data, replace_nan=True, inplace=True):
+  def _dict_to_json(self, dct_data, replace_nan=True, inplace=True, indent=0):
     if replace_nan:
       dct_safe_data = replace_nan_inf(dct_data, inplace=inplace)
     else:
@@ -921,6 +921,8 @@ class BaseBlockEngine(
       separators=(',',':'),
       ensure_ascii=self.__ensure_ascii_payloads,
     )
+    if indent > 0:
+      dumps_config['indent'] = indent    
     # we dump the data to a string then we reload and sort as there might
     # be some issues with the sorting if we have int keys that will be sorted
     # then recovered as string keys
@@ -1169,7 +1171,7 @@ class BaseBlockEngine(
     )
     return str_data
   
-  def safe_dict_to_json(self, dct_data, replace_nan=True):
+  def safe_dict_to_json(self, dct_data, replace_nan=True, indent=0):
     """
     Will convert the dict to json (removing the non-data fields) and return the json string. 
     The dict will be modified inplace to replace NaN and Inf with None.
@@ -1178,7 +1180,8 @@ class BaseBlockEngine(
     str_data = self._dict_to_json(
       dct_data, 
       replace_nan=replace_nan, 
-      inplace=True # will replace inplace the np.nan and np.inf with None
+      inplace=True, # will replace inplace the np.nan and np.inf with None
+      indent=indent
     )
     return str_data
     
