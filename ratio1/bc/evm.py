@@ -148,6 +148,30 @@ GET_NODE_INFO_ABI = [
 ]
 
 
+GET_WALLET_NODES = [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "wallet",
+          "type": "address"
+        }
+      ],
+      "name": "getWalletNodes",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "nodes",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+                  
+]
+
+
 class _EVMMixin:
   
   # EVM address methods
@@ -1200,3 +1224,42 @@ class _EVMMixin:
           pass
       #end if
       return details
+    
+    
+    def web3_get_wallet_nodes(self, address: str, network:str = None):
+      """
+      Retrieve all nodes associated with a given wallet address.
+
+      Parameters
+      ----------
+      wallet_addr : str
+          The Ethereum wallet address to check.
+          
+      network : str, optional
+          The network to use. If None, defaults to self.evm_network.
+
+      Returns
+      -------
+      list of dict
+          A list of dictionaries containing node details.
+      """
+      assert self.is_valid_eth_address(address), "Invalid Ethereum address"
+
+      # Retrieve the necessary Web3 variables (pattern consistent with web3_send_r1).
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+
+      # Create the contract instance for retrieving node info.
+      # Assuming you have a specific contract address in w3vars (e.g. license_contract_address),
+      # or you may adapt this code if your contract address is stored differently.
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.proxy_contract_address,  # or the relevant address from your environment
+        abi=GET_WALLET_NODES
+      )
+      
+      self.P(f"`getWalletNodes` on {network} via {w3vars.rpc_url}", verbosity=2)
+      # Call the contract function to get details.
+      result = contract.functions.getWalletNodes(address).call()
+      # Unpack the tuple into a dictionary for readability.
+      
+      return result
