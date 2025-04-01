@@ -413,6 +413,7 @@ class R1FSEngine:
     timeout=IPFSCt.TIMEOUT,
     verbose=False,
     return_errors=False,
+    show_logs=True,
   ):
     """
     Run a shell command using subprocess.run with a timeout.
@@ -423,7 +424,8 @@ class R1FSEngine:
     output = ""
     errors = ""
     cmd_str = " ".join(cmd_list)
-    self.Pd(f"Running command: {cmd_str}", color='d')
+    if show_logs:
+      self.Pd(f"Running command: {cmd_str}", color='d')
     try:
       result = subprocess.run(
         cmd_list, 
@@ -433,26 +435,30 @@ class R1FSEngine:
       )
     except subprocess.TimeoutExpired as e:
       failed = True
-      self.P(f"Command timed out after {timeout} seconds: {cmd_str}", color='r')
+      if show_logs:
+        self.P(f"Command timed out after {timeout} seconds: {cmd_str}", color='r')
       if raise_on_error:
         raise Exception(f"Timeout expired for '{cmd_str}'") from e
     except Exception as e:
       failed = True
       msg = f"Error running command `{cmd_str}`: {e}"
-      self.P(msg, color='r')
+      if show_logs:
+        self.P(msg, color='r')
       if raise_on_error:
         raise Exception(msg) from e
     
     if result.returncode != 0:
       errors = result.stderr.strip()
       failed = True
-      self.P(f"Command error `{cmd_str}`: {errors}", color='r')
+      if show_logs:
+        self.P(f"Command error `{cmd_str}`: {errors}", color='r')
       if raise_on_error:
         raise Exception(f"Error while running '{cmd_str}': {result.stderr.strip()}")
     
     if not failed:
-      if verbose:
-        self.Pd(f"Command output: {result.stdout.strip()}")
+      if show_logs:
+        if verbose:
+          self.Pd(f"Command output: {result.stdout.strip()}")
       output = result.stdout.strip()
     if return_errors:
       output, errors
@@ -498,14 +504,15 @@ class R1FSEngine:
     
     # Public methods
     
-    def add_json(self, data, fn=None, tempfile=False) -> bool:
+    def add_json(self, data, fn=None, tempfile=False, show_logs=True) -> bool:
       """
       Add a JSON object to IPFS.
       """
       try:
         json_data = json.dumps(data)
         if tempfile:
-          self.Pd("Using tempfile for JSON")
+          if show_logs:
+            self.Pd("Using tempfile for JSON")
           with tempfile.NamedTemporaryFile(
             mode='w', suffix='.json', delete=False
           ) as f:
@@ -513,18 +520,20 @@ class R1FSEngine:
           fn = f.name
         else:
           fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".json")
-          self.Pd(f"Using unique name for JSON: {fn}")
+          if show_logs:
+            self.Pd(f"Using unique name for JSON: {fn}")
           with open(fn, "w") as f:
             f.write(json_data)
         #end if tempfile
         cid = self.add_file(fn)
         return cid
       except Exception as e:
-        self.P(f"Error adding JSON to IPFS: {e}", color='r')
+        if show_logs:
+          self.P(f"Error adding JSON to IPFS: {e}", color='r')
         return None
       
       
-    def add_yaml(self, data, fn=None, tempfile=False) -> bool:
+    def add_yaml(self, data, fn=None, tempfile=False, show_logs=True) -> bool:
       """
       Add a YAML object to IPFS.
       """
@@ -532,47 +541,53 @@ class R1FSEngine:
         import yaml
         yaml_data = yaml.dump(data)
         if tempfile:
-          self.Pd("Using tempfile for YAML")
+          if show_logs:
+            self.Pd("Using tempfile for YAML")
           with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write(yaml_data)
           fn = f.name
         else:
           fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".yaml")
-          self.Pd(f"Using unique name for YAML: {fn}")
+          if show_logs:
+            self.Pd(f"Using unique name for YAML: {fn}")
           with open(fn, "w") as f:
             f.write(yaml_data)
         cid = self.add_file(fn)
         return cid
       except Exception as e:
-        self.P(f"Error adding YAML to IPFS: {e}", color='r')
+        if show_logs:
+          self.P(f"Error adding YAML to IPFS: {e}", color='r')
         return None
       
       
-    def add_pickle(self, data, fn=None, tempfile=False) -> bool:
+    def add_pickle(self, data, fn=None, tempfile=False, show_logs=True) -> bool:
       """
       Add a Pickle object to IPFS.
       """
       try:
         import pickle
         if tempfile:
-          self.Pd("Using tempfile for Pickle")
+          if show_logs:
+            self.Pd("Using tempfile for Pickle")
           with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
             pickle.dump(data, f)
           fn = f.name
         else:
           fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
-          self.Pd(f"Using unique name for pkl: {fn}")
+          if show_logs:
+            self.Pd(f"Using unique name for pkl: {fn}")
           with open(fn, "wb") as f:
             pickle.dump(data, f)
         cid = self.add_file(fn)
         return cid
       except Exception as e:
-        self.P(f"Error adding Pickle to IPFS: {e}", color='r')
+        if show_logs:
+          self.P(f"Error adding Pickle to IPFS: {e}", color='r')
         return None
 
 
     @require_ipfs_started
-    def add_file(self, file_path: str) -> str:
+    def add_file(self, file_path: str, show_logs=True) -> str:
       """
       This method adds a file to IPFS and returns the CID of the wrapped folder.
       
@@ -580,6 +595,8 @@ class R1FSEngine:
       ----------
       file_path : str
           The path to the file to be added.
+      show_logs : bool
+          Whether to show logs or not.
       
       Returns
       -------
@@ -601,7 +618,8 @@ class R1FSEngine:
       self.__uploaded_files[folder_cid] = file_path
       # now we pin the folder
       res = self.__pin_add(folder_cid)
-      self.P(f"Added file {file_path} as <{folder_cid}>")
+      if show_logs:
+        self.P(f"Added file {file_path} as <{folder_cid}>")
       return folder_cid
 
 
@@ -612,7 +630,8 @@ class R1FSEngine:
       local_folder: str = None, 
       timeout: int = None,
       pin=True, 
-      raise_on_error: bool = False
+      raise_on_error: bool = False,
+      show_logs: bool = True,
     ) -> str:
       """
       Get a file from IPFS by CID and save it to a local folder.
@@ -630,7 +649,9 @@ class R1FSEngine:
       timeout : int
           The maximum time to wait for the download to complete.
           Default `None` means the timeout is set by the IPFSCt.TIMEOUT (90s by default)
-              
+      show_logs : bool
+          Whether to show logs or not.
+
       """
       if pin:
         pin_result = self.__pin_add(cid)
@@ -640,9 +661,10 @@ class R1FSEngine:
         os.makedirs(local_folder, exist_ok=True)
         local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
         
-      self.Pd(f"Downloading file {cid} to {local_folder}")
+      if show_logs:
+        self.Pd(f"Downloading file {cid} to {local_folder}")
       start_time = time.time()
-      self.__run_command(["ipfs", "get", cid, "-o", local_folder], timeout=timeout)
+      self.__run_command(["ipfs", "get", cid, "-o", local_folder], timeout=timeout, show_logs=show_logs)
       elapsed_time = time.time() - start_time
       # now we need to get the file from the folder
       folder_contents = os.listdir(local_folder)
@@ -651,10 +673,12 @@ class R1FSEngine:
         if raise_on_error:
           raise Exception(msg)
         else:
-          self.P(msg, color='r')
+          if show_logs:
+            self.P(msg, color='r')
       # get the full path of the file
       out_local_filename = os.path.join(local_folder, folder_contents[0])
-      self.P(f"Downloaded in {elapsed_time:.1f}s <{cid}> to {out_local_filename}")
+      if show_logs:
+        self.P(f"Downloaded in {elapsed_time:.1f}s <{cid}> to {out_local_filename}")
       self.__downloaded_files[cid] = out_local_filename
       return out_local_filename
 
