@@ -135,6 +135,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       "description": "Reveals more of the map when used",
       "price": 10,
       "type": "consumable"
+    },
+    "energy_drink": {
+      "name": "Energy Drink 🧃",
+      "description": "Restores 10 energy points",
+      "price": 7,
+      "type": "consumable"
+    },
+    "bomb": {
+      "name": "Bomb 💣",
+      "description": "Deals 5 damage to a monster before combat starts",
+      "price": 15,
+      "type": "consumable"
     }
   }
 
@@ -363,11 +375,14 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
         "hp_regen_rate": level_1_data["hp_regen_rate"],
         "energy_regen_rate": level_1_data["energy_regen_rate"],
         "last_update_time": plugin.time(),  # Track last update for regeneration with correct function
+        "last_message_time": plugin.time(),  # Track when the player last sent a message
         "status": "exploring",  # Player's current state: exploring, fighting, recovering
         "status_since": plugin.time(),  # When the current status was set
         "inventory": {
             "health_potion": 0,
-            "map_scroll": 0
+            "map_scroll": 0,
+            "energy_drink": 0,
+            "bomb": 0
         },
         "equipment": {
             "weapon": None,
@@ -760,7 +775,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       shop_text += f"  {item['description']}\n"
 
     shop_text += "\nTo purchase an item, use /buy <item_name>"
-    shop_text += "\nAvailable items: health_potion, sword, shield, amulet, boots, map_scroll"
+    shop_text += "\nAvailable items: health_potion, sword, shield, amulet, boots, map_scroll, energy_drink, bomb"
     return shop_text
 
   def buy_item(player, item_id):
@@ -862,6 +877,27 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       map_view = visualize_map(player, game_map)
       return f"You used a Map Scroll and revealed more of the map! Energy: -{ENERGY_COSTS['use_item']}\n\n{map_view}"
 
+    elif item_id == "energy_drink":
+      # Use energy drink to restore energy
+      player["energy"] += 10
+      player["inventory"][item_id] -= 1
+      return "You used an Energy Drink. Energy: +10"
+
+    elif item_id == "bomb":
+      # Check if player is in combat or about to enter combat
+      x, y = player["position"]
+      tile = game_map[y][x]
+      
+      if tile["type"] != "MONSTER":
+        # Refund energy if bomb wasn't used
+        player["energy"] += ENERGY_COSTS["use_item"]
+        return "You can only use bombs when facing a monster!"
+      
+      # Store the bomb usage flag for use in the combat session
+      player["bomb_used"] = True
+      player["inventory"][item_id] -= 1
+      return "You set a Bomb that will deal 5 damage to the monster when combat starts!"
+
     return f"Cannot use {item_id}."
 
   def display_help():
@@ -886,6 +922,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- When encountering a monster, you have 5 seconds to decide what to do.\n"
                  "- Use /fight to engage in battle, or /flee to return to your previous position.\n"
                  "- If you don't respond within 5 seconds, battle starts automatically.\n"
+                 "- Use a Bomb before combat to deal initial damage to the monster.\n"
                  "\nPlayer Status System:\n"
                  "Your character can be in one of four states that affect gameplay:\n"
                  "- Exploring: Normal movement with standard regeneration rates.\n"
@@ -893,6 +930,11 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- Fighting: Engaged in combat with reduced health regeneration.\n"
                  "- Recovering: Resting with increased health and energy regeneration.\n"
                  "Your status changes automatically based on your actions, but you can also set it manually.\n"
+                 "\nConsumable Items:\n"
+                 "- Health Potion (🧪): Restores 5 health points\n"
+                 "- Map Scroll (📜): Reveals a larger area of the map\n"
+                 "- Energy Drink (🧃): Restores 10 energy points\n"
+                 "- Bomb (💣): Deals 5 damage to a monster before combat starts\n"
                  "\nAvailable Commands:\n"
                  "1. /start  - Restart your character (keeps the shared map).\n"
                  "2. up, down, left, right (or W, A, S, D) - Move your character in the specified direction.\n"
@@ -900,7 +942,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "4. /map    - View the map of your surroundings.\n"
                  "5. /shop   - Visit the shop to browse and buy upgrades/items.\n"
                  "6. /buy <item_name> - Purchase an item from the shop.\n"
-                 "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
+                 "7. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll, energy_drink, bomb).\n"
                  "8. /fight  - Engage in combat with a monster you've encountered.\n"
                  "9. /flee   - Retreat from a monster encounter back to your previous position.\n"
                  "10. /setstatus <exploring|fighting|recovering> - Manually set your status to affect regeneration rates.\n"
@@ -1210,7 +1252,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "5. /map    - View the map of your surroundings.\n" 
             "6. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
             "7. /buy <item_name> - Purchase an item from the shop.\n" 
-            "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll).\n"
+            "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll, energy_drink, bomb).\n"
             "9. /fight  - Engage in combat with a monster you've encountered.\n"
             "10. /flee   - Retreat from a monster encounter back to your previous position.\n"
             "11. /help   - Display help information.")
@@ -1272,6 +1314,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     plugin.obj_cache["users"][user_id] = create_new_player()
 
   player = plugin.obj_cache["users"][user_id]
+  
+  # Update the last message time for the player
+  player["last_message_time"] = current_time
 
   # ---------------------------
   # WASD Controls Processing
@@ -1474,7 +1519,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   elif command == "/use":
     if len(parts) < 2:
-      return "Usage: /use <item_name>\nItems you can use: health_potion, map_scroll"
+      return "Usage: /use <item_name>\nItems you can use: health_potion, map_scroll, energy_drink, bomb"
 
     item_id = parts[1].lower()
     return use_item(player, item_id, game_map)
@@ -1531,14 +1576,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       "   • Cannot move until fully healed\n\n"
       "🎒 INVENTORY ITEMS:\n"
       "• Health Potion (🧪): Restores 5 HP\n"
-      "• Map Scroll (📜): Reveals larger area\n\n"
+      "• Map Scroll (📜): Reveals larger area\n"
+      "• Energy Drink (🧃): Restores 10 energy points\n"
+      "• Bomb (💣): Deals 5 damage to a monster before combat starts\n\n"
       "🛍️ SHOP ITEMS:\n"
       "• Health Potion: 5 coins\n"
       "• Sword (⚔️): +1 Attack, 15 coins\n"
       "• Shield (🛡️): +10% Damage Reduction, 20 coins\n"
       "• Magic Amulet (🔮): +3 Max Health, 25 coins\n"
       "• Speed Boots (👢): +5% Dodge Chance, 30 coins\n"
-      "• Map Scroll: 10 coins\n\n"
+      "• Map Scroll: 10 coins\n"
+      "• Energy Drink: 7 coins\n"
+      "• Bomb: 15 coins\n\n"
       "💡 TIPS:\n"
       "• Use /status to check your stats\n"
       "• Use /map to view your surroundings\n"
@@ -1823,28 +1872,48 @@ def loop_processing(plugin):
     hp_regen_per_second = (player["hp_regen_rate"] / 60.0) * modifiers["health"]
     energy_regen_per_second = (player["energy_regen_rate"] / 60.0) * modifiers["energy"]
 
-    # Store old health for checking recovery completion
+    # Store old health and energy for checking recovery completion
     old_health = player["health"]
+    old_energy = player["energy"]
+    
+    # Was fully recovered before this update
+    was_fully_recovered = (old_health >= player["max_health"] and old_energy >= player["max_energy"])
 
     # Regenerate health 
     if player["health"] < player["max_health"]:
       hp_gain = hp_regen_per_second * time_elapsed
       player["health"] = min(player["max_health"], player["health"] + hp_gain)
-      
-      # If health is fully regenerated and player was recovering, set status back to exploring
-      if player["health"] >= player["max_health"] and player["status"] == "recovering":
-        player = update_player_status(player, "exploring")
-        # Return a notification that the player has recovered
-        return player, "🌟 You have fully recovered and can now continue your adventure!"
 
     # Regenerate energy 
     if player["energy"] < player["max_energy"]:
       energy_gain = energy_regen_per_second * time_elapsed
       player["energy"] = min(player["max_energy"], player["energy"] + energy_gain)
       
-      # If energy is fully regenerated and player was recovering, set status back to exploring
-      if player["energy"] >= player["max_energy"] and player["status"] == "recovering" and player["health"] >= player["max_health"]:
-        player = update_player_status(player, "exploring")
+    # Is fully recovered after this update
+    is_fully_recovered = (player["health"] >= player["max_health"] and player["energy"] >= player["max_energy"])
+    
+    # Check if player just recovered (health and energy are both full)
+    just_recovered = (is_fully_recovered and not was_fully_recovered)
+    
+    # Check if player has been in recovery long enough (5 minutes = 300 seconds)
+    current_time = plugin.time()
+    recovery_duration = current_time - player.get("status_since", current_time)
+    sufficient_recovery_time = recovery_duration >= 300  # 5 minutes
+    
+    # If player was recovering and is now fully recovered, set to exploring
+    if player["status"] == "recovering" and is_fully_recovered:
+      # Check if at least 5 minutes have passed since the last message
+      time_since_last_message = current_time - player.get("last_message_time", 0)
+      
+      player = update_player_status(player, "exploring")
+      
+      # Return a notification if player is fully recovered and sufficient time has passed
+      if sufficient_recovery_time and time_since_last_message >= 300:  # 5 minutes
+        return player, "🌟 You have fully recovered and can now continue your adventure! Your health and energy are at maximum."
+      
+      # Return a simple notification for recovery with less time passed
+      if just_recovered:
+        return player, "You have recovered and can continue your adventure."
 
     return player, None
 
@@ -1929,6 +1998,54 @@ def loop_processing(plugin):
     # Add round start message with combat status
     messages.append(f"⚔️ COMBAT ROUND {round_number} ⚔️")
     messages.append(f"Fighting {monster['name']} (Level {monster['level']})")
+    
+    # Apply bomb damage in first round if player used a bomb
+    if round_number == 1 and player.get("bomb_used", False):
+      bomb_damage = 5
+      monster["hp"] -= bomb_damage
+      messages.append(f"\n💣 BOMB DAMAGE:")
+      messages.append(f"Your bomb explodes, dealing {bomb_damage} damage to the {monster['name']}!")
+      # Reset the bomb usage flag
+      player["bomb_used"] = False
+      
+      # Check if monster died from the bomb
+      if monster["hp"] <= 0:
+        # Award XP and coins
+        coin_reward = plugin.np.random.randint(monster["coin_reward"][0], monster["coin_reward"][1] + 1)
+        player["coins"] += coin_reward
+        player["xp"] += monster["xp_reward"]
+        
+        # Calculate combat summary
+        total_rounds = combat_session["round_number"]
+        total_health_lost = combat_session["initial_player_health"] - player["health"]
+        
+        # Clear the monster tile
+        x, y = player["position"]
+        game_map[y][x]["type"] = "EMPTY"
+        game_map[y][x]["monster_level"] = 0
+        
+        # Set player back to exploring
+        player = update_player_status(player, "exploring")
+        
+        messages.append(f"\n🎯 VICTORY!")
+        messages.append(f"The {monster['name']} was defeated by your bomb!")
+        messages.append(f"Rewards: {coin_reward} coins, {monster['xp_reward']} XP")
+        
+        # Add combat summary
+        messages.append(f"\n📈 COMBAT SUMMARY:")
+        messages.append(f"Total Rounds: {total_rounds}")
+        messages.append(f"Health Lost: {total_health_lost:.1f}")
+        
+        # Check for level up
+        leveled_up, level_up_msg = check_level_up(player)
+        if leveled_up:
+          messages.append(f"\n{level_up_msg}")
+        
+        # Check exploration progress
+        progress = check_exploration_progress(game_map)
+        messages.append(f"\n🌍 Map Exploration: {progress}% complete")
+        
+        return True, "\n".join(messages)
     
     # Player's attack
     player_min_damage = max(1, player["attack"])
