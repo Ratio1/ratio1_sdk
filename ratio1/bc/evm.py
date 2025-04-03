@@ -195,6 +195,8 @@ class _EVMMixin:
       # A) Must start with '0x'
       # B) Must be exactly 42 characters in total
       # C) All remaining characters must be valid hexadecimal digits
+      if not isinstance(address, str):
+        return False
       if not address.startswith("0x"):
         return False
       if len(address) != 42:
@@ -467,6 +469,7 @@ class _EVMMixin:
       types : list, values : list, 
       payload: dict = None,
       verbose: bool = False,
+      no_hash: bool = False,
     ):
       """
       Signs a message using the private key.
@@ -482,6 +485,9 @@ class _EVMMixin:
       payload: dict, optional
           If provided, the payload will be completed with the signature based on
           the `values` and `types` provided. The default is None.
+          
+      no_hash : bool, optional
+          This is used to skip the hashing of the message. The default is False.
 
       Returns
       -------
@@ -497,7 +503,11 @@ class _EVMMixin:
       if verbose:
         msg_size = len(values)
         self.P(f"Signing {msg_size=} with {types=}")
-      message_hash = self.eth_hash_message(types, values, as_hex=False)
+      if no_hash:
+        assert len(values) == 1 and isinstance(values[0], str), "Only one str value is allowed for no hashing."
+        message_hash = values[0].encode('utf-8')
+      else:
+        message_hash = self.eth_hash_message(types, values, as_hex=False)
       signable_message = encode_defunct(primitive=message_hash)
       signed_message = Account.sign_message(signable_message, private_key=self.eth_account.key)
       if hasattr(signed_message, "message_hash"): # backward compatibility
@@ -520,7 +530,14 @@ class _EVMMixin:
       }
       
 
-    def eth_verify_message_signature(self, values: list, types: list, signature: str, raise_if_error=False):
+    def eth_verify_message_signature(
+      self, 
+      values: list, 
+      types: list, 
+      signature: str, 
+      raise_if_error=False,
+      no_hash=False,
+    ):
       """
       Verifies an EVM-compatible signature by:
         1) Recomputing the message hash from the provided types/values.
@@ -547,7 +564,10 @@ class _EVMMixin:
       result = None
       try:
         # 1) Recompute the message hash used at signing time
-        message_hash = self.eth_hash_message(types, values, as_hex=False)
+        if no_hash:
+          message_hash = values[0].encode('utf-8')
+        else:
+          message_hash = self.eth_hash_message(types, values, as_hex=False)
         signable_message = encode_defunct(primitive=message_hash)
         
         # 2) Convert the hex signature string into bytes
@@ -569,7 +589,12 @@ class _EVMMixin:
          
 
 
-    def eth_sign_text(self, message, signature_only=True):
+    def eth_sign_text(
+      self, 
+      message, 
+      signature_only=True,
+      no_hash: bool = False,
+    ):
       """
       Signs a text message using the private key.
 
@@ -588,13 +613,23 @@ class _EVMMixin:
       """
       types = ["string"]
       values = [message]
-      result = self.eth_sign_message(types, values)
+      result = self.eth_sign_message(
+        types, values,
+        no_hash=no_hash,
+      )
       if signature_only:
         return result["signature"]
       return result   
 
 
-    def eth_verify_text_signature(self, text: str, signature: str, raise_if_error=False):
+    def eth_verify_text_signature(
+      self, 
+      text: str, 
+      signature: str, 
+      no_hash=False,
+      message_prefix: str = "",
+      raise_if_error=False,
+    ):
       """
       Verifies the signature of a message by checking if the recovered address matches the expected sender.
 
@@ -604,7 +639,15 @@ class _EVMMixin:
           The message that was signed.
           
       signature : str
-          The signature in hex form (e.g. "0x1234abcd...").
+          The signature in hex form (e.g. "0x1234abcd...").                
+          
+      no_hash : bool, optional
+          If True, the message is not hashed before verification. The default is False.
+          This is useful for raw text messages that are not hashed such as the ones signed by
+          wallets.
+          
+      message_prefix : str, optional
+          A prefix to be added to the message before hashing (or signing). The default is "".
 
       Returns
       -------
@@ -612,13 +655,23 @@ class _EVMMixin:
           True if the signature is valid, False otherwise.
       """
       types = ["string"]
-      values = [text]
-      result = self.eth_verify_message_signature(values, types, signature, raise_if_error=raise_if_error)
+      values = [message_prefix + text]
+      result = self.eth_verify_message_signature(
+        values=values, types=types, signature=signature, no_hash=no_hash,
+        raise_if_error=raise_if_error
+      )
       return result
       
     
     
-    def eth_sign_payload(self, payload: dict, add_data=True):
+    def eth_sign_payload(
+      self, 
+      payload: dict, 
+      add_data=True,
+      indent=0,
+      no_hash=False,
+      message_prefix: str = "",
+    ):
       """
       Signs a payload using the private key.
       
@@ -631,6 +684,15 @@ class _EVMMixin:
       add_data : bool, optional
           Whether to add the signature and sender address to the payload. The default is True.
           
+      indent : int, optional
+          The indentation level for the JSON string. The default is 0.
+          
+      no_hash : bool, optional
+          If True, the message is not hashed before signing. The default is False.
+          This is useful for raw text messages that are not hashed such as the ones signed by
+          wallets.
+          
+          
       Returns
       -------
       
@@ -639,15 +701,25 @@ class _EVMMixin:
           
       """
       assert isinstance(payload, dict), "Data must be a dictionary" 
-      str_data = self.safe_dict_to_json(payload)
-      signature = self.eth_sign_text(str_data, signature_only=True)
+      str_data = self.safe_dict_to_json(payload, indent=indent)
+      str_message = message_prefix + str_data
+      signature = self.eth_sign_text(
+        str_message, signature_only=True, no_hash=no_hash
+      )
       if add_data:
         payload[BCctbase.ETH_SIGN] = signature
         payload[BCctbase.ETH_SENDER] = self.eth_address
       return signature
     
 
-    def eth_verify_payload_signature(self, payload: dict, raise_if_error=False):
+    def eth_verify_payload_signature(
+      self, 
+      payload: dict, 
+      no_hash=False, 
+      message_prefix: str = "",
+      indent=0,
+      raise_if_error=False
+    ):
       """
       Verifies the signature of a payload by checking if the recovered address matches 
       the expected sender.
@@ -657,6 +729,18 @@ class _EVMMixin:
       
       payload : dict
           The payload that was signed. Must contain the keys ETH_SENDER and ETH_SIGN.
+          
+      no_hash : bool, optional
+          If True, the message is not hashed before verification. The default is False.
+          This is useful for raw text messages that are not hashed such as the ones signed by
+          wallets.
+          
+      message_prefix : str, optional
+          A prefix to be added to the message before hashing (or signing). The default is "".
+          
+      
+      indent : int, optional
+          The indentation level for the JSON string. The default is 0.
                   
         
       """
@@ -677,9 +761,10 @@ class _EVMMixin:
           self.P(error_msg, color='r')
           result = None
       else:
-        str_data = self.safe_dict_to_json(_payload)
+        str_data = self.safe_dict_to_json(_payload, indent=indent)
         result = self.eth_verify_text_signature(
-          text=str_data, signature=signature, raise_if_error=raise_if_error
+          text=str_data, signature=signature, message_prefix=message_prefix,
+          no_hash=no_hash, raise_if_error=raise_if_error
         )
         if result is None:
           if raise_if_error:
