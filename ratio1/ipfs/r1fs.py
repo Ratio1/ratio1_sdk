@@ -60,8 +60,12 @@ import os
 import tempfile
 import uuid
 import requests
+import hashlib
+import shutil
 
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+DEFAULT_SECRET = "ratio1"
 
 from threading import Lock
 
@@ -136,6 +140,7 @@ def require_ipfs_started(method):
 
 
 class R1FSEngine:
+  
   _lock: Lock = Lock()
   __instances = {}
 
@@ -162,336 +167,354 @@ class R1FSEngine:
       else:
         instance = cls.__instances[name]
     return instance
-    
-  def _build(
-    self, 
-    name: str = "default",
-    logger: any = None, 
-    downloads_dir: str = None,
-    uploads_dir: str = None,
-    base64_swarm_key: str = None, 
-    ipfs_relay: str = None,   
-    min_connection_age: int = DEFAULT_MIN_CONNECTION_AGE,
-    debug=False,     
-  ):
-    """
-    Initialize the IPFS wrapper with a given logger function.
-    By default, it uses the built-in print function for logging.
-    
-    
-    """
-    self.__name = name
-    if logger is None:
-      logger = SimpleLogger()
-
-    self.logger = logger
-
-    self.__ipfs_started = False
-    self.__ipfs_address = None
-    self.__ipfs_id = None
-    self.__ipfs_id_result = None
-    self.__min_connection_age = min_connection_age
-    self.__connected_at = None
-    self.__ipfs_agent = None
-    self.__uploaded_files = {}
-    self.__downloaded_files = {}
-    self.__base64_swarm_key = base64_swarm_key
-    self.__ipfs_relay = ipfs_relay
-    self.__ipfs_home = None
-    self.__downloads_dir = downloads_dir
-    self.__uploads_dir = uploads_dir    
-    self.__debug = debug
-    self.__relay_check_cnt = 0
-    
-    self.startup()
-    return
   
-  def startup(self):
-    
-    if self.__downloads_dir is None:
-      if hasattr(self.logger, "get_output_folder"):
-        output_folder = self.logger.get_output_folder()
-        self.Pd("Using output folder as base: {}".format(output_folder))
-        self.__downloads_dir = os.path.join(
-          output_folder,
-          IPFSCt.R1FS_DOWNLOADS
-        )
-      else:
-        self.__downloads_dir = IPFSCt.TEMP_DOWNLOAD
-    #end if downloads_dir    
-    os.makedirs(self.__downloads_dir, exist_ok=True)    
-    
-    if self.__uploads_dir is None:
-      if hasattr(self.logger, "get_output_folder"):
-        self.__uploads_dir = os.path.join(
-          self.logger.get_output_folder(),
-          IPFSCt.R1FS_UPLOADS
-        )
-      else:
-        self.__uploads_dir = IPFSCt.TEMP_UPLOAD
-    os.makedirs(self.__uploads_dir, exist_ok=True)    
-    
-    self.maybe_start_ipfs(
-      base64_swarm_key=self.__base64_swarm_key,
-      ipfs_relay=self.__ipfs_relay,
-    )
-    return
-    
-    
-  def P(self, s, *args, **kwargs):
-    s = "[R1FS] " + s
-    color = kwargs.pop("color", "d")
-    kwargs["color"] = color
-    self.logger.P(s, *args, **kwargs)
-    return
   
-  def Pd(self, s, *args, **kwargs):
-    if self.__debug:
-      s = "[R1FS][DEBUG] " + s
+  # base
+  if True:
+      
+    def _build(
+      self, 
+      name: str = "default",
+      logger: any = None, 
+      downloads_dir: str = None,
+      uploads_dir: str = None,
+      base64_swarm_key: str = None, 
+      ipfs_relay: str = None,   
+      min_connection_age: int = DEFAULT_MIN_CONNECTION_AGE,
+      debug=False,     
+    ):
+      """
+      Initialize the IPFS wrapper with a given logger function.
+      By default, it uses the built-in print function for logging.
+      
+      
+      """
+      self.__DEFAULT_SECRET = DEFAULT_SECRET
+      self.__name = name
+      if logger is None:
+        logger = SimpleLogger()
+
+      self.logger = logger
+
+      self.__ipfs_started = False
+      self.__ipfs_address = None
+      self.__ipfs_id = None
+      self.__ipfs_id_result = None
+      self.__min_connection_age = min_connection_age
+      self.__connected_at = None
+      self.__ipfs_agent = None
+      self.__uploaded_files = {}
+      self.__downloaded_files = {}
+      self.__base64_swarm_key = base64_swarm_key
+      self.__ipfs_relay = ipfs_relay
+      self.__ipfs_home = None
+      self.__downloads_dir = downloads_dir
+      self.__uploads_dir = uploads_dir    
+      self.__debug = debug
+      self.__relay_check_cnt = 0
+      
+      self.startup()
+      return
+    
+    def startup(self):
+      
+      if self.__downloads_dir is None:
+        if hasattr(self.logger, "get_output_folder"):
+          output_folder = self.logger.get_output_folder()
+          self.Pd("Using output folder as base: {}".format(output_folder))
+          self.__downloads_dir = os.path.join(
+            output_folder,
+            IPFSCt.R1FS_DOWNLOADS
+          )
+        else:
+          self.__downloads_dir = IPFSCt.TEMP_DOWNLOAD
+      #end if downloads_dir    
+      os.makedirs(self.__downloads_dir, exist_ok=True)    
+      
+      if self.__uploads_dir is None:
+        if hasattr(self.logger, "get_output_folder"):
+          self.__uploads_dir = os.path.join(
+            self.logger.get_output_folder(),
+            IPFSCt.R1FS_UPLOADS
+          )
+        else:
+          self.__uploads_dir = IPFSCt.TEMP_UPLOAD
+      os.makedirs(self.__uploads_dir, exist_ok=True)    
+      
+      self.maybe_start_ipfs(
+        base64_swarm_key=self.__base64_swarm_key,
+        ipfs_relay=self.__ipfs_relay,
+      )
+      return
+      
+      
+    def P(self, s, *args, **kwargs):
+      s = "[R1FS] " + s
       color = kwargs.pop("color", "d")
-      color = "d" if color != 'r' else "r"
       kwargs["color"] = color
       self.logger.P(s, *args, **kwargs)
-    return
-  
-  def _set_debug(self):
-    """
-    Force debug mode on.
-    """
-    self.__debug = True
-    return
+      return
     
-  @property
-  def ipfs_id(self):
-    return self.__ipfs_id
-  
-  @property
-  def ipfs_address(self):
-    return self.__ipfs_address
-  
-  @property
-  def ipfs_agent(self):
-    return self.__ipfs_agent
-  
-  @property
-  def ipfs_started(self):
-    return self.__ipfs_started
-  
-  @property
-  def peers(self):
-    return self.__peers
-  
-  @property
-  def swarm_peers(self):
-    return self.peers
-  
-  @property
-  def uploaded_files(self):
-    return self.__uploaded_files
-  
-  @property
-  def downloaded_files(self):
-    return self.__downloaded_files
-  
-  
-  @property
-  def connected_at(self):
-    return self.__connected_at
-  
-  @property
-  def ipfs_home(self):
-    """ return the IPFS home directory from the environment variable IPFS_PATH """
-    return os.environ.get("IPFS_PATH")
-  
-  
-  def _get_unique_name(self, prefix="r1fs", suffix=""):
-    str_id = str(uuid.uuid4()).replace("-", "")[:8]
-    return f"{prefix}_{str_id}{suffix}"
-  
-  def _get_unique_upload_name(self, prefix="r1fs", suffix=""):
-    return os.path.join(self.__uploads_dir, self._get_unique_name(prefix, suffix))
-  
-  def _get_unique_or_complete_upload_name(self, fn=None, prefix="r1fs", suffix=""):
-    if fn is not None and os.path.dirname(fn) == "":
-      return os.path.join(self.__uploads_dir, f"{fn}{suffix}")
-    return self._get_unique_upload_name(prefix, suffix=suffix)
-  
-
-  def _get_swarm_peers(self):
-    peer_lines = []
-    try:
-      out = subprocess.run(
-        ["ipfs", "swarm", "peers"],
-        capture_output=True, text=True, timeout=5
-      )
-      if out.returncode == 0:
-        peer_lines = out.stdout.strip().split("\n")
-        self.Pd(f"Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
-        self.__peers = peer_lines
-      else:
-        self.__peers = []
-      # found = len(self.__peers) > 0
-    except Exception as e:
-      self.P(f"Error getting swarm peers: {e}", color='r')
-    return peer_lines
-
-
-  def _check_and_record_relay_connection(self, max_check_age : int = 3600, debug=False) -> bool:
-    """
-    Checks if we're connected to the relay_peer_id by parsing 'ipfs swarm peers'.
-    If connected and we haven't recorded connected_at yet, we set it.
-    """
-    log_func = self.P if debug else self.Pd
-    relay_found = False
-    try:
-      if self.connected_at is not None:
-        # Already connected, lets see if last check was recent enough:
-        elapsed_time = time.time() - self.connected_at
-        if elapsed_time < max_check_age:
-          relay_found = True
-          log_func(f"Relay check #{self.__relay_check_cnt}: Already connected to relay peer for {elapsed_time:.1f}s, skipping check.")
-          # If we are connected and the last check was recent enough, return True:
-        else:
-          log_func(f"Relay check #{self.__relay_check_cnt}: Last connection check was {elapsed_time:.1f}s ago, checking again...")
-          # If we are connected but the last check was too long ago, check again:
-        #end if needs recheck or not
-      #end if connected_at is not None
-      if not relay_found:         
-        self.__relay_check_cnt += 1
-        log_func(f"Relay check #{self.__relay_check_cnt}: Checking IPFS relay connection and swarm peers...")
-        peer_lines = self._get_swarm_peers()
-        if len(peer_lines) > 0:
-          log_func(f"Relay check  #{self.__relay_check_cnt}: Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
-          self.__peers = peer_lines
-          for line in peer_lines:
-            # If the line contains the relay peer ID, we consider ourselves connected:
-            if self.__ipfs_relay in line:
-              # Record the time if not already set
-              relay_found = True
-              log_func(f"Relay check #{self.__relay_check_cnt}: Relay ok: {line.strip()}")
-            #end if
-          #end for
-          # now reset the connected_at time if we found the relay peer
-          if relay_found:
-            self.__connected_at = time.time() # set self.connected_at
-            str_connected = self.logger.time_to_str(self.connected_at)
-            self.P(f"Relay check #{self.__relay_check_cnt}: Connected to relay peer recorded at {str_connected}.")
-          else:
-            self.__connected_at = None
-            log_func(f"Relay check #{self.__relay_check_cnt}: Relay peer not found in swarm peers: {self.__ipfs_relay}", color='r')
-          #end if relay_found or not
-        #end if len(peer_lines) > 0
-    except subprocess.TimeoutExpired:
-      self.P(f"Relay check #{self.__relay_check_cnt}: Timeout checking swarm peers.", color='r')
-      relay_found = False
-    except Exception as e:
-      self.P(f"Relay check #{self.__relay_check_cnt}: Error checking swarm peers: {e}", color='r')
-      relay_found = False
-    #end try
-    return relay_found
-
-
-  def __set_reprovider_interval(self):
-    # Command to set the Reprovider.Interval to 1 minute
-    cmd = ["ipfs", "config", "--json", "Reprovider.Interval", f'"{IPFSCt.REPROVIDER}"']
-    result = self.__run_command(cmd)
-    return result
-
-  
-  def __set_relay(self):
-    # Command to enable the IPFS relay
-    result = self.__run_command(
-      ["ipfs", "config", "--json", "Swarm.DisableRelay", "false"]
-    )
-    return result
-
-
-  def __run_command(
-    self, 
-    cmd_list: list, 
-    raise_on_error=True,
-    timeout=IPFSCt.TIMEOUT,
-    verbose=False,
-    return_errors=False,
-    show_logs=True,
-  ):
-    """
-    Run a shell command using subprocess.run with a timeout.
-    Logs the command and its result. If verbose is enabled,
-    prints command details. Raises an exception on error if raise_on_error is True.
-    """
-    failed = False
-    output = ""
-    errors = ""
-    cmd_str = " ".join(cmd_list)
-    if show_logs:
-      self.Pd(f"Running command: {cmd_str}", color='d')
-    try:
-      result = subprocess.run(
-        cmd_list, 
-        capture_output=True, 
-        text=True, 
-        timeout=timeout,
-      )
-    except subprocess.TimeoutExpired as e:
-      failed = True
-      if show_logs:
-        self.P(f"Command timed out after {timeout} seconds: {cmd_str}", color='r')
-      if raise_on_error:
-        raise Exception(f"Timeout expired for '{cmd_str}'") from e
-    except Exception as e:
-      failed = True
-      msg = f"Error running command `{cmd_str}`: {e}"
-      if show_logs:
-        self.P(msg, color='r')
-      if raise_on_error:
-        raise Exception(msg) from e
+    def Pd(self, s, *args, **kwargs):
+      if self.__debug:
+        s = "[R1FS][DEBUG] " + s
+        color = kwargs.pop("color", "d")
+        color = "d" if color != 'r' else "r"
+        kwargs["color"] = color
+        self.logger.P(s, *args, **kwargs)
+      return
     
-    if result.returncode != 0:
-      errors = result.stderr.strip()
-      failed = True
-      if show_logs:
-        self.P(f"Command error `{cmd_str}`: {errors}", color='r')
-      if raise_on_error:
-        raise Exception(f"Error while running '{cmd_str}': {result.stderr.strip()}")
+    def _set_debug(self):
+      """
+      Force debug mode on.
+      """
+      self.__debug = True
+      return
     
-    if not failed:
-      if show_logs:
-        if verbose:
-          self.Pd(f"Command output: {result.stdout.strip()}")
-      output = result.stdout.strip()
-    if return_errors:
-      output, errors
-    return output
-  
-
-  def __get_id(self) -> str:
-    """
-    Get the IPFS peer ID via 'ipfs id' (JSON output).
-    Returns the 'ID' field as a string.
-    """
-    self.__ipfs_address = None
-    output = self.__run_command(["ipfs", "id"]) # this will raise an exception if the command fails
-    try:
-      data = json.loads(output)
-      self.__ipfs_id_result = data
-      self.__ipfs_id = data.get("ID", ERROR_TAG)
-      self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
-      addrs = data.get("Addresses", [])
-      if not addrs:
-        self.__ipfs_address = None
-      else:
-        self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
-    except json.JSONDecodeError:
-      raise Exception("Failed to parse JSON from 'ipfs id' output.")
-    except Exception as e:
-      msg = f"Error getting IPFS ID: {e}. `ipfs id`:\n{data}"
-      self.P(msg, color='r')
-      raise Exception(f"Error getting IPFS ID: {e}") from e
-    return self.__ipfs_id
-
-  # R1FS API calls
+    def _hash_secret(self, secret: str) -> bytes:
+      # Convert text to bytes, then hash with SHA-256 => 32-byte key
+      return hashlib.sha256(secret.encode("utf-8")).digest()  
+    
+    
+  # Public properties
   if True:
+    @property
+    def ipfs_id(self):
+      return self.__ipfs_id
+    
+    @property
+    def ipfs_address(self):
+      return self.__ipfs_address
+    
+    @property
+    def ipfs_agent(self):
+      return self.__ipfs_agent
+    
+    @property
+    def ipfs_started(self):
+      return self.__ipfs_started
+
+
+    @property
+    def download_folder(self):
+      return self.__downloads_dir
+    
+    
+    @property
+    def peers(self):
+      return self.__peers
+    
+    @property
+    def swarm_peers(self):
+      return self.peers
+    
+    @property
+    def uploaded_files(self):
+      return self.__uploaded_files
+    
+    @property
+    def downloaded_files(self):
+      return self.__downloaded_files
+    
+    
+    @property
+    def connected_at(self):
+      return self.__connected_at
+    
+    @property
+    def ipfs_home(self):
+      """ return the IPFS home directory from the environment variable IPFS_PATH """
+      return os.environ.get("IPFS_PATH")
+  
+  # boilerplate methods
+  if True:
+    def _get_unique_name(self, prefix="r1fs", suffix=""):
+      str_id = str(uuid.uuid4()).replace("-", "")[:8]
+      return f"{prefix}_{str_id}{suffix}"
+    
+    def _get_unique_upload_name(self, prefix="r1fs", suffix=""):
+      return os.path.join(self.__uploads_dir, self._get_unique_name(prefix, suffix))
+    
+    def _get_unique_or_complete_upload_name(self, fn=None, prefix="r1fs", suffix=""):
+      if fn is not None and os.path.dirname(fn) == "":
+        return os.path.join(self.__uploads_dir, f"{fn}{suffix}")
+      return self._get_unique_upload_name(prefix, suffix=suffix)
+    
+
+    def _get_swarm_peers(self):
+      peer_lines = []
+      try:
+        out = subprocess.run(
+          ["ipfs", "swarm", "peers"],
+          capture_output=True, text=True, timeout=5
+        )
+        if out.returncode == 0:
+          peer_lines = out.stdout.strip().split("\n")
+          self.Pd(f"Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
+          self.__peers = peer_lines
+        else:
+          self.__peers = []
+        # found = len(self.__peers) > 0
+      except Exception as e:
+        self.P(f"Error getting swarm peers: {e}", color='r')
+      return peer_lines
+
+
+    def _check_and_record_relay_connection(self, max_check_age : int = 3600, debug=False) -> bool:
+      """
+      Checks if we're connected to the relay_peer_id by parsing 'ipfs swarm peers'.
+      If connected and we haven't recorded connected_at yet, we set it.
+      """
+      log_func = self.P if debug else self.Pd
+      relay_found = False
+      try:
+        if self.connected_at is not None:
+          # Already connected, lets see if last check was recent enough:
+          elapsed_time = time.time() - self.connected_at
+          if elapsed_time < max_check_age:
+            relay_found = True
+            log_func(f"Relay check #{self.__relay_check_cnt}: Already connected to relay peer for {elapsed_time:.1f}s, skipping check.")
+            # If we are connected and the last check was recent enough, return True:
+          else:
+            log_func(f"Relay check #{self.__relay_check_cnt}: Last connection check was {elapsed_time:.1f}s ago, checking again...")
+            # If we are connected but the last check was too long ago, check again:
+          #end if needs recheck or not
+        #end if connected_at is not None
+        if not relay_found:         
+          self.__relay_check_cnt += 1
+          log_func(f"Relay check #{self.__relay_check_cnt}: Checking IPFS relay connection and swarm peers...")
+          peer_lines = self._get_swarm_peers()
+          if len(peer_lines) > 0:
+            log_func(f"Relay check  #{self.__relay_check_cnt}: Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
+            self.__peers = peer_lines
+            for line in peer_lines:
+              # If the line contains the relay peer ID, we consider ourselves connected:
+              if self.__ipfs_relay in line:
+                # Record the time if not already set
+                relay_found = True
+                log_func(f"Relay check #{self.__relay_check_cnt}: Relay ok: {line.strip()}")
+              #end if
+            #end for
+            # now reset the connected_at time if we found the relay peer
+            if relay_found:
+              self.__connected_at = time.time() # set self.connected_at
+              str_connected = self.logger.time_to_str(self.connected_at)
+              self.P(f"Relay check #{self.__relay_check_cnt}: Connected to relay peer recorded at {str_connected}.")
+            else:
+              self.__connected_at = None
+              log_func(f"Relay check #{self.__relay_check_cnt}: Relay peer not found in swarm peers: {self.__ipfs_relay}", color='r')
+            #end if relay_found or not
+          #end if len(peer_lines) > 0
+      except subprocess.TimeoutExpired:
+        self.P(f"Relay check #{self.__relay_check_cnt}: Timeout checking swarm peers.", color='r')
+        relay_found = False
+      except Exception as e:
+        self.P(f"Relay check #{self.__relay_check_cnt}: Error checking swarm peers: {e}", color='r')
+        relay_found = False
+      #end try
+      return relay_found
+
+
+    def __set_reprovider_interval(self):
+      # Command to set the Reprovider.Interval to 1 minute
+      cmd = ["ipfs", "config", "--json", "Reprovider.Interval", f'"{IPFSCt.REPROVIDER}"']
+      result = self.__run_command(cmd)
+      return result
+
+    
+    def __set_relay(self):
+      # Command to enable the IPFS relay
+      result = self.__run_command(
+        ["ipfs", "config", "--json", "Swarm.DisableRelay", "false"]
+      )
+      return result
+
+
+    def __run_command(
+      self, 
+      cmd_list: list, 
+      raise_on_error=True,
+      timeout=IPFSCt.TIMEOUT,
+      verbose=False,
+      return_errors=False,
+      show_logs=True,
+    ):
+      """
+      Run a shell command using subprocess.run with a timeout.
+      Logs the command and its result. If verbose is enabled,
+      prints command details. Raises an exception on error if raise_on_error is True.
+      """
+      failed = False
+      output = ""
+      errors = ""
+      cmd_str = " ".join(cmd_list)
+      if show_logs:
+        self.Pd(f"Running command: {cmd_str}", color='d')
+      try:
+        result = subprocess.run(
+          cmd_list, 
+          capture_output=True, 
+          text=True, 
+          timeout=timeout,
+        )
+      except subprocess.TimeoutExpired as e:
+        failed = True
+        if show_logs:
+          self.P(f"Command timed out after {timeout} seconds: {cmd_str}", color='r')
+        if raise_on_error:
+          raise Exception(f"Timeout expired for '{cmd_str}'") from e
+      except Exception as e:
+        failed = True
+        msg = f"Error running command `{cmd_str}`: {e}"
+        if show_logs:
+          self.P(msg, color='r')
+        if raise_on_error:
+          raise Exception(msg) from e
+      
+      if result.returncode != 0:
+        errors = result.stderr.strip()
+        failed = True
+        if show_logs:
+          self.P(f"Command error `{cmd_str}`: {errors}", color='r')
+        if raise_on_error:
+          raise Exception(f"Error while running '{cmd_str}': {result.stderr.strip()}")
+      
+      if not failed:
+        if show_logs:
+          if verbose:
+            self.Pd(f"Command output: {result.stdout.strip()}")
+        output = result.stdout.strip()
+      if return_errors:
+        output, errors
+      return output
+    
+
+    def __get_id(self) -> str:
+      """
+      Get the IPFS peer ID via 'ipfs id' (JSON output).
+      Returns the 'ID' field as a string.
+      """
+      self.__ipfs_address = None
+      output = self.__run_command(["ipfs", "id"]) # this will raise an exception if the command fails
+      try:
+        data = json.loads(output)
+        self.__ipfs_id_result = data
+        self.__ipfs_id = data.get("ID", ERROR_TAG)
+        self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
+        addrs = data.get("Addresses", [])
+        if not addrs:
+          self.__ipfs_address = None
+        else:
+          self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
+      except json.JSONDecodeError:
+        raise Exception("Failed to parse JSON from 'ipfs id' output.")
+      except Exception as e:
+        msg = f"Error getting IPFS ID: {e}. `ipfs id`:\n{data}"
+        self.P(msg, color='r')
+        raise Exception(f"Error getting IPFS ID: {e}") from e
+      return self.__ipfs_id
+
+
     @require_ipfs_started
     def __pin_add(self, cid: str) -> str:
       """
@@ -501,10 +524,18 @@ class R1FSEngine:
       self.Pd(f"{res}")
       return res  
 
-    
-    # Public methods
-    
-    def add_json(self, data, fn=None, tempfile=False, show_logs=True) -> bool:
+  # Public R1FS API calls
+  if True:
+ 
+    def add_json(
+      self, 
+      data, 
+      fn=None, 
+      secret: str = None,
+      tempfile=False, 
+      show_logs=True,
+      raise_on_error=False,
+    ) -> bool:
       """
       Add a JSON object to IPFS.
       """
@@ -525,7 +556,10 @@ class R1FSEngine:
           with open(fn, "w") as f:
             f.write(json_data)
         #end if tempfile
-        cid = self.add_file(fn)
+        cid = self.add_file(
+          file_path=fn, secret=secret, show_logs=show_logs,
+          raise_on_error=raise_on_error
+        )
         return cid
       except Exception as e:
         if show_logs:
@@ -533,7 +567,15 @@ class R1FSEngine:
         return None
       
       
-    def add_yaml(self, data, fn=None, tempfile=False, show_logs=True) -> bool:
+    def add_yaml(
+      self, 
+      data, 
+      fn=None, 
+      secret: str = None,
+      tempfile=False, 
+      show_logs=True,
+      raise_on_error=False,
+    ) -> bool:
       """
       Add a YAML object to IPFS.
       """
@@ -552,7 +594,10 @@ class R1FSEngine:
             self.Pd(f"Using unique name for YAML: {fn}")
           with open(fn, "w") as f:
             f.write(yaml_data)
-        cid = self.add_file(fn)
+        cid = self.add_file(
+          file_path=fn, secret=secret, show_logs=show_logs,
+          raise_on_error=raise_on_error
+        )
         return cid
       except Exception as e:
         if show_logs:
@@ -560,7 +605,15 @@ class R1FSEngine:
         return None
       
       
-    def add_pickle(self, data, fn=None, tempfile=False, show_logs=True) -> bool:
+    def add_pickle(
+      self, 
+      data, 
+      fn=None, 
+      secret: str = None,
+      tempfile=False, 
+      show_logs=True,
+      raise_on_error=False,
+    ) -> bool:
       """
       Add a Pickle object to IPFS.
       """
@@ -578,7 +631,10 @@ class R1FSEngine:
             self.Pd(f"Using unique name for pkl: {fn}")
           with open(fn, "wb") as f:
             pickle.dump(data, f)
-        cid = self.add_file(fn)
+        cid = self.add_file(
+          file_path=fn, secret=secret, show_logs=show_logs,
+          raise_on_error=raise_on_error
+        )
         return cid
       except Exception as e:
         if show_logs:
@@ -587,103 +643,312 @@ class R1FSEngine:
 
 
     @require_ipfs_started
-    def add_file(self, file_path: str, show_logs=True) -> str:
+    def add_file(
+      self,
+      file_path: str,
+      secret: str = None,
+      raise_on_error: bool = False,
+      show_logs: bool = True
+    ) -> str:
       """
-      This method adds a file to IPFS and returns the CID of the wrapped folder.
-      
+      Add a file to R1FS with default encryption. The secret parameter is mandatory,
+      defaulting to 'ratio1'. Each encryption run is chunked for large files, and
+      the original filename is stored in JSON metadata.
+
+
       Parameters
       ----------
       file_path : str
-          The path to the file to be added.
-      show_logs : bool
-          Whether to show logs or not.
-      
+        Path to the local plaintext file.
+
+      secret : str, optional
+        Mandatory passphrase, defaulting to 'ratio1'. Must not be empty.
+        
+      raise_on_error : bool, optional
+        If True, raise an Exception on command errors. Otherwise logs them. Default is False.
+
+      show_logs : bool, optional
+        Whether to show logs via self.P / self.Pd. Default is True.
+
       Returns
       -------
       str
-          The CID of the wrapped folder
-        
+        The folder CID of the wrapped IPFS directory containing the ciphertext.
+
+      Raises
+      ------
+      FileNotFoundError
+        If file_path does not exist.
+
+      ValueError
+        If secret is empty.
+
+      RuntimeError
+        If the 'ipfs add' command yields no output.
+
+      Examples
+      --------
+      >>> cid = engine.add_file("/data/large_model.bin")
+      >>> print(cid)
+      QmFolder123ABC
       """
-      assert os.path.isfile(file_path), f"File not found: {file_path}"
+      if secret in ["", None]:
+        secret = self.__DEFAULT_SECRET
       
-      output = self.__run_command(["ipfs", "add", "-q", "-w", file_path])
-      # "ipfs add -w <file>" typically prints two lines:
-      #   added <hash_of_file> <filename>
-      #   added <hash_of_wrapped_folder> <foldername?>
-      # We want the *last* line's CID (the wrapped folder).
-      lines = output.strip().split("\n")
-      if not lines:
-        raise Exception("No output from 'ipfs add -w -q'")
-      folder_cid = lines[-1].strip()
-      self.__uploaded_files[folder_cid] = file_path
-      # now we pin the folder
-      res = self.__pin_add(folder_cid)
-      if show_logs:
-        self.P(f"Added file {file_path} as <{folder_cid}>")
+      if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+      key = self._hash_secret(secret)  # mandatory passphrase
+      nonce = os.urandom(12)           # recommended for GCM
+      original_basename = os.path.basename(file_path)
+
+      # JSON metadata storing the original filename
+      meta_dict = {"filename": original_basename}
+      meta_bytes = json.dumps(meta_dict).encode("utf-8")
+
+      tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
+      
+      folder_cid = None
+      start_time = time.time()
+      try:
+        encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
+
+        chunk_size = 1024 * 1024  # 1 MB chunks
+        with open(file_path, "rb") as fin, open(tmp_cipher_path, "wb") as fout:
+          # [nonce][4-byte-len][metadata][ciphertext][16-byte GCM tag]
+          fout.write(nonce)
+          meta_len = len(meta_bytes)
+          fout.write(meta_len.to_bytes(4, "big"))
+          # encrypt the metadata and save
+          enc_meta_data = encryptor.update(meta_bytes)
+          fout.write(enc_meta_data)
+
+          while True:
+            chunk = fin.read(chunk_size)
+            if not chunk:
+              break
+            fout.write(encryptor.update(chunk))
+          #end while there are still bytes to read
+          final_ct = encryptor.finalize()
+          fout.write(final_ct)
+          # Append 16-byte GCM tag
+          tag = encryptor.tag
+          fout.write(tag)
+        #end with fin, fout
+        
+        # Now we IPFS-add the ciphertext
+        output = self.__run_command(["ipfs", "add", "-q", "-w", tmp_cipher_path], show_logs=show_logs)
+        lines = output.strip().split("\n")
+        if not lines:
+          raise RuntimeError("No output from 'ipfs add -w -q' for ciphertext.")
+        folder_cid = lines[-1].strip()
+      except Exception as e:
+        msg = f"Error encrypting file {file_path}: {e}"
+        if raise_on_error:
+          raise RuntimeError(msg)
+        else:
+          self.P(msg, color='r')
+      #end try
+      elapsed_time = time.time() - start_time
+      # Cleanup temp file
+      os.remove(tmp_cipher_path)
+      
+      if folder_cid is not None:
+        self.__uploaded_files[folder_cid] = file_path
+        # now we pin the folder
+        res = self.__pin_add(folder_cid)
+        if show_logs:
+          self.P(f"Added file {file_path} as <{folder_cid}> in {elapsed_time:.1f}s")      
+        #end if show_logs
+      #end if folder_cid is not None
       return folder_cid
 
 
     @require_ipfs_started
     def get_file(
-      self, 
-      cid: str, 
-      local_folder: str = None, 
+      self,
+      cid: str,
+      local_folder: str = None,
+      secret: str = None,
       timeout: int = None,
-      pin=True, 
+      pin: bool = True,
       raise_on_error: bool = False,
-      show_logs: bool = True,
+      show_logs: bool = True
     ) -> str:
       """
-      Get a file from IPFS by CID and save it to a local folder.
-      If no local folder is provided, the default downloads directory is used.
-      Returns the full path of the downloaded file.
-      
+      Retrieve an encrypted file from R1FS by CID, decrypt with AES-GCM in streaming mode.
+      The secret parameter is mandatory (default 'ratio1'). The original filename is
+      restored from JSON metadata.
+
+      R1FS get can time out if it stalls. If the timeout is None, we use IPFSCt.TIMEOUT.
+
       Parameters
       ----------
       cid : str
-          The CID of the file to download.
-          
-      local_folder : str
-          The local folder to save the
-          
-      timeout : int
-          The maximum time to wait for the download to complete.
-          Default `None` means the timeout is set by the IPFSCt.TIMEOUT (90s by default)
-      show_logs : bool
-          Whether to show logs or not.
+        The folder CID (wrapped single file).
 
+      local_folder : str, optional
+        Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
+
+      secret : str, optional
+        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+
+      timeout : int, optional
+        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+
+      pin : bool, optional
+        If True, we optionally pin the folder. Default True.
+
+      raise_on_error : bool, optional
+        If True, raise an Exception on command errors/timeouts. Otherwise logs them. Default False.
+
+      show_logs : bool, optional
+        If True, logs steps via self.P / self.Pd. Default True.
+
+      Returns
+      -------
+      str
+        The full path to the restored plaintext file.
+
+      Raises
+      ------
+      ValueError
+        If the secret is empty.
+
+      RuntimeError
+        If multiple or zero files are found in the downloaded folder,
+        or if we fail to parse the JSON metadata.
+
+      Exception
+        If the GCM tag is invalid or the IPFS command times out
+        and raise_on_error=True.
+
+      Examples
+      --------
+      >>> # Simple usage with default passphrase
+      >>> local_file = engine.get_file("QmEncFolderXYZ")
+      >>> print(local_file)
+      /app/downloads/QmEncFolderXYZ/original_filename.bin
+      
       """
+      if secret in ["", None]:
+        secret = self.__DEFAULT_SECRET
+        
+      key = self._hash_secret(secret)
+
       if pin:
         pin_result = self.__pin_add(cid)
-        
+
       if local_folder is None:
         local_folder = self.__downloads_dir # default downloads directory
-        os.makedirs(local_folder, exist_ok=True)
-        local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
-        
+      
+      os.makedirs(local_folder, exist_ok=True)
+      
+      local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
+      
+      # if the folder exists cleanup the content 
+      if os.path.exists(local_folder):
+        if show_logs:
+          files = os.listdir(local_folder)
+          self.Pd(f"Cleaning up {local_folder} with {files}")
+        #end if show_logs
+        shutil.rmtree(local_folder)
+      #end if local_folder exists
+
+      
       if show_logs:
         self.Pd(f"Downloading file {cid} to {local_folder}")
+      # IPFS get the single ciphertext file
+      ipfs_timeout = timeout if timeout else 90  # or IPFSCt.TIMEOUT
       start_time = time.time()
-      self.__run_command(["ipfs", "get", cid, "-o", local_folder], timeout=timeout, show_logs=show_logs)
-      elapsed_time = time.time() - start_time
-      # now we need to get the file from the folder
-      folder_contents = os.listdir(local_folder)
-      if len(folder_contents) != 1:
-        msg = f"Expected one file in {local_folder}, found {folder_contents}"
+      self.__run_command(
+        ["ipfs", "get", cid, "-o", local_folder],
+        timeout=ipfs_timeout,
+        raise_on_error=raise_on_error,
+        show_logs=show_logs
+      )
+      download_elapsed_time = time.time() - start_time
+
+      # Expect exactly one file
+      contents = os.listdir(local_folder)
+      if len(contents) != 1:
+        msg = f"Expected 1 file in {local_folder}, found {contents}"
         if raise_on_error:
-          raise Exception(msg)
+          raise RuntimeError(msg)
         else:
-          if show_logs:
-            self.P(msg, color='r')
-      # get the full path of the file
-      out_local_filename = os.path.join(local_folder, folder_contents[0])
-      if show_logs:
-        self.P(f"Downloaded in {elapsed_time:.1f}s <{cid}> to {out_local_filename}")
-      self.__downloaded_files[cid] = out_local_filename
-      return out_local_filename
+          self.P(msg, color='r')
+          return
 
+      cipher_path = os.path.join(local_folder, contents[0])
+      
+      out_path = None
 
+      # Decrypt with AES-GCM
+      start_time = time.time()
+      try:
+        with open(cipher_path, "rb") as fin:
+          nonce = fin.read(12)
+          meta_len_bytes = fin.read(4)
+          meta_len = int.from_bytes(meta_len_bytes, "big")
 
+          decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).decryptor()
+          
+          # Read the metadata and decrypt it
+          enc_meta_data = fin.read(meta_len)
+          meta_data = decryptor.update(enc_meta_data) # TODO: verify if this is correct
+          meta_dict = json.loads(meta_data.decode("utf-8"))
+
+          original_filename = meta_dict.get("filename", "restored_file.bin")
+
+          # File size + chunk logic to isolate last 16 bytes as GCM tag
+          fin.seek(0, os.SEEK_END)
+          total_size = fin.tell()
+          data_start = 12 + 4 + meta_len
+          tag_size = 16
+          content_size = total_size - data_start - tag_size
+          fin.seek(data_start, os.SEEK_SET)
+
+          out_path = os.path.join(local_folder, original_filename)
+          chunk_size = 1024 * 1024
+
+          with open(out_path, "wb") as fout:
+            remaining = content_size
+            while remaining > 0:
+              read_len = min(chunk_size, remaining)
+              chunk = fin.read(read_len)
+              if not chunk:
+                break
+              fout.write(decryptor.update(chunk))
+              remaining -= read_len
+            #end while there are still bytes to read
+            # Final 16 bytes => GCM tag
+            tag = fin.read(16)
+            # decryptor.authenticate_tag(tag)
+            # final_pt = decryptor.finalize()
+            final_pt = decryptor.finalize_with_tag(tag)
+            if final_pt:
+              fout.write(final_pt)
+          #end with fout 
+        #end with fin
+        decrypt_elapsed_time = time.time() - start_time
+      except Exception as e:
+        out_path = None
+        msg = f"Error decrypting file {cipher_path}: {e}"
+        if raise_on_error:
+          raise RuntimeError(msg)
+        else:
+          self.P(msg, color='r')
+      #end try
+
+      # Optionally remove the ciphertext
+      os.remove(cipher_path)      
+
+      if out_path:
+        if show_logs:
+          self.P(f"Downloaded/descrypted in {download_elapsed_time:.1f}s/{decrypt_elapsed_time:.1f}s <{cid}> to {out_path}")
+        self.__downloaded_files[cid] = out_path      
+      #end if out_path is not None
+      return out_path
 
 
     @require_ipfs_started
@@ -974,3 +1239,7 @@ class R1FSEngine:
         self.P(f"Error connecting to relay: {e}", color='r')
       #end try
       return self.ipfs_started    
+    
+    
+if __name__ == '__main__':
+  eng = R1FSEngine()
