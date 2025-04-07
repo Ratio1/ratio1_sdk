@@ -5,8 +5,9 @@ if __name__ == '__main__':
 
   session: Session = Session()
 
+  # Please, fill in your node address
   # this code assumes the node have "allowed" the SDK to deploy the pipeline
-  node_address = '0xai_A7NhKLfFaJd9pOE_YsyePcMmFfxmMBpvMA4mhuK7Si1w'
+  node_address = ''
 
 
   session.wait_for_node(node_address)  # we wait for the node to be ready
@@ -16,10 +17,11 @@ if __name__ == '__main__':
     data_source="SensiboMaintenanceSensor",
     config={
       'CAP_RESOLUTION': 0.03,
+      'LIVE_FEED': True,
+      # Please, fill in the fields below
       'API_KEY': '',
       'POD_UID': '',
       "SENSIBO_DEVICE_NAME": "",
-      'LIVE_FEED': True
     },
   )
 
@@ -27,7 +29,8 @@ if __name__ == '__main__':
     signature='MAINTENANCE_MONITORING',
     instance_id='maintenance_inst01',
     config={
-      'ANOMALY_PROBABILITY_THRESHOLD': 0.1
+      'ANOMALY_PROBABILITY_THRESHOLD': 0.8,
+      'DEBUGGING_MODE': True,
     }
   )
 
