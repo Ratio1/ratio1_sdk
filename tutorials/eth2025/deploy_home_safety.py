@@ -5,8 +5,9 @@ if __name__ == '__main__':
 
   session: Session = Session()
 
+  # Please, fill in below your node's address
   # this code assumes the node have "allowed" the SDK to deploy the pipeline
-  node_address = '0xai_A7NhKLfFaJd9pOE_YsyePcMmFfxmMBpvMA4mhuK7Si1w'
+  node_address = ''
 
 
   session.wait_for_node(node_address)  # we wait for the node to be ready
@@ -14,6 +15,7 @@ if __name__ == '__main__':
     node=node_address,
     name='home_camera_security_pipeline',
     data_source="video_stream_cv2",
+    # Fill in below the rtsp URL for your camera and define cap_resolution to camera's FPS + 1
     url='',
     cap_resolution=16,
   )
