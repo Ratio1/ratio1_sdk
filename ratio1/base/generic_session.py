@@ -3506,7 +3506,7 @@ class GenericSession(BaseDecentrAIObject):
         'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
         'R1FS ID'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ID,
         'R1FS On'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ONLINE,
-        # 'R1FS Relay' : PAYLOAD_DATA.NETMON_NODE_R1FS_RELAY,
+        'R1FS Relay' : PAYLOAD_DATA.NETMON_NODE_R1FS_RELAY,
       })
       if all_info:
         mapping = OrderedDict({
@@ -3567,7 +3567,7 @@ class GenericSession(BaseDecentrAIObject):
               # val hols a string '2024-12-23 23:50:16.462155' and must be converted to a datetime
               val = dt.strptime(val, '%Y-%m-%d %H:%M:%S.%f')              
               val = val.replace(microsecond=0) # strip the microseconds
-            elif key == PAYLOAD_DATA.NETMON_NODE_R1FS_ID:
+            elif key in [PAYLOAD_DATA.NETMON_NODE_R1FS_ID, PAYLOAD_DATA.NETMON_NODE_R1FS_RELAY]:
               val = self._shorten_addr(val)
             elif key == PAYLOAD_DATA.NETMON_LAST_SEEN:
               # convert val (seconds) to a human readable format
