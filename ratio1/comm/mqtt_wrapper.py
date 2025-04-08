@@ -21,9 +21,10 @@ from ..utils import resolve_domain_or_ip
 
 from importlib import resources as impresources
 from .. import certs
+from ..comm.base_comm_wrapper import BaseCommWrapper
 
 
-class MQTTWrapper(object):
+class MQTTWrapper(BaseCommWrapper):
   def __init__(self,
                log,
                config,
@@ -37,21 +38,13 @@ class MQTTWrapper(object):
                connection_name='MqttWrapper',
                verbosity=1,
                **kwargs):
-    self.log = log
-    self._config = config
-    self._recv_buff = recv_buff
     self._mqttc = None
     self.debug_errors = debug_errors if verbosity <=1 else True
     self._thread_name = None
     self.connected = False
     self.disconnected = False
-    self.__verbosity = verbosity    
-    self._send_to = None
     self._nr_full_retries = 0
     self.__nr_dropped_messages = 0
-    self._comm_type = comm_type
-    self.send_channel_name = send_channel_name
-    self.recv_channel_name = recv_channel_name
     self._disconnected_log = deque(maxlen=10)
     self._disconnected_counter = 0
     self._custom_on_message = on_message
@@ -61,93 +54,31 @@ class MQTTWrapper(object):
 
     self.DEBUG = False
 
+    super(MQTTWrapper, self).__init__(
+      log=log,
+      config=config,
+      recv_buff=recv_buff,
+      send_channel_name=send_channel_name,
+      recv_channel_name=recv_channel_name,
+      comm_type=comm_type,
+      verbosity=verbosity,
+      **kwargs
+    )
+
     if self.recv_channel_name is not None and on_message is None:
       assert self._recv_buff is not None
 
     self.P(f"Initializing MQTTWrapper using Paho MQTT v{mqtt_version}")
-    super(MQTTWrapper, self).__init__(**kwargs)
     return
 
-  def P(self, s, color=None, verbosity=1, **kwargs):
-    if verbosity > self.__verbosity:
-      return
-    if color is None or (isinstance(color, str) and color[0] not in ['e', 'r']):
-      color = COLORS.COMM
-    comtype = self._comm_type[:7] if self._comm_type is not None else 'CUSTOM'
-    self.log.P("[MQTWRP][{}] {}".format(comtype, s), color=color, **kwargs)
-    return
+  @property
+  def comm_log_prefix(self):
+    return 'MQTWRP'
 
   @property
   def nr_dropped_messages(self):
     return self.__nr_dropped_messages
 
-  def D(self, s, t=False):
-    _r = -1
-    if self.DEBUG:
-      if self.show_prefixes:
-        msg = "[DEBUG] {}: {}".format(self.__name__, s)
-      else:
-        if self.prefix_log is None:
-          msg = "[D] {}".format(s)
-        else:
-          msg = "[D]{} {}".format(self.prefix_log, s)
-        # endif
-      # endif
-      _r = self.log.P(msg, show_time=t, color='yellow')
-    # endif
-    return _r
-
-  @property
-  def is_secured(self):
-    val = self.cfg_secured
-    if isinstance(val, str):
-      val = val.upper() in ["1", "TRUE", "YES"]
-    return val
-
-  @property
-  def send_channel_name(self):
-    return self._send_channel_name
-
-  @property
-  def recv_channel_name(self):
-    return self._recv_channel_name
-
-  @send_channel_name.setter
-  def send_channel_name(self, x):
-    if isinstance(x, tuple):
-      self._send_channel_name, self._send_to = x
-    else:
-      self._send_channel_name = x
-    return
-
-  @recv_channel_name.setter
-  def recv_channel_name(self, x):
-    self._recv_channel_name = x
-    return
-
-  @property
-  def cfg_node_id(self):
-    return self._config.get(COMMS.EE_ID, self._config.get(COMMS.SB_ID, None))
-
-  @property
-  def cfg_node_addr(self):
-    return self._config.get(COMMS.EE_ADDR)
-
-  @property
-  def cfg_user(self):
-    return self._config[COMMS.USER]
-
-  @property
-  def cfg_pass(self):
-    return self._config[COMMS.PASS]
-
-  @property
-  def cfg_host(self):
-    return self._config[COMMS.HOST]
-
-  @property
-  def cfg_port(self):
-    return self._config[COMMS.PORT]
 
   @property
   def cfg_qos(self):
@@ -157,12 +88,7 @@ class MQTTWrapper(object):
   def cfg_cert_path(self):
     return self._config.get(COMMS.CERT_PATH)
 
-  @property
-  def cfg_secured(self):
-    return self._config.get(COMMS.SECURED, 0)  # TODO: make 1 later on
-
-  @property
-  def recv_channel_def(self):
+  def get_recv_channel_def(self):
     if self.recv_channel_name is None:
       return
 
@@ -170,10 +96,9 @@ class MQTTWrapper(object):
     topic = cfg[COMMS.TOPIC]
     lst_topics = []
     if "{}" in topic:
-      if self.cfg_node_id is not None:
-        lst_topics.append(topic.format(self.cfg_node_id))
-      if self.cfg_node_addr is not None:
-        lst_topics.append(topic.format(self.cfg_node_addr))
+      subtopic_value = self.get_subtopic_value()
+      if subtopic_value is not None:
+        lst_topics.append(topic.format(subtopic_value))
     else:
       lst_topics.append(topic)
 
@@ -181,21 +106,6 @@ class MQTTWrapper(object):
       raise ValueError("ERROR! No topics to subscribe to")
 
     cfg[COMMS.TOPIC] = lst_topics
-    return cfg
-
-  @property
-  def send_channel_def(self):
-    if self.send_channel_name is None:
-      return
-
-    cfg = self._config[self.send_channel_name].copy()
-    topic = cfg[COMMS.TOPIC]
-    if self._send_to is not None and "{}" in topic:
-      topic = topic.format(self._send_to)
-
-    assert "{}" not in topic
-
-    cfg[COMMS.TOPIC] = topic
     return cfg
 
   @property
@@ -240,7 +150,7 @@ class MQTTWrapper(object):
     return
 
   def __create_mqttc_object(self, comtype, client_uid):
-    if self.__verbosity > 1:
+    if self.verbosity > 1:
       self.P(f"Creating MQTT client: {self._connection_name} - {comtype} - {client_uid}")
     client_id = self._connection_name + '_' + comtype + '_' + client_uid
     if mqtt_version.startswith('2'):
@@ -457,7 +367,8 @@ class MQTTWrapper(object):
     nr_retry = 1
     has_connection = True
     exception = None
-    lst_topics = self.recv_channel_def[COMMS.TOPIC]
+    channel_def = self.get_recv_channel_def()
+    lst_topics = channel_def[COMMS.TOPIC]
     for topic in lst_topics:
       current_topic_connection = False
       while nr_retry <= max_retries:
@@ -500,13 +411,15 @@ class MQTTWrapper(object):
   def receive(self):
     return
 
-  def send(self, message):
+  def send(self, message, send_to=None):
     mqttc = self._mqttc
     if mqttc is None:
       return
 
+    channel_def = self.get_send_channel_def(send_to=send_to)
+
     result = mqttc.publish(
-      topic=self.send_channel_def[COMMS.TOPIC],
+      topic=channel_def[self.channel_key],
       payload=message,
       qos=self.cfg_qos
     )

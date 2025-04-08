@@ -74,6 +74,7 @@ class GenericSession(BaseDecentrAIObject):
       },
       "QOS": 0,
       "CERT_PATH": None,
+      "SUBTOPIC:": "address",  # or "alias"
   }
 
 
@@ -84,6 +85,7 @@ class GenericSession(BaseDecentrAIObject):
               user=None,
               pwd=None,
               secured=None,
+              subtopic=None,
               name=None,
               encrypt_comms=True,
               config={},
@@ -271,7 +273,8 @@ class GenericSession(BaseDecentrAIObject):
     self.__host = host or kwargs.get('hostname', None)
     self.__port = port
     self.__secured = secured
-    
+    self.__subtopic = subtopic
+
 
     self.custom_on_payload = on_payload
     self.custom_on_heartbeat = on_heartbeat
@@ -377,6 +380,7 @@ class GenericSession(BaseDecentrAIObject):
       user=self.__user,
       pwd=self.__pwd, 
       secured=self.__secured,
+      subtopic=self.__subtopic
     )
     ## end config
         
@@ -1520,7 +1524,7 @@ class GenericSession(BaseDecentrAIObject):
       #end name is None      
       return self.__user_config_loaded
     
-    def __fill_config(self, host, port, user, pwd, secured):
+    def __fill_config(self, host, port, user, pwd, secured, subtopic):
       """
       Fill the configuration dictionary with the ceredentials provided when creating this instance.
 
@@ -1542,9 +1546,10 @@ class GenericSession(BaseDecentrAIObject):
       pwd : str
           The password.
           Can be retrieved from the environment variables AIXP_PASSWORD, AIXP_PASS, AIXP_PWD
-          
-      dotenv_path : str, optional
-          Path to the .env file, by default None. If None, the path will be searched in the current working directory and in the directories of the files from the call stack.
+
+      subtopic : str
+          The subtopic mode(if the subtopic will be the node address or the node alias in case of specific channel).
+          Can be retrieved from the environment variables EE_SUBTOPIC
 
       Raises
       ------
@@ -1638,6 +1643,7 @@ class GenericSession(BaseDecentrAIObject):
         secured,
         os.getenv(ENVIRONMENT.AIXP_SECURED),
         os.getenv(ENVIRONMENT.EE_SECURED),
+        os.getenv(ENVIRONMENT.EE_MQTT_SECURED),
         self._config.get(comm_ct.SECURED),
         False,
       ]
@@ -1646,7 +1652,18 @@ class GenericSession(BaseDecentrAIObject):
       if secured is not None and self._config.get(comm_ct.SECURED, None) is None:
         secured = str(secured).strip().upper() in ['TRUE', '1']
         self._config[comm_ct.SECURED] = secured
-        
+
+      possible_subtopic_values = [
+        subtopic,
+        os.getenv(ENVIRONMENT.EE_SUBTOPIC),
+        os.getenv(ENVIRONMENT.EE_MQTT_SUBTOPIC),
+        self._config.get(comm_ct.SUBTOPIC),
+      ]
+
+      subtopic = next((x for x in possible_subtopic_values if x is not None), None)
+      if subtopic is not None and self._config.get(comm_ct.SUBTOPIC, None) is None:
+        self._config[comm_ct.SUBTOPIC] = subtopic
+
       return
 
     def __aliases_to_addresses(self):
@@ -1722,10 +1739,40 @@ class GenericSession(BaseDecentrAIObject):
         # of the receiver. The code below is a workaround to encrypt the message
         # TODO: furthermore the code will be migrated to the use of the address of the worker
         destination = self.get_addr_by_name(destination_id)
-        assert destination is not None, f"Unknown address for id: {destination_id}"
+        assert destination is not None, (f"Node {destination_id} is currently unknown. "
+                                         f"Please check your network configuration.")
       # endif only destination_id provided
 
-      # TODO: apply self.__get_node_address on all destination addresses
+      if isinstance(destination, list):
+        # In case of a list of destinations, if any of them is an alias it must be converted to an address.
+        # In case any destination provided is unknown, a warning will be shown.
+        # For an address to be unknown it means it was not yet seen by the current sdk session.
+        # If all the destination addresses are unknown, an error will be raised.
+        destination_addresses = []
+        unknown = []
+        for dest in destination:
+          dest_addr = self.__get_node_address(dest)
+          if dest_addr is not None:
+            destination_addresses.append(dest_addr)
+          else:
+            unknown.append(dest)
+          # endif dest_addr found
+        # endfor destination list
+        if len(unknown) > 0:
+          self.P(f"Warning! {len(unknown)} unknown destination(s): {unknown}!", color='r', show=True)
+          if len(destination_addresses) > 0:
+            self.P(f"Attempting to send to the {len(destination_addresses)} known destination(s): "
+                   f"{destination_addresses}", color='y', show=True)
+        if len(destination_addresses) < 1:
+          msg = f"No known destination(s) found for {destination}!\nPlease check your network configuration."
+          self.P(msg, color='r', show=True)
+          raise ValueError(msg)
+        # endif unknown destinations
+        destination = destination_addresses
+      elif isinstance(destination, str):
+        destination = self.__get_node_address(destination)
+      # endif destination is list
+
       # This part is duplicated with the creation of payloads
       if encrypt_message and destination is not None:
         str_data = json.dumps(msg_data)

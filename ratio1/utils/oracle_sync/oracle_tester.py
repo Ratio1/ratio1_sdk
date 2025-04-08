@@ -509,7 +509,7 @@ class OracleTester:
         else:
           # No errors
           if not is_valid:
-            curr_msg += '\t\t WARNING:   Oracle returned invalid data due to uncertainity\n'
+            curr_msg += '\t\t WARNING:   Oracle returned invalid data due to uncertainty\n'
           # endif uncertainty
         # endif errors
         color = None if is_valid else 'r'
@@ -623,28 +623,29 @@ def oracle_tester_init(silent=True, **kwargs):
 def test_commands():
   from ratio1.utils.config import load_user_defined_config
   load_user_defined_config()
-  tester = oracle_tester_init(max_requests_rounds=30)
-  start = 10
-  end = 10
+  tester = oracle_tester_init(max_requests_rounds=30, silent=False)
+  start = 200
+  end = 205
   # node_eth_addr = "0x7C07758C23DF14c2fF4b016F0ad58F2D4aF329a7"  # r1s-ssj-1
   # node_eth_addr = "0xdc4fDFd5B86aeA7BaB17d4742B7c39A2728Ff59B"  # r1s-02
   # node_eth_addr = "0x93B04EF1152D81A0847C2272860a8a5C70280E14"  # tr1s-aid02
   node_eth_addr = '0x37379B80c7657620E5631832c4437B51D67A88cB'  # dr1s-db-1
+  node_addr = '0xai_A4Kj_ii5ZMdRdYYZOi1A_EYHf-GdNHw5u9duM120YnUm'  # manga_02
 
-  # Single round
-  tester.P(f'Test single round: Epochs {start} to {end}', show=True)
-  res = tester.execute_command(node_eth_addr=node_eth_addr, start=start, end=end)
-  handle_command_results(res)
+  # # Single round
+  # tester.P(f'Test single round: Epochs {start} to {end}', show=True)
+  # res = tester.execute_command(node_eth_addr=node_eth_addr, start=start, end=end)
+  # handle_command_results(res)
 
   # Multiple rounds
   tester.P(f'Test multiple rounds: Epochs {start} to {end}', show=True)
   res = tester.execute_command(node_eth_addr=node_eth_addr, start=start, end=end, rounds=3)
   handle_command_results(res)
 
-  # Debug mode
-  tester.P(f'Test debug mode: Epochs {start} to {end}', show=True)
-  res = tester.execute_command(node_eth_addr=node_eth_addr, start=5, end=7, debug=True)
-  handle_command_results(res)
+  # # Debug mode
+  # tester.P(f'Test debug mode: Epochs {start} to {end}', show=True)
+  # res = tester.execute_command(node_eth_addr=node_eth_addr, start=5, end=7, debug=True)
+  # handle_command_results(res)
   return
 
 def oracle_check(N=10):

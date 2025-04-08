@@ -70,11 +70,38 @@ class MqttSession(GenericSession):
     self._notifications_communicator.release()
     return
 
+  def __process_receiver_for_subtopic(self, to):
+    """
+    Process the receiver address to ensure it has the correct value for subtopic.
+    Parameters
+    ----------
+    to : str
+        The receiver address or id to process.
+
+    Returns
+    -------
+    str
+        The processed receiver address with the correct subtopic.
+    """
+    if to is None:
+      return None
+    if not isinstance(to, str):
+      # TODO: review if this is the right way to handle this in case of multiple receivers.
+      return to
+    to_addr = self.get_addr_by_name(name=to)
+    subtopic = self._config.get(comm_ct.SUBTOPIC, comm_ct.DEFAULT_SUBTOPIC_VALUE)
+    if subtopic == 'alias':
+      to_alias = self.get_node_alias(to_addr)
+      return to_alias
+    return to_addr
+
   def _send_raw_message(self, to, msg, communicator='default'):
     payload = json.dumps(msg)
     communicator_obj = self.__communicators.get(communicator, self._default_communicator)
-    communicator_obj._send_to = to
-    communicator_obj.send(payload)
+    # communicator_obj._send_to = to
+    processed_to = self.__process_receiver_for_subtopic(to)
+    # This does not support multiple receivers for now.
+    communicator_obj.send(payload, send_to=processed_to)
     return
 
   def _send_payload(self, payload):
@@ -83,5 +110,5 @@ class MqttSession(GenericSession):
     return
 
   def _send_command(self, to, command):
-    self._send_raw_message(to, command, communicator='heartbeats')
+    self._send_raw_message(to=to, msg=command, communicator='heartbeats')
     return
