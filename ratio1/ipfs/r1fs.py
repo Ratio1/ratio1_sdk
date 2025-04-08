@@ -287,6 +287,10 @@ class R1FSEngine:
       return self.__ipfs_address
     
     @property
+    def ipfs_relay(self):
+      return self.__ipfs_relay
+    
+    @property
     def ipfs_agent(self):
       return self.__ipfs_agent
     

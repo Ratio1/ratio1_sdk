@@ -212,6 +212,7 @@ class PAYLOAD_DATA:
   NETMON_NODE_VERSION = 'version'
   NETMON_NODE_R1FS_ID = 'r1fs_id'
   NETMON_NODE_R1FS_ONLINE = 'r1fs_online'
+  NETMON_NODE_R1FS_RELAY = 'r1fs_relay'
   
 
   

@@ -3505,7 +3505,8 @@ class GenericSession(BaseDecentrAIObject):
         'Oracle' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
         'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
         'R1FS ID'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ID,
-        'R1FS Online'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ONLINE,
+        'R1FS On'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ONLINE,
+        # 'R1FS Relay' : PAYLOAD_DATA.NETMON_NODE_R1FS_RELAY,
       })
       if all_info:
         mapping = OrderedDict({
