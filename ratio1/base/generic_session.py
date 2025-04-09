@@ -2645,7 +2645,7 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name="Ratio1 Web App",
-      signature=PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01,
+      signature=PLUGIN_SIGNATURES.GENERIC_WEB_APP,
       ngrok_edge_label=None,
       endpoints=None,
       use_ngrok=True,
@@ -2867,51 +2867,51 @@ class GenericSession(BaseDecentrAIObject):
       *,
       nodes,
       name,
-      signature,
       ngrok_edge_label,
+      signature=PLUGIN_SIGNATURES.GENERIC_WEB_APP,
       endpoints=None,
       extra_debug=False,
       **kwargs
     ):
       """
       Create a new web app on a list of nodes.
-      
-      IMPORTANT: 
-        The web app will be exposed using ngrok from multiple nodes that all will share the 
+
+      IMPORTANT:
+        The web app will be exposed using ngrok from multiple nodes that all will share the
         same edge label so the ngrok_edge_label is mandatory.
-      
+
       Parameters
       ----------
-      
+
       nodes : list
           List of addresses or Names of the ratio1 Edge Protocol edge nodes that will handle this web app.
-          
+
       name : str
           Name of the web app.
-          
+
       signature : str
           The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01.
 
       ngrok_edge_label : str
           The label of the edge node that will be used to expose the web app. This is mandatory due to the fact
           that the web app will be exposed using ngrok from multiple nodes that all will share the same edge label.
-          
+
       endpoints : list[dict], optional
           A list of dictionaries defining the endpoint configuration. Defaults to None.
-          
-          
-      
+
+
+
       """
 
       ngrok_use_api = kwargs.pop('ngrok_use_api', True)
       use_ngrok = True
       kwargs.pop('use_ngrok', None)
-      
+
       if ngrok_edge_label is None:
         raise ValueError("The `ngrok_edge_label` parameter is mandatory when creating a balanced web app, in order for all instances to respond to the same URL.")
 
       pipelines, instances = [], []
-      
+
       for node in nodes:
         self.P("Creating web app on node {}...".format(node), color='b')
         pipeline: WebappPipeline = self.create_pipeline(
@@ -2930,7 +2930,7 @@ class GenericSession(BaseDecentrAIObject):
           ngrok_use_api=ngrok_use_api,
           **kwargs
         )
-        
+
         if endpoints is not None:
           for endpoint in endpoints:
             assert isinstance(endpoint, dict), "Each endpoint must be a dictionary defining the endpoint configuration."
