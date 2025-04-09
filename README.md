@@ -291,7 +291,7 @@ If you use the Ratio1 SDK in your research or projects, please cite it as follow
   author       = {Ratio1.AI},
   title        = {Ratio1 SDK},
   year         = {2024-2025},
-  howpublished = {\url{https://github.com/ratio1EdgeProtocol/ratio1}},
+  howpublished = {\url{https://github.com/Ratio1/ratio1_sdk}},
 }
 ```
 
@@ -300,6 +300,6 @@ If you use the Ratio1 SDK in your research or projects, please cite it as follow
   author = {Ratio1.AI},
   title = {Ratio1: Edge Node},
   year = {2024-2025},
-  howpublished = {\url{https://github.com/ratio1EdgeProtocol/edge_node}},
+  howpublished = {\url{https://github.com/Ratio1/edge_node}},
 }
 ```
