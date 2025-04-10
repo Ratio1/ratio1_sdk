@@ -72,7 +72,7 @@ from threading import Lock
 __VER__ = "0.2.2"
 
 # empirically determined minimum connection age for IPFS relay
-DEFAULT_MIN_CONNECTION_AGE = 3600 # seconds
+DEFAULT_MIN_CONNECTION_AGE = 1800 # seconds
 
 
 class IPFSCt:
@@ -197,6 +197,7 @@ class R1FSEngine:
       self.logger = logger
 
       self.__ipfs_started = False
+      self.__ipfs_warmed_up = False
       self.__ipfs_address = None
       self.__ipfs_id = None
       self.__ipfs_id_result = None
@@ -298,6 +299,9 @@ class R1FSEngine:
     def ipfs_started(self):
       return self.__ipfs_started
 
+    @property
+    def ipfs_connected(self):
+      return self.ipfs_started and self.__connected_at is not None
 
     @property
     def download_folder(self):
@@ -319,8 +323,7 @@ class R1FSEngine:
     @property
     def downloaded_files(self):
       return self.__downloaded_files
-    
-    
+        
     @property
     def connected_at(self):
       return self.__connected_at
@@ -364,7 +367,11 @@ class R1FSEngine:
       return peer_lines
 
 
-    def _check_and_record_relay_connection(self, max_check_age : int = 3600, debug=False) -> bool:
+    def _check_and_record_relay_connection(
+      self, 
+      max_check_age : int = 3600, 
+      debug=False
+    ) -> bool:
       """
       Checks if we're connected to the relay_peer_id by parsing 'ipfs swarm peers'.
       If connected and we haven't recorded connected_at yet, we set it.
@@ -401,12 +408,16 @@ class R1FSEngine:
             #end for
             # now reset the connected_at time if we found the relay peer
             if relay_found:
-              self.__connected_at = time.time() # set self.connected_at
+              # TODO: maybe add first & last connected time
+              if self.__connected_at is None:
+                # If we found the relay peer and connected_at was not set, set it now:
+                self.__connected_at = time.time()
               str_connected = self.logger.time_to_str(self.connected_at)
               self.P(f"Relay check #{self.__relay_check_cnt}: Connected to relay peer recorded at {str_connected}.")
-            else:
-              self.__connected_at = None
-              log_func(f"Relay check #{self.__relay_check_cnt}: Relay peer not found in swarm peers: {self.__ipfs_relay}", color='r')
+            else:              
+              # TODO: maybe add first & last connected time
+              # self.__connected_at = None # this is already None or the first connection
+              log_func(f"Relay check #{self.__relay_check_cnt}: FAIL: relay peer not found in swarm peers: {self.__ipfs_relay}", color='r')
             #end if relay_found or not
           #end if len(peer_lines) > 0
       except subprocess.TimeoutExpired:
@@ -1006,20 +1017,27 @@ class R1FSEngine:
       if not self.ipfs_started:
         # Not ipfs_started no need for further checks
         return False
+      if self.__ipfs_warmed_up and self.__connected_at is not None:
+        # Already warmed up, no need to check again
+        return True
+      
+      # we might be started but not iet connected to the relay
+      self.Pd("Checking if R1FS is warmed up...")
       connected = self._check_and_record_relay_connection()
       if not connected:
-        # Not connected to the relay yet
-        
+        # Not connected to the relay yet        
         return False    
-      # If we have a connection, see how old it is:
+      # If we have a connection, see how old it is
       connection_age = time.time() - self.connected_at
-      is_connection_aged =  connection_age >= self.__min_connection_age  
+      is_connection_aged =  connection_age >= self.__min_connection_age
+      self.__ipfs_warmed_up = is_connection_aged
       if is_connection_aged:
-        self.Pd(f"IPFS connection age {connection_age:.1f}s, >= {self.__min_connection_age}s")
+        self.Pd(f"IPFS warmed-up with connection age {connection_age:.1f}s, >= {self.__min_connection_age}s")
       else:
-        self.Pd(f"IPFS connection age {connection_age:.1f}s, < {self.__min_connection_age}s")
+        self.Pd(f"IPFS not warmed with connection age {connection_age:.1f}s, < {self.__min_connection_age}s")
       return is_connection_aged
-    
+
+
     @property
     def is_ipfs_warmed(self) -> bool:
       """
