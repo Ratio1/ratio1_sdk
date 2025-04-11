@@ -16,19 +16,40 @@ import time
 from ratio1 import Session, CustomPluginTemplate, PLUGIN_TYPES
 
 
-def processor(plugin: CustomPluginTemplate):
+def loop_processing(plugin):
   """
   This method will be continously called by the plugin to do any kind of required processing
   without being triggered by a message. This is useful for example to check for new events in
   a particular source or to do some kind of processing that is not directly related to a message
   """
-  some_value = plugin.int_cache["app_counter"]
-  some_value += 1
-  if some_value > 1_000_000:
-    # arbitrary condition to reset the value
-    some_value = 0
-  plugin.int_cache["app_counter"] = some_value
-  return
+  result = None
+  for user in plugin.users:
+    # Get or initialize user notification state
+    user_cache_key = f"{user}_notification_state"
+    user_notification_state = plugin.obj_cache.get(user_cache_key)
+    user_stats = plugin.get_user_stats(user)
+
+    plugin.P(f"Processing user {user} with stats {user_stats} and notification state {user_notification_state}")
+    if user_notification_state is None:
+      user_notification_state = {
+        "received_question_notice_at_question": 0
+      }
+      plugin.obj_cache[user_cache_key] = user_notification_state
+
+    if user_stats and user_stats['questions'] % 5 == 0 and user_notification_state.get(
+        "received_question_notice_at_question") != user_stats['questions']:
+      plugin.send_message_to_user(user_id=user, text="You have asked quite a few question, ser!")
+
+      user_notification_state = {
+        "received_question_notice_at_question": user_stats['questions']
+      }
+      plugin.obj_cache[user_cache_key] = user_notification_state
+
+      if result is None:
+        result = {}
+      result[user] = user_stats
+  return result
+
 
 def reply(plugin: CustomPluginTemplate, message: str, user: str):
   """
@@ -68,7 +89,7 @@ if __name__ == "__main__":
     name="telegram_bot_echo",
     # telegram_bot_token="your_token_goes_here",  # we use the token directly
     message_handler=reply,
-    processor_handler=processor,
+    processing_handler=loop_processing,
   )
   
   pipeline.deploy() # we deploy the pipeline
