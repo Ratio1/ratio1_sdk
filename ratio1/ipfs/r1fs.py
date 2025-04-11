@@ -264,19 +264,27 @@ class R1FSEngine:
         kwargs["color"] = color
         self.logger.P(s, *args, **kwargs)
       return
-    
+
+    def _hash_secret(self, secret: str) -> bytes:
+      # Convert text to bytes, then hash with SHA-256 => 32-byte key
+      return hashlib.sha256(secret.encode("utf-8")).digest()
+
+  # Private, yet visible (public) helpers.
+  if True:
     def _set_debug(self):
       """
       Force debug mode on.
       """
       self.__debug = True
       return
-    
-    def _hash_secret(self, secret: str) -> bytes:
-      # Convert text to bytes, then hash with SHA-256 => 32-byte key
-      return hashlib.sha256(secret.encode("utf-8")).digest()  
-    
-    
+
+    def _set_min_connection_age(self, min_connection_age: int):
+      """
+      Set the minimum connection age for IPFS to be considered warmed up.
+      """
+      self.__min_connection_age = min_connection_age
+      return
+
   # Public properties
   if True:
     @property
@@ -1044,7 +1052,7 @@ class R1FSEngine:
       Check if IPFS is warmed up (connected to the relay and has been for a while).
       """
       return self.check_ipfs_warmed()  
-    
+
   
   # Start/stop IPFS methods (R1FS API)
   if True:
