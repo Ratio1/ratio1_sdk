@@ -313,11 +313,12 @@ class MQTTWrapper(BaseCommWrapper):
       self._thread_name = mqttc._thread.name
 
     if has_connection:
-      msg = "MQTT conn ok by '{}' in {:.1f}s - {}:{}".format(
+      msg = "MQTT conn ok by '{}' in {:.1f}s - {}:{} with subtopic {}".format(
         self._thread_name,
         sleep_iter * sleep_time,
         self.cfg_host,
-        self.cfg_port
+        self.cfg_port,
+        self.cfg_subtopic
       )
       msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_NORMAL
       self._nr_full_retries = 0

@@ -197,8 +197,8 @@ class AMQPWrapper(BaseCommWrapper):
     # endwhile
 
     if has_connection:
-      msg = "AMQP (Pika) '{}' connection successfully established on exchange '{}', queue '{}'".format(
-        channel_name.lower(), exchange, queue,
+      msg = "AMQP (Pika) '{}' connection successfully established on exchange '{}', queue '{}' with subtopic '{}'".format(
+        channel_name.lower(), exchange, queue, self.cfg_subtopic
       )
       msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_NORMAL
     else:
