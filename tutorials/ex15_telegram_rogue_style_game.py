@@ -18,8 +18,6 @@ Telegram roguelike bot using the same pipeline approach as Blackjack:
 session = Session()  # Uses .ratio1 config or env variables
 
 def reply(plugin: CustomPluginTemplate, message: str, user: str):
-  plugin.P('REPLY!!')
-  plugin.P(message)
   # --------------------------------------------------
   # GAME CONSTANTS
   # --------------------------------------------------
