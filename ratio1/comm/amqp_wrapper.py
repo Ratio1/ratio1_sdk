@@ -7,9 +7,10 @@ import pika
 
 
 from ..const import COLORS, COMMS, BASE_CT, PAYLOAD_CT
+from ..comm.base_comm_wrapper import BaseCommWrapper
 
 
-class AMQPWrapper(object):
+class AMQPWrapper(BaseCommWrapper):
   def __init__(
     self,
     log,
@@ -21,17 +22,7 @@ class AMQPWrapper(object):
     verbosity=1,
     **kwargs
   ):
-    self._config = config
-    self._recv_buff = recv_buff
-    self._send_to = None
-    self._comm_type = comm_type
-    self.__verbosity = verbosity
-    self.send_channel_name = send_channel_name
-    self.recv_channel_name = recv_channel_name
     self._disconnected_log = []
-
-    if self.recv_channel_name is not None:
-      assert self._recv_buff is not None
 
     self._recv_objects = {'queue': None, 'exchange': None}
     self._send_objects = {'queue': None, 'exchange': None}
@@ -39,83 +30,45 @@ class AMQPWrapper(object):
     self._connection = None
     self._channel = None
 
-    super(AMQPWrapper, self).__init__(log=log, **kwargs)
-    return
+    super(AMQPWrapper, self).__init__(
+      log=log,
+      config=config,
+      recv_buff=recv_buff,
+      send_channel_name=send_channel_name,
+      recv_channel_name=recv_channel_name,
+      comm_type=comm_type,
+      verbosity=verbosity,
+      **kwargs
+    )
 
-  def P(self, s, color=None, verbosity=1, **kwargs):
-    if verbosity > self.__verbosity:
-      return
-    if color is None or (isinstance(color, str) and color[0] not in ['e', 'r']):
-      color = COLORS.COMM
-    super().P(s, prefix=False, color=color, **kwargs)
+    if self.recv_channel_name is not None:
+      assert self._recv_buff is not None
     return
 
   @property
-  def send_channel_name(self):
-    return self._send_channel_name
-
-  @property
-  def recv_channel_name(self):
-    return self._recv_channel_name
-
-  @send_channel_name.setter
-  def send_channel_name(self, x):
-    if isinstance(x, tuple):
-      self._send_channel_name, self._send_to = x
-    else:
-      self._send_channel_name = x
-    return
-
-  @recv_channel_name.setter
-  def recv_channel_name(self, x):
-    self._recv_channel_name = x
-    return
+  def comm_log_prefix(self):
+    return 'AMQWRP'
 
   @property
   def cfg_broker(self):
     return self._config[COMMS.BROKER]
 
   @property
-  def cfg_user(self):
-    return self._config[COMMS.USER]
-
-  @property
-  def cfg_pass(self):
-    return self._config[COMMS.PASS]
-
-  @property
   def cfg_vhost(self):
     return self._config[COMMS.VHOST]
-
-  @property
-  def cfg_port(self):
-    return self._config[COMMS.PORT]
 
   @property
   def cfg_routing_key(self):
     return self._config.get(COMMS.ROUTING_KEY, "")
 
-  @property
-  def cfg_node_id(self):
-    return self._config.get(COMMS.EE_ID, self._config.get(COMMS.SB_ID, None))
 
-  @property
-  def send_channel_def(self):
-    if self.send_channel_name is None:
-      return
+  def channel_key(self):
+    return COMMS.QUEUE
 
-    cfg = self._config[self.send_channel_name].copy()
-    queue = cfg.get(COMMS.QUEUE, cfg[COMMS.EXCHANGE])
-    if self._send_to is not None and "{}" in queue:
-      queue = queue.format(self._send_to)
+  def extract_channel_from_config(self, cfg):
+    return cfg.get(COMMS.QUEUE, cfg[COMMS.EXCHANGE])
 
-    assert "{}" not in queue
-
-    cfg[COMMS.QUEUE] = queue
-    return cfg
-
-  @property
-  def recv_channel_def(self):
+  def get_recv_channel_def(self):
     if self.recv_channel_name is None:
       return
 
@@ -196,9 +149,9 @@ class AMQPWrapper(object):
   def establish_one_way_connection(self, channel_name, max_retries=5):
     cfg = None
     if channel_name.lower() == 'send':
-      cfg = self.send_channel_def
+      cfg = self.get_send_channel_def()
     elif channel_name.lower() == 'recv':
-      cfg = self.recv_channel_def
+      cfg = self.get_recv_channel_def()
     # endif
 
     if cfg is None:
@@ -244,8 +197,8 @@ class AMQPWrapper(object):
     # endwhile
 
     if has_connection:
-      msg = "AMQP (Pika) '{}' connection successfully established on exchange '{}', queue '{}'".format(
-        channel_name.lower(), exchange, queue,
+      msg = "AMQP (Pika) '{}' connection successfully established on exchange '{}', queue '{}' with subtopic '{}'".format(
+        channel_name.lower(), exchange, queue, self.cfg_subtopic
       )
       msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_NORMAL
     else:
@@ -279,7 +232,9 @@ class AMQPWrapper(object):
     # endif
     return
 
-  def send(self, message):
+  def send(self, message, send_to=None):
+    prev_send_to = self._send_to
+    self._send_to = send_to
     properties = pika.BasicProperties(content_type='application/json')
     self._channel.basic_publish(
       exchange=self.send_exchange,
@@ -291,7 +246,7 @@ class AMQPWrapper(object):
     ####
     self.D("Sent message '{}'".format(message))
     ####
-
+    self._send_to = prev_send_to
     return
 
   def release(self):
