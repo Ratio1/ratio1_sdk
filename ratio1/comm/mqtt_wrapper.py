@@ -96,9 +96,13 @@ class MQTTWrapper(BaseCommWrapper):
     topic = cfg[COMMS.TOPIC]
     lst_topics = []
     if "{}" in topic:
-      subtopic_value = self.get_subtopic_value()
-      if subtopic_value is not None:
-        lst_topics.append(topic.format(subtopic_value))
+      # A list of values is retrieved in order for the `alias`
+      # subtopic mode to also listen on the queues based on address.
+      subtopic_values = self.get_subtopic_values()
+      for subtopic_value in subtopic_values:
+        if subtopic_value is not None:
+          lst_topics.append(topic.format(subtopic_value))
+      # endfor subtopic_values
     else:
       lst_topics.append(topic)
 

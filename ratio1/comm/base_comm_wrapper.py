@@ -144,10 +144,11 @@ class BaseCommWrapper(object):
   def cfg_subtopic(self):
     return self._config.get(COMMS.SUBTOPIC, COMMS.DEFAULT_SUBTOPIC_VALUE)
 
-  def get_subtopic_value(self):
+  def get_subtopic_values(self):
     if self.cfg_subtopic == 'alias':
-      return self.cfg_node_id
-    return self.cfg_node_addr
+      # This is done in order for alias to still work with addresses
+      return [self.cfg_node_id, self.cfg_node_addr]
+    return [self.cfg_node_addr]
 
   @property
   def channel_key(self):
