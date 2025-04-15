@@ -926,9 +926,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll, energy_drink, bomb).\n"
                  "9. /fight  - Engage in combat with a monster you've encountered.\n"
                  "10. /flee   - Retreat from a monster encounter back to your previous position.\n"
-                 "11. /setstatus <exploring|fighting|recovering> - Manually set your status to affect regeneration rates.\n"
-                 "12. /botstatus - View technical information about the bot and world statistics.\n"
-                 "13. /help   - Display help information.\n"
+                 "11. /botstatus - View technical information about the bot and world statistics.\n"
+                 "12. /help   - Display help information.\n"
+                 "13. /wiki   - Access the game's knowledge base with additional information and tips.\n"
                  "\nGame Initialization:\n"
                  "The game world needs to be initialized before anyone can play.\n"
                  "- /init   - Initialize the game world (admin only, can only be used once).")
@@ -1025,8 +1025,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     if plugin.obj_cache["bot_status"]["initialized"]:
       return ("Available Commands:\n" 
             "1. /start  - Restart your character (keeps the shared map).\n" 
-            "2. up, down, left, right - Move your character directly with these commands.\n" 
-            "3. /move <up|down|left|right> - Move your character in the specified direction (WSAD keys supported).\n" 
+            "2. N/S/W/E or north/south/west/east - Move your character in the specified direction.\n" 
+            "3. 'go north', 'go south', etc. - Alternative way to move in the specified direction.\n" 
             "4. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n" 
             "5. /map    - View the map of your surroundings.\n" 
             "6. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
@@ -1034,7 +1034,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll, energy_drink, bomb).\n"
             "9. /fight  - Engage in combat with a monster you've encountered.\n"
             "10. /flee   - Retreat from a monster encounter back to your previous position.\n"
-            "11. /help   - Display help information.")
+            "11. /help   - Display help information.\n"
+            "12. /wiki   - Access the game's knowledge base with additional information and tips.")
     else:
       return ("⚠️ GAME NOT INITIALIZED ⚠️\n\n"
              "The game world hasn't been created yet!\n"
@@ -1312,7 +1313,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   elif command == "/help":
     return display_help()
 
-  elif command == "/wiki":
+  elif command in ["/wiki", "wiki"]:
     wiki_text = (
       "📚 SHADOWBORN WIKI 📚\n\n"
       "🎯 MONSTER TYPES & LEVELS:\n"
@@ -1376,7 +1377,6 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       "💡 TIPS:\n"
       "• Use /status to check your stats\n"
       "• Use /map to view your surroundings\n"
-      "• Use /setstatus to manually change your status\n"
       "• Higher level monsters give better rewards\n"
       "• Always keep some health potions for emergencies\n"
       "• Use map scrolls to plan your route\n"
@@ -1453,8 +1453,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   else:
     return ("Commands:\n"
             "/start  - Restart your character (keeps the shared map)\n" 
-            "N/S/E/W, north/south/east/west - Move your character\n"
-            "'go north', 'go south', etc. - Alternative movement commands\n"
+            "N/S/W/E or north/south/west/east - Move your character in the specified direction.\n"
+            "'go north', 'go south', etc. - Alternative way to move in the specified direction.\n"
             "/status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
             "/map    - Reveal the map of your surroundings\n"
             "/shop   - Visit the shop to buy upgrades and items\n" 
@@ -1462,7 +1462,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "/use <item_name> - Use a consumable item from your inventory\n"
             "/fight  - Engage in combat with a monster you've encountered\n"
             "/flee   - Retreat from a monster encounter back to your previous position\n"
-            "/setstatus <exploring|fighting|recovering> - Manually set your status\n"
+            "/wiki   - Access the game's knowledge base with additional information and tips.\n"
             "/botstatus - View technical information about the bot\n"
             "/help   - Display this help message"
             + ("\n/init   - Initialize the game world (admin only)" if not plugin.obj_cache["bot_status"]["initialized"] else ""))
