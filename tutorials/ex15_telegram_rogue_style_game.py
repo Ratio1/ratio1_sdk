@@ -916,6 +916,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "- Energy Drink (🧃): Restores 10 energy points\n"
                  "- Bomb (💣): Deals 5 damage to a monster before combat starts\n"
                  "\nAvailable Commands:\n"
+                 "Note: All commands can be used both with and without the leading slash.\n"
                  "1. /start  - Restart your character (keeps the shared map).\n"
                  "2. N/S/W/E or north/south/west/east - Move your character in the specified direction.\n"
                  "3. 'go north', 'go south', etc. - Alternative way to move in the specified direction.\n"
@@ -926,9 +927,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll, energy_drink, bomb).\n"
                  "9. /fight  - Engage in combat with a monster you've encountered.\n"
                  "10. /flee   - Retreat from a monster encounter back to your previous position.\n"
-                 "11. /botstatus - View technical information about the bot and world statistics.\n"
-                 "12. /help   - Display help information.\n"
-                 "13. /wiki   - Access the game's knowledge base with additional information and tips.\n"
+                 "11. /help   - Display help information.\n"
+                 "12. /wiki   - Access the game's knowledge base with additional information and tips.\n"
                  "\nGame Initialization:\n"
                  "The game world needs to be initialized before anyone can play.\n"
                  "- /init   - Initialize the game world (admin only, can only be used once).")
@@ -1024,6 +1024,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   if not parts:
     if plugin.obj_cache["bot_status"]["initialized"]:
       return ("Available Commands:\n" 
+            "Note: All commands can be used both with and without the leading slash.\n"
             "1. /start  - Restart your character (keeps the shared map).\n" 
             "2. N/S/W/E or north/south/west/east - Move your character in the specified direction.\n" 
             "3. 'go north', 'go south', etc. - Alternative way to move in the specified direction.\n" 
@@ -1048,7 +1049,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   command = parts[0]
 
   # Handle initialization command
-  if command == "/init":
+  if command == "/init" or command_without_slash == "init":
     # Only allow /init when not initialized
     if plugin.obj_cache["bot_status"]["initialized"]:
       return "Game is already initialized! The world exists and players can join."
@@ -1098,6 +1099,9 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # Update the last message time for the player
   player["last_message_time"] = current_time
 
+  # Now strip the slash from command if it exists - this allows commands to work both with and without slash
+  command_without_slash = command.lstrip('/')
+  
   # ---------------------------
   # NSEW Controls Processing
   # ---------------------------
@@ -1133,15 +1137,17 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     else:
       return f"Invalid direction: {compass_direction}. Use north, south, east, or west."
 
-  if command == "/start":
+  # Process commands with or without slash
+  if command_without_slash == "start":
     # First send welcome message and initialization notification
     welcome_message = ("Welcome to Shadowborn!\n" 
                       "This is an epic roguelike adventure where you explore a dangerous dungeon, defeat monsters, collect coins, earn XP, and purchase upgrades from the shop.\n" 
                       "Your goal is to explore the vast map and complete quests.\n"
                       "All players share the same map - you'll see changes made by other players!\n\n"
                       "⏳ Initializing your character... Please wait a moment as your hero materializes in the world... ⏳\n\n"
-                      "Use N/S/E/W, north/south/east/west, 'go north'/'go south'/etc. to move around, /status to check your stats, and /shop to buy upgrades.\n\n"
-                      "For more detailed instructions, use /help.")
+                      "Use N/S/E/W, north/south/east/west, 'go north'/'go south'/etc. to move around, status to check your stats, and shop to buy upgrades.\n"
+                      "Commands can be used with or without the leading slash (e.g., /status or status).\n\n"
+                      "For more detailed instructions, use help or /help.")
 
     # Send the welcome message first
     plugin.send_message_to_user(user_id, welcome_message)
@@ -1155,8 +1161,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Return the map view as a separate message
     return f"✅ Character initialization complete! Your adventure begins now!\n\n{map_view}"
 
-
-  elif command == "/status":
+  elif command_without_slash == "status":
     p = plugin.obj_cache["users"][user_id]
     x, y = p["position"]
     
@@ -1290,27 +1295,27 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
     return status_message
 
-  elif command == "/map":
+  elif command_without_slash == "map":
     return visualize_map(plugin.obj_cache["users"][user_id], plugin.obj_cache["shared_map"])
 
-  elif command == "/shop":
+  elif command_without_slash == "shop":
     return display_shop(player)
 
-  elif command == "/buy":
+  elif command_without_slash == "buy":
     if len(parts) < 2:
       return "Usage: /buy <item_name>\nUse /shop to see available items."
 
     item_id = parts[1].lower()
     return buy_item(player, item_id)
 
-  elif command == "/use":
+  elif command_without_slash == "use":
     if len(parts) < 2:
       return "Usage: /use <item_name>\nItems you can use: health_potion, map_scroll, energy_drink, bomb"
 
     item_id = parts[1].lower()
     return use_item(player, item_id, game_map)
 
-  elif command == "/help":
+  elif command_without_slash == "help":
     return display_help()
 
   elif command in ["/wiki", "wiki"]:
@@ -1384,7 +1389,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     )
     return wiki_text
 
-  elif command == "/botstatus":
+  elif command_without_slash == "botstatus":
     # Show bot status information
     if "bot_status" not in plugin.obj_cache:
       return "Bot status information not available."
@@ -1438,10 +1443,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     
     return status_message
 
-  elif command == "/fight":
+  elif command_without_slash == "fight":
     return handle_fight_command(player, game_map)
 
-  elif command == "/flee":
+  elif command_without_slash == "flee":
     response = handle_flee_command(player, game_map)
     
     # Clean up combat session if user was in combat
@@ -1449,23 +1454,22 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       del plugin.obj_cache["combat"][user_id]
     
     return response
-
+    
   else:
     return ("Commands:\n"
-            "/start  - Restart your character (keeps the shared map)\n" 
-            "N/S/W/E or north/south/west/east - Move your character in the specified direction.\n"
-            "'go north', 'go south', etc. - Alternative way to move in the specified direction.\n"
-            "/status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
-            "/map    - Reveal the map of your surroundings\n"
-            "/shop   - Visit the shop to buy upgrades and items\n" 
-            "/buy <item_name> - Purchase an item from the shop\n" 
-            "/use <item_name> - Use a consumable item from your inventory\n"
-            "/fight  - Engage in combat with a monster you've encountered\n"
-            "/flee   - Retreat from a monster encounter back to your previous position\n"
-            "/wiki   - Access the game's knowledge base with additional information and tips.\n"
-            "/botstatus - View technical information about the bot\n"
-            "/help   - Display this help message"
-            + ("\n/init   - Initialize the game world (admin only)" if not plugin.obj_cache["bot_status"]["initialized"] else ""))
+            "/start or start - Restart your character (keeps the shared map)\n" 
+            "N/S/W/E or north/south/west/east - Move your character in the specified direction\n"
+            "'go north', 'go south', etc. - Alternative way to move in the specified direction\n"
+            "/status or status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
+            "/map or map - Reveal the map of your surroundings\n"
+            "/shop or shop - Visit the shop to buy upgrades and items\n" 
+            "/buy or buy <item_name> - Purchase an item from the shop\n" 
+            "/use or use <item_name> - Use a consumable item from your inventory\n"
+            "/fight or fight - Engage in combat with a monster you've encountered\n"
+            "/flee or flee - Retreat from a monster encounter back to your previous position\n"
+            "/wiki or wiki - Access the game's knowledge base with additional information and tips\n"
+            "/help or help - Display this help message"
+            + ("\n/init or init - Initialize the game world (admin only)" if not plugin.obj_cache["bot_status"]["initialized"] else ""))
 
 # --------------------------------------------------
 # PROCESSING HANDLER
