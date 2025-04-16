@@ -750,6 +750,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       shop_text += f"  {item['description']}\n"
 
     shop_text += "\nTo purchase an item, use /buy <item_name>"
+    shop_text += "\nYou can use spaces or underscores in item names (e.g., 'map scroll' or 'map_scroll')"
     shop_text += "\nAvailable items: health_potion, sword, shield, amulet, boots, map_scroll, energy_drink, bomb"
     return shop_text
 
@@ -923,8 +924,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                  "4. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n"
                  "5. /map    - View the map of your surroundings.\n"
                  "6. /shop   - Visit the shop to browse and buy upgrades/items.\n"
-                 "7. /buy <item_name> - Purchase an item from the shop.\n"
-                 "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll, energy_drink, bomb).\n"
+                 "7. /buy <item_name> - Purchase an item from the shop. You can use spaces in item names (e.g., 'map scroll').\n"
+                 "8. /use <item_name> - Use a consumable item from your inventory. You can use spaces in item names (e.g., 'energy drink').\n"
                  "9. /fight  - Engage in combat with a monster you've encountered.\n"
                  "10. /flee   - Retreat from a monster encounter back to your previous position.\n"
                  "11. /help   - Display help information.\n"
@@ -1031,8 +1032,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "4. /status - Display your current stats (health, coins, level, XP, attack, and equipment).\n" 
             "5. /map    - View the map of your surroundings.\n" 
             "6. /shop   - Visit the shop to browse and buy upgrades/items.\n" 
-            "7. /buy <item_name> - Purchase an item from the shop.\n" 
-            "8. /use <item_name> - Use a consumable item from your inventory (e.g., health_potion, map_scroll, energy_drink, bomb).\n"
+            "7. /buy <item_name> - Purchase an item from the shop. You can use spaces in item names (e.g., 'map scroll').\n" 
+            "8. /use <item_name> - Use a consumable item from your inventory. You can use spaces in item names (e.g., 'energy drink').\n"
             "9. /fight  - Engage in combat with a monster you've encountered.\n"
             "10. /flee   - Retreat from a monster encounter back to your previous position.\n"
             "11. /help   - Display help information.\n"
@@ -1048,8 +1049,11 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   command = parts[0]
 
+  # Now strip the slash from command if it exists - this allows commands to work both with and without slash
+  command_without_slash = command.lstrip('/')
+
   # Handle initialization command
-  if command == "/init" or command_without_slash == "init":
+  if command_without_slash == "init":
     # Only allow /init when not initialized
     if plugin.obj_cache["bot_status"]["initialized"]:
       return "Game is already initialized! The world exists and players can join."
@@ -1099,9 +1103,6 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   # Update the last message time for the player
   player["last_message_time"] = current_time
 
-  # Now strip the slash from command if it exists - this allows commands to work both with and without slash
-  command_without_slash = command.lstrip('/')
-  
   # ---------------------------
   # NSEW Controls Processing
   # ---------------------------
@@ -1145,9 +1146,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
                       "Your goal is to explore the vast map and complete quests.\n"
                       "All players share the same map - you'll see changes made by other players!\n\n"
                       "⏳ Initializing your character... Please wait a moment as your hero materializes in the world... ⏳\n\n"
-                      "Use N/S/E/W, north/south/east/west, 'go north'/'go south'/etc. to move around, status to check your stats, and shop to buy upgrades.\n"
+                      "Use N/S/E/W, north/south/east/west, 'go north', 'go south', 'go east', 'go west'. to move around, status to check your stats, and shop to buy upgrades.\n"
                       "Commands can be used with or without the leading slash (e.g., /status or status).\n\n"
-                      "For more detailed instructions, use help or /help.")
+                      "For more detailed instructions, use help or /help."
+                      "To discover our world use wiki or /wiki.")
 
     # Send the welcome message first
     plugin.send_message_to_user(user_id, welcome_message)
@@ -1303,16 +1305,18 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
 
   elif command_without_slash == "buy":
     if len(parts) < 2:
-      return "Usage: /buy <item_name>\nUse /shop to see available items."
+      return "Usage: /buy <item_name>\nUse /shop to see available items.\nYou can use spaces in item names (e.g., 'map scroll')"
 
-    item_id = parts[1].lower()
+    # Join all words after 'buy' and convert spaces to underscores to match item_id format
+    item_id = '_'.join(parts[1:]).lower()
     return buy_item(player, item_id)
 
   elif command_without_slash == "use":
     if len(parts) < 2:
-      return "Usage: /use <item_name>\nItems you can use: health_potion, map_scroll, energy_drink, bomb"
+      return "Usage: /use <item_name>\nItems you can use: health_potion, map_scroll, energy_drink, bomb\nYou can use spaces in item names (e.g., 'energy drink')"
 
-    item_id = parts[1].lower()
+    # Join all words after 'use' and convert spaces to underscores to match item_id format
+    item_id = '_'.join(parts[1:]).lower()
     return use_item(player, item_id, game_map)
 
   elif command_without_slash == "help":
@@ -1463,8 +1467,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "/status or status - Display your current stats: position, health, coins, level, XP, damage reduction, and kills\n" 
             "/map or map - Reveal the map of your surroundings\n"
             "/shop or shop - Visit the shop to buy upgrades and items\n" 
-            "/buy or buy <item_name> - Purchase an item from the shop\n" 
-            "/use or use <item_name> - Use a consumable item from your inventory\n"
+            "/buy or buy <item_name> - Purchase an item from the shop. You can use spaces in item names (e.g., 'map scroll')\n" 
+            "/use or use <item_name> - Use a consumable item from your inventory. You can use spaces in item names (e.g., 'energy drink')\n"
             "/fight or fight - Engage in combat with a monster you've encountered\n"
             "/flee or flee - Retreat from a monster encounter back to your previous position\n"
             "/wiki or wiki - Access the game's knowledge base with additional information and tips\n"
