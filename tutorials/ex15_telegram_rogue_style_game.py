@@ -416,6 +416,28 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Consume energy for combat
     player["energy"] -= ENERGY_COSTS["attack"]
     
+    # Set player status to fighting to prevent the timer-based combat initiation
+    player = update_player_status(player, "fighting")
+    
+    # Initialize combat session manually
+    # Find user_id by looking for this player object in the users cache
+    user_id = None
+    for uid, p in plugin.obj_cache.get("users", {}).items():
+      if p is player:
+        user_id = uid
+        break
+    
+    if user_id and "combat" not in plugin.obj_cache:
+      plugin.obj_cache["combat"] = {}
+      
+    if user_id:
+      plugin.obj_cache["combat"][user_id] = {
+        "monster": create_monster_of_type(monster_type, monster_level),
+        "last_round_time": plugin.time(),
+        "round_number": 0,
+        "initial_player_health": player["health"]
+      }
+    
     return f"⚔️ You decide to fight the {monster_name}!\nCombat will proceed automatically."
 
   def handle_flee_command(player, game_map):
@@ -1491,7 +1513,10 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     return status_message
 
   elif command_without_slash == "fight":
-    return handle_fight_command(player, game_map)
+    response = handle_fight_command(player, game_map)
+    # Make sure we save the updated player state back to the cache
+    plugin.obj_cache["users"][user_id] = player
+    return response
 
   elif command_without_slash == "flee":
     response = handle_flee_command(player, game_map)
@@ -2034,7 +2059,7 @@ def loop_processing(plugin):
       player, recovery_message = regenerate_player_stats(player, time_elapsed)
       
       # Check for players in "prepare_to_fight" status
-      if player["status"] == "prepare_to_fight":
+      if player["status"] == "prepare_to_fight" and user_id not in plugin.obj_cache.get("combat", {}):
         time_in_status = current_time - player["status_since"]
         
         # If 5 seconds have passed, automatically start combat
@@ -2065,8 +2090,10 @@ def loop_processing(plugin):
               "initial_player_health": player["health"]
             }
           
-          # Send timeout message
-          plugin.send_message_to_user(user_id, "⏱️ Time's up! You couldn't decide in time. The monster attacks!")
+          # Send timeout message only if the user isn't already in combat
+          # (which would mean they already chose to fight)
+          if user_id not in plugin.obj_cache["combat"]:
+            plugin.send_message_to_user(user_id, "⏱️ Time's up! You couldn't decide in time. The monster attacks!")
       
       # Process combat if player is fighting
       elif player["status"] == "fighting":
