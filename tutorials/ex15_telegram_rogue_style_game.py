@@ -2064,6 +2064,9 @@ def loop_processing(plugin):
         
         # If 5 seconds have passed, automatically start combat
         if time_in_status >= COMBAT_DECISION_TIME:
+          # Send timeout message
+          plugin.send_message_to_user(user_id, "⏱️ Time's up! You couldn't decide in time. The monster attacks!")
+          
           # Get player position and create monster for combat
           x, y = player["position"]
           monster_level = plugin.obj_cache["shared_map"][y][x]["monster_level"]
@@ -2089,11 +2092,6 @@ def loop_processing(plugin):
               "round_number": 0,
               "initial_player_health": player["health"]
             }
-          
-          # Send timeout message only if the user isn't already in combat
-          # (which would mean they already chose to fight)
-          if user_id not in plugin.obj_cache["combat"]:
-            plugin.send_message_to_user(user_id, "⏱️ Time's up! You couldn't decide in time. The monster attacks!")
       
       # Process combat if player is fighting
       elif player["status"] == "fighting":
