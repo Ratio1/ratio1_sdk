@@ -891,13 +891,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     elif item_id == "bomb":
       # Check if player is in combat or about to enter combat
       x, y = player["position"]
-      tile = game_map[y][x]
-      
-      if tile["type"] != "MONSTER":
-        # Refund energy if bomb wasn't used
-        player["energy"] += ENERGY_COSTS["use_item"]
-        return "You can only use bombs when facing a monster!"
-      
+
       # Store the bomb usage flag for use in the combat session
       player["bomb_used"] = True
       player["inventory"][item_id] -= 1
