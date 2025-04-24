@@ -41,8 +41,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     },
     "orc": {
       "name": "Orc 👺",
-      "min_level": 2,
-      "max_level": 5,
+      "min_level": 4,
+      "max_level": 7,
       "base_hp": 8,
       "hp_per_level": 3,
       "min_damage": 2,
@@ -53,7 +53,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     },
     "demon": {
       "name": "Demon 👿",
-      "min_level": 4,
+      "min_level": 8,
       "max_level": 10,
       "base_hp": 12,
       "hp_per_level": 4,
@@ -288,6 +288,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
             "type": tile_type,
             "visible": False,
             "monster_level": monster_level if tile_type == "MONSTER" else 0,
+            "monster_type": get_monster_type_for_level(monster_level) if tile_type == "MONSTER" else "",
             "biome": biome_type,
             "biome_emoji": biome_data["emoji"]
         })
@@ -392,26 +393,21 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
   def handle_fight_command(player, game_map):
     """
     Handles the /fight command when a player decides to fight a monster.
-    Changes player status from prepare_to_fight to fighting.
+    Initiates combat with a monster at the player's current position.
     """
-    # Only allow if player is in prepare_to_fight status
+    # Only allow fighting if the player is in "prepare_to_fight" status
     if player["status"] != "prepare_to_fight":
-      return "You are not in a position to fight. Find a monster first!"
-
-    # Check if player has enough energy for combat
-    if player["energy"] < ENERGY_COSTS["attack"]:
-      # If not enough energy, set to recovering and return to previous position
-      player = update_player_status(player, "recovering")
-      player["position"] = player["previous_position"]
-      return f"You don't have enough energy to fight! Energy: {int(player['energy'])}/{player['max_energy']}\nYou retreat to your previous position."
-
-    # Set player status to fighting
-    player = update_player_status(player, "fighting")
+      return "There's nothing to fight here!"
     
-    # Get monster info at current position
+    # Get player's position and monster level
     x, y = player["position"]
     monster_level = game_map[y][x]["monster_level"]
-    monster_type = get_monster_type_for_level(monster_level)
+    
+    # Get or generate monster type
+    if "monster_type" not in game_map[y][x]:
+      game_map[y][x]["monster_type"] = get_monster_type_for_level(monster_level)
+    
+    monster_type = game_map[y][x]["monster_type"]
     monster_name = MONSTER_TYPES[monster_type]["name"]
     
     # Store the monster_type in player data for combat consistency
@@ -434,7 +430,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Get monster info at current position
     x, y = player["position"]
     monster_level = game_map[y][x]["monster_level"]
-    monster_type = get_monster_type_for_level(monster_level)
+    
+    # Get or generate monster type
+    if "monster_type" not in game_map[y][x]:
+      game_map[y][x]["monster_type"] = get_monster_type_for_level(monster_level)
+    
+    monster_type = game_map[y][x]["monster_type"]
     monster_name = MONSTER_TYPES[monster_type]["name"]
     
     # Get biome information for energy cost
@@ -699,7 +700,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     elif tile["type"] == "MONSTER":
       # Instead of instant combat, initiate prepare_to_fight state
       monster_level = tile["monster_level"]
-      monster_type = get_monster_type_for_level(monster_level)
+      monster_type = tile.get("monster_type", get_monster_type_for_level(monster_level))
+      
+      # Store the monster type in the tile for consistency
+      tile["monster_type"] = monster_type
+      
+      # Get monster info based on type
       monster_info = MONSTER_TYPES[monster_type]
       monster_name = monster_info["name"]
       
@@ -713,7 +719,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
       
       # Set player status to prepare_to_fight
       player = update_player_status(player, "prepare_to_fight")
-      
+
+
       msg += f"\n⚠️⚠️⚠️ You encountered a level {monster_level} {monster_name}!⚠️⚠️⚠️\n\n"
       msg += f"Monster Stats:\n"
       msg += f"❤️ HP: {hp}\n"
@@ -964,6 +971,42 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str):
     # Use randint instead of choice for selecting from the list
     random_index = plugin.np.random.randint(0, len(suitable_monsters))
     return suitable_monsters[random_index]
+
+  def get_monster_id_for_level(level):
+    """
+    Returns an appropriate monster type name for the given level.
+    This function is kept for backward compatibility but now returns
+    the monster type name directly instead of an ID.
+    """
+    return get_monster_type_for_level(level)
+
+  
+  def create_monster_of_type(monster_type, level):
+    """
+    Creates a new monster of a specific type with appropriate level.
+    """
+    # Fallback if monster_type doesn't exist in MONSTER_TYPES
+    if monster_type not in MONSTER_TYPES:
+      return create_monster(level)
+
+    stats = MONSTER_TYPES[monster_type]
+
+    # Calculate monster stats based on level
+    hp = stats["base_hp"] + (level - 1) * stats["hp_per_level"]
+    min_damage = stats["min_damage"] + (level - 1) * stats["damage_per_level"]
+    max_damage = stats["max_damage"] + (level - 1) * stats["damage_per_level"]
+
+    return {
+      "type": monster_type,
+      "name": stats["name"],
+      "level": level,
+      "hp": hp,
+      "max_hp": hp,
+      "min_damage": min_damage,
+      "max_damage": max_damage,
+      "xp_reward": stats["xp_reward"] * level,
+      "coin_reward": (stats["coin_reward"][0] * level, stats["coin_reward"][1] * level)
+    }
 
   def create_monster(level):
     """
@@ -1508,8 +1551,8 @@ def loop_processing(plugin):
     },
     "orc": {
       "name": "Orc 👺",
-      "min_level": 2,
-      "max_level": 5,
+      "min_level": 4,
+      "max_level": 7,
       "base_hp": 8,
       "hp_per_level": 3,
       "min_damage": 2,
@@ -1520,7 +1563,7 @@ def loop_processing(plugin):
     },
     "demon": {
       "name": "Demon 👿",
-      "min_level": 4,
+      "min_level": 8,
       "max_level": 10,
       "base_hp": 12,
       "hp_per_level": 4,
