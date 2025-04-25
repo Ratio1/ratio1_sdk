@@ -3098,7 +3098,7 @@ class GenericSession(BaseDecentrAIObject):
       name,
       signature=PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01,
       message_handler=None,
-      processor_handler=None,
+      processing_handler=None,
       telegram_bot_token=None,
       telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
       telegram_bot_name=None,
@@ -3122,11 +3122,11 @@ class GenericSession(BaseDecentrAIObject):
           
       message_handler : callable, optional  
           The message handler function that will be called when a message is received. Defaults to None.
-          
-      processor_handler : callable, optional
-          The processor handler function that will be called in a processing loop within the 
+
+      processing_handler : callable, optional
+          The processor handler function that will be called in a processing loop within the
           Telegram bot plugin in parallel with the message handler. Defaults to None.
-          
+
       telegram_bot_token : str, optional  
           The Telegram bot token. Defaults to None.
           
@@ -3168,9 +3168,9 @@ class GenericSession(BaseDecentrAIObject):
       func_name, func_args, func_base64_code = pipeline._get_method_data(message_handler)
       
       proc_func_args, proc_func_base64_code =[], None
-      if processor_handler is not None:
-        _, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processor_handler)
-      
+      if processing_handler is not None:
+        _, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processing_handler)
+
       if len(func_args) != 2:
         raise ValueError("The message handler function must have exactly 3 arguments: `plugin`, `message` and `user`.")
       
@@ -3184,8 +3184,8 @@ class GenericSession(BaseDecentrAIObject):
         message_handler=func_base64_code,
         message_handler_args=func_args, # mandatory message and user
         message_handler_name=func_name, # not mandatory
-        processor_handler=proc_func_base64_code, # not mandatory
-        processor_handler_args=proc_func_args, # not mandatory
+        processing_handler=proc_func_base64_code, # not mandatory
+        processing_handler_args=proc_func_args, # not mandatory
         **kwargs
       )      
       return pipeline, instance
@@ -3201,7 +3201,7 @@ class GenericSession(BaseDecentrAIObject):
       telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
       telegram_bot_name=None,
       telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,      
-      processor_handler=None,            
+      processing_handler=None,
       system_prompt=None,
       agent_type="API",
       api_token_env_key=ENVIRONMENT.TELEGRAM_API_AGENT_TOKEN_ENV_KEY,
@@ -3285,8 +3285,8 @@ class GenericSession(BaseDecentrAIObject):
       )
 
       proc_func_args, proc_func_base64_code =[], None
-      if processor_handler is not None:
-        _, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processor_handler)
+      if processing_handler is not None:
+        _, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processing_handler)
       
       
       obfuscated_token = telegram_bot_token[:4] + "*" * (len(telegram_bot_token) - 4)      
@@ -3298,8 +3298,8 @@ class GenericSession(BaseDecentrAIObject):
         telegram_bot_token=telegram_bot_token,
         telegram_bot_name=telegram_bot_name,
 
-        processor_handler=proc_func_base64_code, # not mandatory
-        processor_handler_args=proc_func_args, # not mandatory
+        processing_handler=proc_func_base64_code, # not mandatory
+        processing_handler_args=proc_func_args, # not mandatory
 
         system_prompt=system_prompt,
         agent_type=agent_type,
