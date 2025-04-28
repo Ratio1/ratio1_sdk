@@ -148,6 +148,7 @@ class BaseLogger(object):
     self.MACHINE_NAME = None
     self.COMPUTER_NAME = None
     self.processor_platform = None
+    self.processor_cores = None
     self.python_version = sys.version.split(' ')[0]
     self.python_major = int(self.python_version.split('.')[0])
     self.python_minor = int(self.python_version.split('.')[1])
@@ -499,6 +500,7 @@ class BaseLogger(object):
           break
       if proc_platform is None:
         cores = multiprocessing.cpu_count()
+        self.processor_cores = cores
         proc_platform = "Unknown"
         try:
           lscpu_out = subprocess.check_output("lscpu", shell=True).decode().strip()
@@ -515,6 +517,10 @@ class BaseLogger(object):
   def get_processor_platform(self):
     return self.processor_platform
     
+
+  def get_processor_cores(self):
+    return self.processor_cores
+
 
   def managed_lock_resource(self, str_res, condition=True):
     """
