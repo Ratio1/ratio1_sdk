@@ -482,6 +482,10 @@ class BaseLogger(object):
     import re
     import multiprocessing
     str_system = platform.system()
+
+    cores = multiprocessing.cpu_count()
+    self.processor_cores = cores
+
     if str_system == "Windows":
       self.processor_platform = platform.processor()
       
@@ -499,8 +503,6 @@ class BaseLogger(object):
           proc_platform = re.sub( ".*model name.*:", "", line,1)    
           break
       if proc_platform is None:
-        cores = multiprocessing.cpu_count()
-        self.processor_cores = cores
         proc_platform = "Unknown"
         try:
           lscpu_out = subprocess.check_output("lscpu", shell=True).decode().strip()
