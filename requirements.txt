@@ -1,4 +1,5 @@
 pandas
+psutil
 pika
 paho-mqtt
 numpy
