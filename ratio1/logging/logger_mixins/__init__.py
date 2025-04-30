@@ -10,3 +10,4 @@ from .resource_size_mixin import _ResourceSizeMixin
 from .timers_mixin import _TimersMixin
 from .upload_mixin import _UploadMixin
 from .utils_mixin import _UtilsMixin
+from .machine_mixin import _MachineMixin
