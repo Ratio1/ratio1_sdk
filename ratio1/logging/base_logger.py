@@ -147,8 +147,10 @@ class BaseLogger(object):
     self.__init_config_data = config_data if config_data is not None else {}
     self.MACHINE_NAME = None
     self.COMPUTER_NAME = None
+    self.machine_ip = None
     self.processor_platform = None
     self.processor_cores = None
+
     self.python_version = sys.version.split(' ')[0]
     self.python_major = int(self.python_version.split('.')[0])
     self.python_minor = int(self.python_version.split('.')[1])
@@ -158,7 +160,7 @@ class BaseLogger(object):
       raise ValueError(msg)
       
     _ = self.get_machine_name()
-    
+    _ = self.get_machine_ip()
     
     # START: bundling -- se also properties
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -1958,6 +1960,12 @@ class BaseLogger(object):
     self.MACHINE_NAME = socket.gethostname()
     self.COMPUTER_NAME = self.MACHINE_NAME
     return self.MACHINE_NAME
+
+
+  def get_machine_ip(self):
+    hostname = socket.gethostname()
+    self.machine_ip = socket.gethostbyname(hostname)
+    return self.machine_ip
 
 
   def _link(self, src_path, target_subpath, is_dir, target=None):

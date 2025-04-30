@@ -10,7 +10,8 @@ from .logger_mixins import (_ClassInstanceMixin,
                             _ResourceSizeMixin,
                             _TimersMixin,
                             _UploadMixin,
-                            _UtilsMixin
+                            _UtilsMixin,
+                            _MachineMixin
                             )
 
 
@@ -27,7 +28,9 @@ class Logger(
   _ResourceSizeMixin,
   _TimersMixin,
   _UploadMixin,
-  _UtilsMixin):
+  _UtilsMixin,
+  _MachineMixin
+):
 
   def __init__(self, lib_name="",
                lib_ver="",
