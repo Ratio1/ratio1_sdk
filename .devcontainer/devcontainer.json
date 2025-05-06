@@ -2,7 +2,6 @@
   "name" : "ratio1 Edge Protocol SDK Development Container",
   "dockerFile" : "Dockerfile",
   // "image": "aidamian/image:tag",
-
   "runArgs": [
     //"--gpus=all",
     "--hostname",

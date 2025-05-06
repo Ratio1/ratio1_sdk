@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install the SDK requirements
 RUN pip install --no-cache-dir \
     pandas \ 
+    psutil \
     pika \
     paho-mqtt \
     numpy \

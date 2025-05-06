@@ -80,8 +80,9 @@ class IPFSCt:
   EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY = "EE_SWARM_KEY_CONTENT_BASE64"
   R1FS_DOWNLOADS = "ipfs_downloads"
   R1FS_UPLOADS = "ipfs_uploads"
-  TEMP_DOWNLOAD = os.path.join("./_local_cache/_output", R1FS_DOWNLOADS)
-  TEMP_UPLOAD = os.path.join("./_local_cache/_output", R1FS_UPLOADS)
+  CACHE_ROOT = "_local_cache"
+  TEMP_DOWNLOAD = os.path.join(f"./{CACHE_ROOT}/_output", R1FS_DOWNLOADS)
+  TEMP_UPLOAD = os.path.join(f"./{CACHE_ROOT}/_output", R1FS_UPLOADS)
   
   TIMEOUT = 90 # seconds
   REPROVIDER = "1m"
@@ -508,7 +509,7 @@ class R1FSEngine:
             self.Pd(f"Command output: {result.stdout.strip()}")
         output = result.stdout.strip()
       if return_errors:
-        output, errors
+        return output, errors
       return output
     
 
@@ -536,6 +537,7 @@ class R1FSEngine:
         self.P(msg, color='r')
         raise Exception(f"Error getting IPFS ID: {e}") from e
       return self.__ipfs_id
+    
 
 
     @require_ipfs_started
@@ -1098,6 +1100,17 @@ class R1FSEngine:
       self.P(f"IPFS daemon run-check: {result} ({output})")
       return result        
     
+    def is_ipfs_daemon_ready(self, max_wait=30, step=1):
+      """ Check with timeout if the IPFS daemon is running and ready to accept requests."""
+      waited = 0
+      while waited < max_wait:
+        if self.is_ipfs_daemon_running():
+          return True
+        time.sleep(step)
+        waited += step
+      return False    
+    
+
     def maybe_start_ipfs(
       self, 
       base64_swarm_key: str = None, 
@@ -1135,17 +1148,30 @@ class R1FSEngine:
       self.__base64_swarm_key = base64_swarm_key
       self.__ipfs_relay = ipfs_relay
       hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
-          
-      ipfs_home = os.path.join(self.logger.base_folder, ".ipfs/")
       
-      os.makedirs(ipfs_home, exist_ok=True)
-      self.__ipfs_home = os.path.abspath(ipfs_home)
-      os.environ["IPFS_PATH"] = self.__ipfs_home
+      existing_ipfs_home = os.getenv("IPFS_PATH")
+      home_ready = False
+      if existing_ipfs_home:
+        self.P(f"Found existing IPFS home: {existing_ipfs_home}", color='d')
+        if IPFSCt.CACHE_ROOT in existing_ipfs_home and os.path.isdir(existing_ipfs_home):
+          self.__ipfs_home = os.path.abspath(existing_ipfs_home)
+          home_ready = True
+        else:
+          self.P(f"Invalid IPFS home: {existing_ipfs_home}", color='r')
+        #endif
+      #endif 
+      if not home_ready:
+        self.P("No existing IPFS home found, creating a new one.", color='d')
+        ipfs_home = os.path.join(self.logger.base_folder, ".ipfs/")        
+        os.makedirs(ipfs_home, exist_ok=True)
+        self.__ipfs_home = os.path.abspath(ipfs_home)
+        os.environ["IPFS_PATH"] = self.__ipfs_home
       
       config_path = os.path.join(self.__ipfs_home, "config")
       swarm_key_path = os.path.join(self.__ipfs_home, "swarm.key")
 
       msg = f"Starting R1FS <{self.__name}>:"
+      msg += f"\n  IPFS Home: {self.__ipfs_home}"
       msg += f"\n  Relay:    {self.__ipfs_relay}"
       msg += f"\n  Download: {self.__downloads_dir}"
       msg += f"\n  Upload:   {self.__uploads_dir}"
@@ -1176,11 +1202,6 @@ class R1FSEngine:
       else:
         self.P(f"IPFS repository already initialized in {config_path}.", color='g')
 
-      try:
-        self.P("Removing public IPFS bootstrap nodes...")
-        self.__run_command(["ipfs", "bootstrap", "rm", "--all"])
-      except Exception as e:
-        self.P(f"Error removing bootstrap nodes: {e}", color='r')
 
       # Check if daemon is already running by attempting to get the node id.
       try:
@@ -1194,6 +1215,7 @@ class R1FSEngine:
             self.P(f"Check {attempt}/{n_ipfs_daemon_checks} IPFS started: {ipfs_daemon_running}", color='d')
             time.sleep(2)
         #end for
+        
         if ipfs_daemon_running:
           self.P("IPFS daemon already running", color='g')
         else:
@@ -1201,8 +1223,15 @@ class R1FSEngine:
           self.P("IPFS daemon not running. Trying to start...", color='r')     
           ###################################################
           #######             CLEANUP PHASE            ######
-          ###################################################                       
-          # first delete the repository lock file if it exists
+          ###################################################                            
+          # we start by removing any existing bootstrap nodes
+          try:
+            self.P("Removing public IPFS bootstrap nodes...")
+            self.__run_command(["ipfs", "bootstrap", "rm", "--all"])
+          except Exception as e:
+            self.P(f"Error removing bootstrap nodes: {e}", color='r')
+               
+          # then delete the repository lock file if it exists
           lock_file = os.path.join(self.__ipfs_home, "repo.lock")
           if os.path.isfile(lock_file):
             self.P(f"Deleting lock file {lock_file}...")
@@ -1247,24 +1276,31 @@ class R1FSEngine:
         self.P("Getting the IPFS ID...")
         my_id = self.__get_id()
         assert my_id != ERROR_TAG, "Failed to get IPFS ID."
-        msg =  f"Connecting to R1FS relay"
-        msg += f"\n  IPFS Home:  {self.ipfs_home}"
-        msg += f"\n  IPFS ID:    {my_id}"
-        msg += f"\n  IPFS Addr:  {self.__ipfs_address}"
-        msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
-        msg += f"\n  Relay:      {ipfs_relay}"
-        self.P(msg, color='m')
-        result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
-        relay_ip = ipfs_relay.split("/")[2]
-        if "connect" in result.lower() and "success" in result.lower():
-          self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+        self.P("Checking swarm peers...")
+        swarm_peers = self._get_swarm_peers()
+        if len(swarm_peers) > 0:
           self.__ipfs_started = True
-          self.P("Checking swarm peers...")
-          swarm_peers = self._get_swarm_peers()
-          self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
+          self.P(f"{len(swarm_peers)} swarm peers detected. Checking for relay connection...")
           self._check_and_record_relay_connection(debug=True)
         else:
-          self.P("Relay connection result did not indicate success.", color='r')
+          msg =  f"Connecting to R1FS relay"
+          msg += f"\n  IPFS Home:  {self.ipfs_home}"
+          msg += f"\n  IPFS ID:    {my_id}"
+          msg += f"\n  IPFS Addr:  {self.__ipfs_address}"
+          msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
+          msg += f"\n  Relay:      {ipfs_relay}"
+          self.P(msg, color='m')
+          result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
+          relay_ip = ipfs_relay.split("/")[2]
+          if "connect" in result.lower() and "success" in result.lower():
+            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+            self.__ipfs_started = True
+            self.P("Re-checking swarm peers...")
+            swarm_peers = self._get_swarm_peers()
+            self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
+            self._check_and_record_relay_connection(debug=True)
+          else:
+            self.P("Relay connection result did not indicate success.", color='r')
       except Exception as e:
         self.P(f"Error connecting to relay: {e}", color='r')
       #end try
@@ -1272,4 +1308,6 @@ class R1FSEngine:
     
     
 if __name__ == '__main__':
-  eng = R1FSEngine()
+  from ratio1 import Logger
+  log = Logger("IPFST")
+  # eng = R1FSEngine()
