@@ -366,7 +366,8 @@ class R1FSEngine:
         )
         if out.returncode == 0:
           peer_lines = out.stdout.strip().split("\n")
-          self.Pd(f"Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
+          peer_lines = [line.strip() for line in peer_lines if line.strip()]
+          self.Pd(f"Swarm peers: {peer_lines}")
           self.__peers = peer_lines
         else:
           self.__peers = []
@@ -405,7 +406,7 @@ class R1FSEngine:
           log_func(f"Relay check #{self.__relay_check_cnt}: Checking IPFS relay connection and swarm peers...")
           peer_lines = self._get_swarm_peers()
           if len(peer_lines) > 0:
-            log_func(f"Relay check  #{self.__relay_check_cnt}: Swarm peers:\n{json.dumps(peer_lines, indent=4)}")
+            log_func(f"Relay check  #{self.__relay_check_cnt}: {len(peer_lines)} swarm peers.")
             self.__peers = peer_lines
             for line in peer_lines:
               # If the line contains the relay peer ID, we consider ourselves connected:
@@ -426,7 +427,7 @@ class R1FSEngine:
             else:              
               # TODO: maybe add first & last connected time
               # self.__connected_at = None # this is already None or the first connection
-              log_func(f"Relay check #{self.__relay_check_cnt}: FAIL: relay peer not found in swarm peers: {self.__ipfs_relay}", color='r')
+              log_func(f"Relay check #{self.__relay_check_cnt}: FAIL: relay {self.__ipfs_relay.split('/')[2]} not found in swarm peers.", color='r')
             #end if relay_found or not
           #end if len(peer_lines) > 0
       except subprocess.TimeoutExpired:
