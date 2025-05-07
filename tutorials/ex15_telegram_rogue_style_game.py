@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-
-import os
-import logging
-from ratio1 import Session, CustomPluginTemplate
-
 """
 Telegram roguelike bot using the same pipeline approach as Blackjack:
 - Uses `plugin.obj_cache` to store user data in memory.
 - No persistent storage (resets on bot restart).
 - Requires three-argument `reply(plugin, message, user)`, as per the Blackjack example.
+
+
+TODO:
+1. reduce `ex15_telegram_rogue_style_game.py` to 20% of current features
+2. move `ex15_telegram_rogue_style_game.py` full as a plugin in Edge Node
+3. add `ex15_telegram_rogue_style_game_ext.py` that launches a pipeline with the plugin from (2)
 """
+
+
+import os
+import logging
+from ratio1 import Session, CustomPluginTemplate
+
 
 
 # --------------------------------------------------
