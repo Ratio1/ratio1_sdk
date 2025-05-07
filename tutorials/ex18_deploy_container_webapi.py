@@ -18,7 +18,7 @@ if __name__ == '__main__':
   #       the internal node address is easily spoted as starting with 0xai_ and can be found 
   #       via `docker exec r1node get_node_info` or via the launcher UI
   
-  app, _ = session.create_container_web_app( # this uses CONTAINER_APP_RUNNER
+  pipeline, _ = session.create_container_web_app( # this uses CONTAINER_APP_RUNNER
     node=my_node,
     name="ratio1_simple_container_webapp",
     image="tvitalii/flask-docker-app:latest",
@@ -26,12 +26,9 @@ if __name__ == '__main__':
     # container_resources={},
     # cr="docker.io",
   )
-  try:
-    url = app.deploy()
-    print("Webapp deployed at: ", url)
-  except Exception as e:
-    print("Error deploying webapp: ", e)
-  
+
+  pipeline.deploy()
+
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources
   #   due to the fact that this is a example/tutorial and maybe we dont want to keep the pipeline

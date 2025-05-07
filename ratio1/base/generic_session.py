@@ -2794,10 +2794,10 @@ class GenericSession(BaseDecentrAIObject):
 
       pipeline_name = name.replace(" ", "_").lower()
 
-      pipeline: WebappPipeline = self.create_pipeline(
+      pipeline: Pipeline = self.create_pipeline(
         node=node,
         name=pipeline_name,
-        pipeline_type=WebappPipeline,
+        pipeline_type=Pipeline,
         extra_debug=extra_debug,
         # default TYPE is "Void"
       )
