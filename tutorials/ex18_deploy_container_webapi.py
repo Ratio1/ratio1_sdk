@@ -4,6 +4,9 @@ ex18_deploy_container_webapi.py
 
 This is a basic example of how to use the ratio1 SDK for a containerized web API deployment
 
+The example further extends ex02_part1_deploy_webapi.py and shows how to deploy a containerized web API rather than
+a web API that uses Ratio1 Edge Node shallow machine learning internal (API) capabilities.
+
 """
 from ratio1 import Session, CustomPluginTemplate, PLUGIN_TYPES
 
