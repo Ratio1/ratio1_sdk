@@ -20,9 +20,9 @@ if __name__ == '__main__':
   
   app, _ = session.create_container_web_app( # this uses CONTAINER_APP_RUNNER
     node=my_node,
-    name="ratio1_simple_predict_webapp",
-    image="ratio1/vitaliitest:latest",
-    port=8080,
+    name="ratio1_simple_container_webapp",
+    image="tvitalii/flask-docker-app:latest",
+    port=5000,
     # container_resources={},
     # cr="docker.io",
   )
