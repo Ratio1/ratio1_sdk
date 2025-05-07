@@ -2759,6 +2759,63 @@ class GenericSession(BaseDecentrAIObject):
       return pipeline, instance
 
 
+    def create_container_web_app(
+      self,
+      *,
+      node,
+      name="Ratio1 Container Web App",
+      signature=PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER,
+      use_ngrok=True,
+      extra_debug=False,
+      summary="Ratio1 Container WebApp created via SDK",
+      description=None,
+      **kwargs
+    ):
+      """
+      Create a new web app on a node.
+
+      Parameters
+      ----------
+
+      node : str
+          Address or Name of the ratio1 Edge Protocol edge node that will handle this web app.
+
+      name : str
+          Name of the container web app.
+
+      signature : str, optional
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER.
+
+      use_ngrok : bool, optional
+          If True, will use ngrok to expose the web app. Defaults to True.
+      """
+
+      ngrok_use_api = True
+
+      pipeline_name = name.replace(" ", "_").lower()
+
+      pipeline: Pipeline = self.create_pipeline(
+        node=node,
+        name=pipeline_name,
+        pipeline_type=Pipeline,
+        extra_debug=extra_debug,
+        # default TYPE is "Void"
+      )
+
+      instance = pipeline.create_plugin_instance(
+        signature=signature,
+        instance_id=self.log.get_unique_id(),
+        use_ngrok=use_ngrok,
+        ngrok_use_api=ngrok_use_api,
+        api_title=name,
+        api_summary=summary,
+        api_description=description,
+        **kwargs
+      )
+
+      return pipeline, instance
+
+
     def __is_assets_valid(self, assets, mandatory=True, raise_exception=True, default_field_values=None):
       if assets is None:
         if mandatory:
