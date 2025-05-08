@@ -2773,9 +2773,10 @@ class GenericSession(BaseDecentrAIObject):
       description=None,
       **kwargs):
       """
-        Creates a custom Web API with endpoints on a node.
+      Creates a custom Web API with endpoints on a node using custom code and either a pre-defined edge label or generates the URL automatically.
+      
 
-              Parameters
+      Parameters
       ----------
 
       node : str
@@ -2795,6 +2796,38 @@ class GenericSession(BaseDecentrAIObject):
 
       use_ngrok : bool, optional
           If True, will use ngrok to expose the web app. Defaults to True.
+          
+          
+      Returns
+      -------
+      
+      Returns the pipeline that has been created and requires a further pipeline.deploy() call to be deployed.
+      
+      
+      Example 
+      -------
+      
+      ```
+      pipeline, instance = session.create_custom_webapi(
+        node="node_name",
+        name="My Custom Web API",
+        ngrok_edge_label=None, # no edge specified, will generate url automatically and return it at deploy
+        endpoints=[
+          {
+            "path": "/my_endpoint",
+            "method": "GET",
+            "handler": my_handler_function,
+          },
+        ],
+        use_ngrok=True,
+        extra_debug=True,
+        summary="My Custom Web API",
+        description="This is a custom web API created via the SDK.",
+      )
+      
+      url = pipeline.deploy() # deploy the pipeline and get the URL due to the fact that we do not have a pre-defined edge label
+      ```
+      
 
       """
       return self.create_web_app(
