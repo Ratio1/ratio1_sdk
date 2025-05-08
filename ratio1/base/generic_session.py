@@ -2771,7 +2771,29 @@ class GenericSession(BaseDecentrAIObject):
       description=None,
       **kwargs):
       """
-        Creates a custom Web API webapi with endpoints on a node.
+        Creates a custom Web API with endpoints on a node.
+
+              Parameters
+      ----------
+
+      node : str
+          Address or Name of the ratio1 Edge Protocol edge node that will handle this web app.
+
+      name : str
+          Name of the web app.
+
+      ngrok_edge_label : str, optional
+          The label of the edge node that will be used to expose the HTTP server. Defaults to None.
+
+      signature : str, optional
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01.
+
+      endpoints : list[dict], optional
+          A list of dictionaries defining the endpoint configuration. Defaults to None.
+
+      use_ngrok : bool, optional
+          If True, will use ngrok to expose the web app. Defaults to True.
+
       """
       return self.create_web_app(
         node=node,
@@ -2799,7 +2821,7 @@ class GenericSession(BaseDecentrAIObject):
       **kwargs
     ):
       """
-      Create a new web app on a node.
+      Create a new container web app on a node.
 
       Parameters
       ----------
