@@ -2702,7 +2702,7 @@ class GenericSession(BaseDecentrAIObject):
       **kwargs
     ):
       """
-      Create a new web app on a node.
+      Create a new generic web app on a node.
       
       Parameters
       ----------
@@ -2771,7 +2771,7 @@ class GenericSession(BaseDecentrAIObject):
       description=None,
       **kwargs):
       """
-        Createx a custom webapi.
+        Creates a custom Web API webapi with endpoints on a node.
       """
       return self.create_web_app(
         node=node,
