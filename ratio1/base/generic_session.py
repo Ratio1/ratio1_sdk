@@ -950,7 +950,9 @@ class GenericSession(BaseDecentrAIObject):
     ):
       REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
       REQUIRED_SIGNATURE = PLUGIN_SIGNATURES.NET_MON_01
-      if msg_pipeline.lower() == REQUIRED_PIPELINE.lower() and msg_signature.upper() == REQUIRED_SIGNATURE.upper():
+      msg_pipeline = msg_pipeline.lower() if msg_pipeline is not None else None
+      msg_signature = msg_signature.upper() if msg_signature is not None else None
+      if msg_pipeline == REQUIRED_PIPELINE.lower() and msg_signature == REQUIRED_SIGNATURE.upper():
         # handle net mon message
         sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
         path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None, None, None, None])
