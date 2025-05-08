@@ -2704,7 +2704,7 @@ class GenericSession(BaseDecentrAIObject):
       **kwargs
     ):
       """
-      Create a new web app on a node.
+      Create a new generic web app on a node.
       
       Parameters
       ----------
@@ -2760,6 +2760,55 @@ class GenericSession(BaseDecentrAIObject):
 
       return pipeline, instance
 
+    def create_custom_webapi(
+      self,
+      *,
+      node,
+      name="Ratio1 Custom Web API",
+      ngrok_edge_label=None,
+      endpoints=None,
+      use_ngrok=True,
+      extra_debug=False,
+      summary="Ratio1 Web API created via SDK",
+      description=None,
+      **kwargs):
+      """
+        Creates a custom Web API with endpoints on a node.
+
+              Parameters
+      ----------
+
+      node : str
+          Address or Name of the ratio1 Edge Protocol edge node that will handle this web app.
+
+      name : str
+          Name of the web app.
+
+      ngrok_edge_label : str, optional
+          The label of the edge node that will be used to expose the HTTP server. Defaults to None.
+
+      signature : str, optional
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01.
+
+      endpoints : list[dict], optional
+          A list of dictionaries defining the endpoint configuration. Defaults to None.
+
+      use_ngrok : bool, optional
+          If True, will use ngrok to expose the web app. Defaults to True.
+
+      """
+      return self.create_web_app(
+        node=node,
+        name=name,
+        signature=PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01,
+        ngrok_edge_label=ngrok_edge_label,
+        endpoints=endpoints,
+        use_ngrok=use_ngrok,
+        extra_debug=extra_debug,
+        summary=summary,
+        description=description,
+        **kwargs
+      )
 
     def create_container_web_app(
       self,
@@ -2774,7 +2823,7 @@ class GenericSession(BaseDecentrAIObject):
       **kwargs
     ):
       """
-      Create a new web app on a node.
+      Create a new container web app on a node.
 
       Parameters
       ----------
@@ -2796,10 +2845,10 @@ class GenericSession(BaseDecentrAIObject):
 
       pipeline_name = name.replace(" ", "_").lower()
 
-      pipeline: Pipeline = self.create_pipeline(
+      pipeline: WebappPipeline = self.create_pipeline(
         node=node,
         name=pipeline_name,
-        pipeline_type=Pipeline,
+        pipeline_type=WebappPipeline,
         extra_debug=extra_debug,
         # default TYPE is "Void"
       )
