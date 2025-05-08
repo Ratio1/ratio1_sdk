@@ -2758,6 +2758,33 @@ class GenericSession(BaseDecentrAIObject):
 
       return pipeline, instance
 
+    def create_custom_webapi(
+      self,
+      *,
+      node,
+      name="Ratio1 Custom Web API",
+      ngrok_edge_label=None,
+      endpoints=None,
+      use_ngrok=True,
+      extra_debug=False,
+      summary="Ratio1 Web API created via SDK",
+      description=None,
+      **kwargs):
+      """
+        Createx a custom webapi.
+      """
+      return self.create_web_app(
+        node=node,
+        name=name,
+        signature=PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01,
+        ngrok_edge_label=ngrok_edge_label,
+        endpoints=endpoints,
+        use_ngrok=use_ngrok,
+        extra_debug=extra_debug,
+        summary=summary,
+        description=description,
+        **kwargs
+      )
 
     def create_container_web_app(
       self,
