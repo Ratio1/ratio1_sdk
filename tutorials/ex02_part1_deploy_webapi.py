@@ -40,7 +40,7 @@ if __name__ == '__main__':
   #       the internal node address is easily spoted as starting with 0xai_ and can be found 
   #       via `docker exec r1node get_node_info` or via the launcher UI
   
-  app, _ = session.create_web_app(
+  app, _ = session.create_custom_webapi(
     node=my_node,
     name="ratio1_simple_predict_webapp",
     endpoints=[
