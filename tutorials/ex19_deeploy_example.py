@@ -43,7 +43,6 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 import requests
 from typing import Dict, Any
-import hashlib
 
 API_BASE_URL = "https://devnet-deeploy-api.ratio1.ai"
 
@@ -139,7 +138,6 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str, 
   if debug:
     print("Debug information:")
     print(f"Message to sign: {message}")
-    print(f"Message hash: {hashlib.sha256(message.encode()).hexdigest()}")
     print(f"Sender address: {sender_address}")
     print(f"Signature: {signature}")
 
