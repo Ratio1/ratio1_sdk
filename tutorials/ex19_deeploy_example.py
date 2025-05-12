@@ -73,14 +73,7 @@ def build_message(data: Dict[str, Any]) -> str:
       A formatted string ready for signing, with signature-related fields removed
       and data sorted consistently
   """
-  cleaned = data.copy()
-  # Remove signature-related fields
-  cleaned.pop('EE_ETH_SIGN', None)
-  cleaned.pop('EE_ETH_SENDER', None)
-  cleaned.pop('address', None)
-  cleaned.pop('signature', None)
-
-  sorted_data = deep_sort(cleaned)
+  sorted_data = deep_sort(data)
   json_str = json.dumps(sorted_data, sort_keys=True, indent=1)
   json_str = json_str.replace('": ', '":')
   return f"Please sign this message for Deeploy: {json_str}"
