@@ -19,17 +19,17 @@ Example Usage:
 -------------
 1. Get list of apps:
    ```bash
-   python3 ex19_deeploy_example.py --private-key path/to/private-key --request path/to/request.json --endpoint /get_apps > res.json
+   python3 ex19_deeploy_example.py --private-key path/to/private-key --request path/to/request.json --endpoint get_apps > res.json
    ```
 
 2. Create a pipeline:
    ```bash
-   python3 ex19_deeploy_example.py private-key path/to/private-key --request path/to/request.json --endpoint /create_pipeline
+   python3 ex19_deeploy_example.py private-key path/to/private-key --request path/to/request.json --endpoint create_pipeline
    ```
 
 3. Delete a pipeline:
    ```bash
-   python3 ex19_deeploy_example.py private-key path/to/private-key --request path/to/request.json --endpoint /delete_pipeline
+   python3 ex19_deeploy_example.py private-key path/to/private-key --request path/to/request.json --endpoint delete_pipeline
    ```
 
 Note: The private key file should contain your Ethereum private key, and the request JSON file should contain
@@ -135,7 +135,7 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str, 
     print(f"Signature: {signature}")
 
   # Send request
-  response = requests.post(f"{API_BASE_URL}{endpoint}", json=request_data)
+  response = requests.post(f"{API_BASE_URL}/{endpoint}", json=request_data)
   return response.json()
 
 
@@ -148,8 +148,8 @@ def main():
   parser = argparse.ArgumentParser(description='Deeploy CLI client')
   parser.add_argument('--private-key', type=str, required=True, help='Path to private key file')
   parser.add_argument('--request', type=str, required=True, help='Path to request JSON file')
-  parser.add_argument('--endpoint', type=str, default='/create_pipeline',
-                      choices=['/create_pipeline', '/delete_pipeline', '/get_apps'],
+  parser.add_argument('--endpoint', type=str, default='create_pipeline',
+                      choices=['create_pipeline', 'delete_pipeline', 'get_apps'],
                       help='API endpoint to call')
   parser.add_argument('--debug', action='store_true', help='Enable debug output')
 
