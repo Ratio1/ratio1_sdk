@@ -11,7 +11,16 @@ import hashlib
 
 API_BASE_URL = "https://devnet-deeploy-api.ratio1.ai"
 
+
 def deep_sort(obj: Any) -> Any:
+  """Recursively sort dictionaries and lists to ensure consistent ordering.
+
+  Args:
+      obj: Any object to be sorted (dict, list, or primitive type)
+
+  Returns:
+      A new object with all dictionaries and lists sorted
+  """
   if isinstance(obj, list):
     return [deep_sort(item) for item in obj]
   elif isinstance(obj, dict):
@@ -20,6 +29,15 @@ def deep_sort(obj: Any) -> Any:
 
 
 def build_message(data: Dict[str, Any]) -> str:
+  """Build a message string for signing by cleaning and formatting the input data.
+
+  Args:
+      data: Dictionary containing the request data
+
+  Returns:
+      A formatted string ready for signing, with signature-related fields removed
+      and data sorted consistently
+  """
   cleaned = data.copy()
   # Remove signature-related fields
   cleaned.pop('EE_ETH_SIGN', None)
@@ -34,6 +52,15 @@ def build_message(data: Dict[str, Any]) -> str:
 
 
 def sign_message(private_key: str, message: str) -> str:
+  """Sign a message using an Ethereum private key.
+
+  Args:
+      private_key: The Ethereum private key to sign with
+      message: The message to sign
+
+  Returns:
+      The hex-encoded signature of the signed message
+  """
   account = Account.from_key(private_key)
   message_encoded = encode_defunct(text=message)
   signed_message = account.sign_message(message_encoded)
@@ -41,6 +68,21 @@ def sign_message(private_key: str, message: str) -> str:
 
 
 def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str, debug: bool = False) -> Dict[str, Any]:
+  """Send a signed request to the Deeploy API.
+
+  Args:
+      endpoint: The API endpoint to send the request to
+      request_data: The request data to send
+      private_key: The Ethereum private key to sign the request with
+      debug: Whether to print debug information
+
+  Returns:
+      The JSON response from the API
+
+  Note:
+      This function will automatically add a nonce and sign the request
+      before sending it to the API.
+  """
   # Generate nonce
   nonce = f"0x{int(time.time() * 1000):x}"
   request_data['request']['nonce'] = nonce
@@ -69,7 +111,13 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str, 
   response = requests.post(f"{API_BASE_URL}{endpoint}", json=request_data)
   return response.json()
 
+
 def main():
+  """Main entry point for the Deeploy CLI client.
+
+  This function parses command line arguments and sends the request to the Deeploy API.
+  It requires a private key file and a request JSON file to be specified.
+  """
   parser = argparse.ArgumentParser(description='Deeploy CLI client')
   parser.add_argument('--private-key', type=str, required=True, help='Path to private key file')
   parser.add_argument('--request', type=str, required=True, help='Path to request JSON file')
