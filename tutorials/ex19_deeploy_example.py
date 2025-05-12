@@ -1,5 +1,41 @@
 #!/usr/bin/env python3
 
+"""
+ex19_deeploy_example.py
+---------------------
+
+This tutorial demonstrates how to interact with the Deeploy API using the ratio1 SDK.
+It shows how to:
+- Build and sign messages for Deeploy API requests
+- Send authenticated requests to the Deeploy API
+- Handle responses and debug information
+
+The example includes a CLI client that can be used to:
+- Create pipelines
+- Delete pipelines
+- Get apps
+
+Example Usage:
+-------------
+1. Get list of apps:
+   ```bash
+   python3 ex19_deeploy_example.py --private-key path/to/private-key --request path/to/request.json --endpoint /get_apps > res.json
+   ```
+
+2. Create a pipeline:
+   ```bash
+   python3 ex19_deeploy_example.py private-key path/to/private-key --request path/to/request.json --endpoint /create_pipeline
+   ```
+
+3. Delete a pipeline:
+   ```bash
+   python3 ex19_deeploy_example.py private-key path/to/private-key --request path/to/request.json --endpoint /delete_pipeline
+   ```
+
+Note: The private key file should contain your Ethereum private key, and the request JSON file should contain
+the appropriate request data for the endpoint you're calling.
+"""
+
 import json
 import time
 import argparse
