@@ -37,6 +37,7 @@ the appropriate request data for the endpoint you're calling.
 """
 
 import json
+import os
 import time
 import argparse
 
@@ -82,14 +83,14 @@ def build_message(data: Dict[str, Any]) -> str:
   return f"Please sign this message for Deeploy: {json_str}"
 
 
-def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str,
+def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: str,
                  logger: Logger, debug: bool = False) -> Dict[str, Any]:
   """Send a signed request to the Deeploy API.
 
   Args:
       endpoint: The API endpoint to send the request to
       request_data: The request data to send
-      private_key: The Ethereum private key to sign the request with
+      private_key_path: The path to PEM private key to sign the request with
       debug: Whether to print debug information
 
   Returns:
@@ -103,10 +104,6 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str,
   nonce = f"0x{int(time.time() * 1000):x}"
   request_data['request']['nonce'] = nonce
 
-  # Get the account address first
-  account = Account.from_key(private_key)
-  sender_address = account.address
-
   # Build and sign message
   message = build_message(request_data['request'])
 
@@ -114,7 +111,7 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str,
         log=logger,
         name="default",
     config={
-      BCct.K_PEM_FILE: '../../ex19/private_key.pem',
+      BCct.K_PEM_FILE: f"../../{private_key_path}",
       BCct.K_PASSWORD: None,
     }
   )
@@ -129,13 +126,13 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str,
 
   # Add signature and sender to request
   request_data['request']['EE_ETH_SIGN'] = signature
-  # request_data['request']['EE_ETH_SENDER'] = sender_address
+  request_data['request']['EE_ETH_SENDER'] = block_engine.eth_address
 
   # Print debug information only if debug flag is enabled
   if debug:
     print("Debug information:")
     print(f"Message to sign: {message}")
-    # print(f"Sender address: {sender_address}")
+    print(f"Sender address: {block_engine.address}")
     print(f"Signature: {signature}")
 
   # Send request
@@ -161,16 +158,16 @@ def main():
   logger = Logger("DEEPLOY", base_folder=".", app_folder="ex_19_deeploy_example")
 
   # check if PK exists
-  # Read private key
-  with open('ex19/private_key', 'r') as f:
-    private_key = f.read().strip()
+  if not os.path.isfile(args.private_key):
+    print("Error: Private key file does not exist.")
+    exit(1)
 
   # Read request
   with open(args.request, 'r') as f:
     request_data = json.load(f)
 
   try:
-    response = send_request(args.endpoint, request_data, private_key, logger, args.debug)
+    response = send_request(args.endpoint, request_data, args.private_key, logger, args.debug)
     print(json.dumps(response, indent=2))
   except Exception as e:
     print(f"Error: {str(e)}")
