@@ -59,6 +59,7 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: 
       endpoint: The API endpoint to send the request to
       request_data: The request data to send
       private_key_path: The path to PEM private key to sign the request with
+      logger: Logger instance for logging
       debug: Whether to print debug information
 
   Returns:
