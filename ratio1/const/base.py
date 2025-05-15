@@ -1,6 +1,7 @@
 from .evm_net import (
-  _DAUTH_ABI_IS_NODE_ACTIVE, _DAUTH_ABI_GET_SIGNERS,
-  EvmNetData, EVM_NET_DATA
+  EvmNetData, 
+  EVM_NET_DATA,
+  EVM_ABI_DATA,
 )
 
 EE_ID = 'EE_ID'
@@ -36,6 +37,7 @@ EE_SDK_ALIAS_DEFAULT = "R1SDK"
 
 
 class dAuth:
+  EVM_ABI_DATA = EVM_ABI_DATA
   EvmNetData = EvmNetData
   EVM_NET_DATA = EVM_NET_DATA
     
@@ -69,8 +71,7 @@ class dAuth:
   DAUTH_SENDER_TYPE_SDK = 'sdk'
   DAUTH_SENDER_TYPE_NODE = 'node'
   DAUTH_SENDER_ETH = 'sender_eth_addr'
-  DAUTH_ABI_IS_NODE_ACTIVE = _DAUTH_ABI_IS_NODE_ACTIVE
-  DAUTH_ABI_GET_SIGNERS = _DAUTH_ABI_GET_SIGNERS
+  
 # end class dAuth
 
 ETH_ENABLED_ENV_KEY = 'EE_ETH_ENABLED'
