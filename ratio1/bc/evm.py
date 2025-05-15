@@ -10,7 +10,7 @@ from eth_account import Account
 from eth_utils import keccak, to_checksum_address
 from eth_account.messages import encode_defunct
 
-from ..const.base import EE_VPN_IMPL_ENV_KEY, dAuth, BCctbase, ETHVarTypes
+from ..const.base import EE_VPN_IMPL_ENV_KEY, dAuth, BCctbase, ETHVarTypes, EVM_ABI_DATA
 
 EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
   'true', '1', 'yes', 'y', 't', 'on'
@@ -26,6 +26,8 @@ Web3Vars = namedtuple(
     "nd_contract_address", 
     "r1_contract_address", 
     "proxy_contract_address",  
+    "controller_contract_address",
+    "get_oracles_abi",
   ]
 )
 
@@ -38,138 +40,6 @@ else:
     VPS enabled. Web3 is not available.
     """
 
-# A minimal ERC20 ABI for balanceOf, transfer, and decimals functions.
-ERC20_ABI = [
-  {
-      "constant": True,
-      "inputs": [{"name": "_owner", "type": "address"}],
-      "name": "balanceOf",
-      "outputs": [{"name": "balance", "type": "uint256"}],
-      "payable": False,
-      "stateMutability": "view",
-      "type": "function"
-  },
-  {
-      "constant": False,
-      "inputs": [
-          {"name": "_to", "type": "address"},
-          {"name": "_value", "type": "uint256"}
-      ],
-      "name": "transfer",
-      "outputs": [{"name": "success", "type": "bool"}],
-      "payable": False,
-      "stateMutability": "nonpayable",
-      "type": "function"
-  },
-  {
-      "constant": True,
-      "inputs": [],
-      "name": "decimals",
-      "outputs": [{"name": "", "type": "uint8"}],
-      "payable": False,
-      "stateMutability": "view",
-      "type": "function"
-  }
-]
-
-
-GET_NODE_INFO_ABI = [
-  {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "node",
-          "type": "address"
-        }
-      ],
-      "name": "getNodeLicenseDetails",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "enum LicenseType",
-              "name": "licenseType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "uint256",
-              "name": "licenseId",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "owner",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "nodeAddress",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "totalAssignedAmount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "totalClaimedAmount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "lastClaimEpoch",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "assignTimestamp",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "lastClaimOracle",
-              "type": "address"
-            },
-            {
-              "internalType": "bool",
-              "name": "isBanned",
-              "type": "bool"
-            }
-          ],
-          "internalType": "struct LicenseDetails",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    }
-]
-
-
-GET_WALLET_NODES = [
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "wallet",
-          "type": "address"
-        }
-      ],
-      "name": "getWalletNodes",
-      "outputs": [
-        {
-          "internalType": "address[]",
-          "name": "nodes",
-          "type": "address[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-                  
-]
 
 
 class _EVMMixin:
@@ -364,6 +234,8 @@ class _EVMMixin:
       r1_contract_address = network_data[dAuth.EvmNetData.DAUTH_R1_ADDR_KEY]
       proxy_contract_address = network_data[dAuth.EvmNetData.DAUTH_PROXYAPI_ADDR_KEY]
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
+      controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
+      get_oracles_abi = network_data[dAuth.EvmNetData.DAUTH_GET_ORACLES_ABI]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
@@ -383,7 +255,9 @@ class _EVMMixin:
         epoch_length_seconds=ep_sec,
         nd_contract_address=nd_contract_address, 
         r1_contract_address=r1_contract_address, 
-        proxy_contract_address=proxy_contract_address,        
+        proxy_contract_address=proxy_contract_address, 
+        controller_contract_address=controller_contract_address,
+        get_oracles_abi=get_oracles_abi,
       )
       return result
 
@@ -887,8 +761,10 @@ class _EVMMixin:
       if debug:
         self.P(f"Checking if {address} ({network}) is allowed...")
       
-      contract_abi = dAuth.DAUTH_ABI_IS_NODE_ACTIVE
-      contract = w3vars.w3.eth.contract(address=w3vars.nd_contract_address, abi=contract_abi)
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.controller_contract_address, 
+        abi=EVM_ABI_DATA.IS_NODE_ACTIVE,
+      )
 
       result = contract.functions.isNodeActive(address).call()
       return result
@@ -912,14 +788,16 @@ class _EVMMixin:
       w3vars = self._get_web3_vars(network)
 
       if debug:
-        self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url}...")
+        func = w3vars.get_oracles_abi[0]["name"]
+        self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url} using `{func}`...")
       
-      contract_abi = dAuth.DAUTH_ABI_GET_SIGNERS
       contract = w3vars.w3.eth.contract(
-        address=w3vars.nd_contract_address, abi=contract_abi
+        address=w3vars.controller_contract_address, 
+        abi=w3vars.get_oracles_abi,
       )
 
-      result = contract.functions.getSigners().call()
+      get_oracles_func = getattr(contract.functions, func)
+      result = get_oracles_func().call()
       return result    
 
     
@@ -1082,7 +960,7 @@ class _EVMMixin:
       w3vars = self._get_web3_vars(network)
 
       token_contract = w3vars.w3.eth.contract(
-        address=w3vars.r1_contract_address, abi=ERC20_ABI
+        address=w3vars.r1_contract_address, abi=EVM_ABI_DATA.ERC20_ABI
       )
 
       try:
@@ -1151,7 +1029,7 @@ class _EVMMixin:
       
       # Create the token contract instance.
       token_contract = w3vars.w3.eth.contract(
-        address=w3vars.r1_contract_address, abi=ERC20_ABI
+        address=w3vars.r1_contract_address, abi=EVM_ABI_DATA.ERC20_ABI
       )
       
       # Get the token's decimals (default to 18 if not available).
@@ -1264,7 +1142,7 @@ class _EVMMixin:
       # or you may adapt this code if your contract address is stored differently.
       contract = w3vars.w3.eth.contract(
         address=w3vars.proxy_contract_address,  # or the relevant address from your environment
-        abi=GET_NODE_INFO_ABI
+        abi=EVM_ABI_DATA.GET_NODE_INFO
       )
 
       self.P(f"`getNodeLicenseDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
@@ -1339,7 +1217,7 @@ class _EVMMixin:
       # or you may adapt this code if your contract address is stored differently.
       contract = w3vars.w3.eth.contract(
         address=w3vars.proxy_contract_address,  # or the relevant address from your environment
-        abi=GET_WALLET_NODES
+        abi=EVM_ABI_DATA.GET_WALLET_NODES,
       )
       
       self.P(f"`getWalletNodes` on {network} via {w3vars.rpc_url}", verbosity=2)
