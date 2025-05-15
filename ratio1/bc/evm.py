@@ -787,8 +787,8 @@ class _EVMMixin:
       """
       w3vars = self._get_web3_vars(network)
 
+      func = w3vars.get_oracles_abi[0]["name"]
       if debug:
-        func = w3vars.get_oracles_abi[0]["name"]
         self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url} using `{func}`...")
       
       contract = w3vars.w3.eth.contract(
