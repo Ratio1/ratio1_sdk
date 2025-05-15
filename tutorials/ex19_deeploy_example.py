@@ -19,21 +19,21 @@ Example Usage:
 -------------
 1. Get list of apps:
    ```bash
-   python3 ex19_deeploy_example.py --private-key path/to/private-key --request path/to/request.json --endpoint get_apps > res.json
+   python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --request path/to/request.json --endpoint get_apps > res.json
    ```
 
 2. Create a pipeline:
    ```bash
-   python3 ex19_deeploy_example.py private-key path/to/private-key --request path/to/request.json --endpoint create_pipeline
+   python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --request path/to/request.json --endpoint create_pipeline
    ```
 
 3. Delete a pipeline:
    ```bash
-   python3 ex19_deeploy_example.py private-key path/to/private-key --request path/to/request.json --endpoint delete_pipeline
+   python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --request path/to/request.json --endpoint delete_pipeline
    ```
 
-Note: The private key file should contain your Ethereum private key, and the request JSON file should contain
-the appropriate request data for the endpoint you're calling.
+Note: The private key file should be in PEM format (typically with .pem extension) and contain your Ethereum private key.
+The request JSON file should contain the appropriate request data for the endpoint you're calling.
 """
 
 import json
@@ -49,38 +49,6 @@ from ratio1.bc import DefaultBlockEngine
 from ratio1.const.base import BCct
 
 API_BASE_URL = "https://devnet-deeploy-api.ratio1.ai"
-
-
-def deep_sort(obj: Any) -> Any:
-  """Recursively sort dictionaries and lists to ensure consistent ordering.
-
-  Args:
-      obj: Any object to be sorted (dict, list, or primitive type)
-
-  Returns:
-      A new object with all dictionaries and lists sorted
-  """
-  if isinstance(obj, list):
-    return [deep_sort(item) for item in obj]
-  elif isinstance(obj, dict):
-    return {k: deep_sort(v) for k, v in sorted(obj.items())}
-  return obj
-
-
-def build_message(data: Dict[str, Any]) -> str:
-  """Build a message string for signing by cleaning and formatting the input data.
-
-  Args:
-      data: Dictionary containing the request data
-
-  Returns:
-      A formatted string ready for signing, with signature-related fields removed
-      and data sorted consistently
-  """
-  sorted_data = deep_sort(data)
-  json_str = json.dumps(sorted_data, sort_keys=True, indent=1)
-  json_str = json_str.replace('": ', '":')
-  return f"Please sign this message for Deeploy: {json_str}"
 
 
 def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: str,
@@ -103,9 +71,6 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: 
   # Generate nonce
   nonce = f"0x{int(time.time() * 1000):x}"
   request_data['request']['nonce'] = nonce
-
-  # Build and sign message
-  message = build_message(request_data['request'])
 
   block_engine = DefaultBlockEngine(
         log=logger,
@@ -131,7 +96,6 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: 
   # Print debug information only if debug flag is enabled
   if debug:
     print("Debug information:")
-    print(f"Message to sign: {message}")
     print(f"Sender address: {block_engine.address}")
     print(f"Signature: {signature}")
 
