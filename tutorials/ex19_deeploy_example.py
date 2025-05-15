@@ -51,7 +51,7 @@ from ratio1.const.base import BCct
 API_BASE_URL = "https://devnet-deeploy-api.ratio1.ai"
 
 
-def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: str,
+def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: str, private_key_password: str,
                  logger: Logger, debug: bool = False) -> Dict[str, Any]:
   """Send a signed request to the Deeploy API.
 
@@ -78,7 +78,7 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: 
         name="default",
     config={
       BCct.K_PEM_FILE: f"../../{private_key_path}",
-      BCct.K_PASSWORD: None,
+      BCct.K_PASSWORD: private_key_password,
     }
   )
 
@@ -112,7 +112,9 @@ def main():
   It requires a private key file and a request JSON file to be specified.
   """
   parser = argparse.ArgumentParser(description='Deeploy CLI client')
-  parser.add_argument('--private-key', type=str, required=True, help='Path to private key file')
+  parser.add_argument('--private-key', type=str, required=True, help='Path to PEM private key file')
+  parser.add_argument('--key-password', type=str, required=False, help='Private key password (if PK has any).',
+                      default=None)
   parser.add_argument('--request', type=str, required=True, help='Path to request JSON file')
   parser.add_argument('--endpoint', type=str, default='create_pipeline',
                       choices=['create_pipeline', 'delete_pipeline', 'get_apps'],
@@ -132,7 +134,8 @@ def main():
     request_data = json.load(f)
 
   try:
-    response = send_request(args.endpoint, request_data, args.private_key, logger, args.debug)
+    response = send_request(endpoint=args.endpoint, request_data=request_data, private_key_path=args.private_key,
+                            private_key_password=args.key_password, logger=logger, debug=args.debug)
     print(json.dumps(response, indent=2))
   except Exception as e:
     print(f"Error: {str(e)}")
