@@ -39,10 +39,13 @@ the appropriate request data for the endpoint you're calling.
 import json
 import time
 import argparse
-from eth_account import Account
-from eth_account.messages import encode_defunct
+
 import requests
 from typing import Dict, Any
+
+from ratio1 import Logger
+from ratio1.bc import DefaultBlockEngine
+from ratio1.const.base import BCct
 
 API_BASE_URL = "https://devnet-deeploy-api.ratio1.ai"
 
@@ -79,23 +82,8 @@ def build_message(data: Dict[str, Any]) -> str:
   return f"Please sign this message for Deeploy: {json_str}"
 
 
-def sign_message(private_key: str, message: str) -> str:
-  """Sign a message using an Ethereum private key.
-
-  Args:
-      private_key: The Ethereum private key to sign with
-      message: The message to sign
-
-  Returns:
-      The hex-encoded signature of the signed message
-  """
-  account = Account.from_key(private_key)
-  message_encoded = encode_defunct(text=message)
-  signed_message = account.sign_message(message_encoded)
-  return signed_message.signature.hex()
-
-
-def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str, debug: bool = False) -> Dict[str, Any]:
+def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str,
+                 logger: Logger, debug: bool = False) -> Dict[str, Any]:
   """Send a signed request to the Deeploy API.
 
   Args:
@@ -121,17 +109,33 @@ def send_request(endpoint: str, request_data: Dict[str, Any], private_key: str, 
 
   # Build and sign message
   message = build_message(request_data['request'])
-  signature = sign_message(private_key, message)
+
+  block_engine = DefaultBlockEngine(
+        log=logger,
+        name="default",
+    config={
+      BCct.K_PEM_FILE: '../../ex19/private_key.pem',
+      BCct.K_PASSWORD: None,
+    }
+  )
+
+  # Sign the payload using eth_sign_payload
+  signature = block_engine.eth_sign_payload(
+    payload=request_data['request'],
+    indent=1,
+    no_hash=True,
+    message_prefix="Please sign this message for Deeploy: "
+  )
 
   # Add signature and sender to request
   request_data['request']['EE_ETH_SIGN'] = signature
-  request_data['request']['EE_ETH_SENDER'] = sender_address
+  # request_data['request']['EE_ETH_SENDER'] = sender_address
 
   # Print debug information only if debug flag is enabled
   if debug:
     print("Debug information:")
     print(f"Message to sign: {message}")
-    print(f"Sender address: {sender_address}")
+    # print(f"Sender address: {sender_address}")
     print(f"Signature: {signature}")
 
   # Send request
@@ -154,9 +158,11 @@ def main():
   parser.add_argument('--debug', action='store_true', help='Enable debug output')
 
   args = parser.parse_args()
+  logger = Logger("DEEPLOY", base_folder=".", app_folder="ex_19_deeploy_example")
 
+  # check if PK exists
   # Read private key
-  with open(args.private_key, 'r') as f:
+  with open('ex19/private_key', 'r') as f:
     private_key = f.read().strip()
 
   # Read request
@@ -164,7 +170,7 @@ def main():
     request_data = json.load(f)
 
   try:
-    response = send_request(args.endpoint, request_data, private_key, args.debug)
+    response = send_request(args.endpoint, request_data, private_key, logger, args.debug)
     print(json.dumps(response, indent=2))
   except Exception as e:
     print(f"Error: {str(e)}")
