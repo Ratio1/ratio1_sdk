@@ -26,10 +26,37 @@ Example Usage:
    ```bash
    python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --request path/to/request.json --endpoint create_pipeline
    ```
+   
+   Example request.json for pipeline creation:
+   ```json
+   {
+     "request": {
+       "app_alias": "app_deployed_from_tutorials",
+       "plugin_signature": "PLUGIN_SIGNATURE",
+       "target_nodes": [
+         "0xai_target_node_1"
+       ],
+       "target_nodes_count": 0
+       "pipeline_input_type": "void"
+     }
+   }
+   ```
 
 3. Delete a pipeline:
    ```bash
    python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --request path/to/request.json --endpoint delete_pipeline
+   ```
+
+   Example request.json for pipeline deletion:
+   ```json
+   {
+     "request": {
+       "app_id": "target_app_name_id_returned_by_get_apps_or_create_pipeline",
+       "target_nodes": [
+         "0xai_target_node_1"
+       ]
+     }
+   }
    ```
 
 Note: The private key file should be in PEM format (typically with .pem extension) and contain your Ethereum private key.
