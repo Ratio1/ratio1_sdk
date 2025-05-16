@@ -388,7 +388,8 @@ class _EVMMixin:
         signed_message_hash = signed_message.message_hash
       else:
         signed_message_hash = signed_message.messageHash
-      signature = "0x" + signed_message.signature.hex()
+      signature = signed_message.signature.hex()
+      signature = "0x" + signature if not signature.startswith("0x") else signature
       if payload is not None:
         payload[BCctbase.ETH_SIGN] = signature
         payload[BCctbase.ETH_SENDER] = self.eth_address      
