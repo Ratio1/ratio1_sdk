@@ -42,7 +42,6 @@ import time
 import argparse
 
 import requests
-from typing import Dict, Any
 
 from ratio1 import Logger
 from ratio1.bc import DefaultBlockEngine
@@ -51,66 +50,7 @@ from ratio1.const.base import BCct
 API_BASE_URL = "https://devnet-deeploy-api.ratio1.ai"
 
 
-def send_request(endpoint: str, request_data: Dict[str, Any], private_key_path: str, private_key_password: str,
-                 logger: Logger, debug: bool = False) -> Dict[str, Any]:
-  """Send a signed request to the Deeploy API.
-
-  Args:
-      endpoint: The API endpoint to send the request to
-      request_data: The request data to send
-      private_key_path: The path to PEM private key to sign the request with
-      logger: Logger instance for logging
-      debug: Whether to print debug information
-
-  Returns:
-      The JSON response from the API
-
-  Note:
-      This function will automatically add a nonce and sign the request
-      before sending it to the API.
-  """
-  # Generate nonce
-  nonce = f"0x{int(time.time() * 1000):x}"
-  request_data['request']['nonce'] = nonce
-
-  block_engine = DefaultBlockEngine(
-        log=logger,
-        name="default",
-    config={
-      BCct.K_PEM_FILE: f"../../{private_key_path}",
-      BCct.K_PASSWORD: private_key_password,
-    }
-  )
-
-  # Sign the payload using eth_sign_payload
-  signature = block_engine.eth_sign_payload(
-    payload=request_data['request'],
-    indent=1,
-    no_hash=True,
-    message_prefix="Please sign this message for Deeploy: "
-  )
-
-  # Add signature and sender to request
-  request_data['request']['EE_ETH_SIGN'] = signature
-  request_data['request']['EE_ETH_SENDER'] = block_engine.eth_address
-
-  # Print debug information only if debug flag is enabled
-  if debug:
-    print("Debug information:")
-    print(f"Sender address: {block_engine.address}")
-    print(f"Signature: {signature}")
-
-  # Send request
-  response = requests.post(f"{API_BASE_URL}/{endpoint}", json=request_data)
-  return response.json()
-
-
-def main():
-  """Main entry point for the Deeploy CLI client.
-
-  This function parses command line arguments and sends the request to the Deeploy API.
-  It requires a private key file and a request JSON file to be specified.
-  """
+if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Deeploy CLI client')
   parser.add_argument('--private-key', type=str, required=True, help='Path to PEM private key file')
   parser.add_argument('--key-password', type=str, required=False, help='Private key password (if PK has any).',
@@ -124,6 +64,10 @@ def main():
   args = parser.parse_args()
   logger = Logger("DEEPLOY", base_folder=".", app_folder="ex_19_deeploy_example")
 
+  private_key_path = args.private_key
+  private_key_password = args.key_password
+  endpoint = args.endpoint
+
   # check if PK exists
   if not os.path.isfile(args.private_key):
     print("Error: Private key file does not exist.")
@@ -134,13 +78,35 @@ def main():
     request_data = json.load(f)
 
   try:
-    response = send_request(endpoint=args.endpoint, request_data=request_data, private_key_path=args.private_key,
-                            private_key_password=args.key_password, logger=logger, debug=args.debug)
+    nonce = f"0x{int(time.time() * 1000):x}"
+    request_data['request']['nonce'] = nonce
+
+    block_engine = DefaultBlockEngine(
+      log=logger,
+      name="default",
+      config={
+        BCct.K_PEM_FILE: f"../../{private_key_path}",
+        BCct.K_PASSWORD: private_key_password,
+      }
+    )
+
+    # Sign the payload using eth_sign_payload
+    signature = block_engine.eth_sign_payload(
+      payload=request_data['request'],
+      indent=1,
+      no_hash=True,
+      message_prefix="Please sign this message for Deeploy: "
+    )
+
+    # Add signature and sender to request
+    request_data['request']['EE_ETH_SIGN'] = signature
+    request_data['request']['EE_ETH_SENDER'] = block_engine.eth_address
+
+    # Send request
+    response = requests.post(f"{API_BASE_URL}/{endpoint}", json=request_data)
+    response = response.json()
+
     print(json.dumps(response, indent=2))
   except Exception as e:
     print(f"Error: {str(e)}")
     exit(1)
-
-
-if __name__ == "__main__":
-  main()
