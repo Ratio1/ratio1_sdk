@@ -59,6 +59,40 @@ Example Usage:
    }
    ```
 
+4. Send app command:
+    ```bash
+    python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --request path/to/request.json --endpoint send_app_command
+    ```
+
+    Example request.json for sending app command:
+    ```json
+    {
+      "request": {
+        "app_id": "target_app_name_id_returned_by_get_apps_or_create_pipeline",
+        "app_command": "RESTART"
+      }
+    }
+    ```
+
+5. Send instance command:
+    ```bash
+    python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --request path/to/request.json --endpoint send_instance_command
+    ```
+    Example request.json for sending instance command:
+    ```json
+    {
+      "request": {
+        "app_id": "target_app_name_id_returned_by_get_apps_or_create_pipeline",
+        "target_nodes": [
+          "0xai_target_node_1"
+        ],
+        "plugin_signature": "PLUGIN_SIGNATURE",
+        "instance_id": "PLUGIN_INSTANCE_ID",
+        "instance_command": "RESTART"
+      }
+    }
+    ```
+
 Note: The private key file should be in PEM format (typically with .pem extension) and contain your Ethereum private key.
 The request JSON file should contain the appropriate request data for the endpoint you're calling.
 """
@@ -85,7 +119,7 @@ if __name__ == "__main__":
   parser.add_argument('--request', type=str, required=False, help='Path to request JSON file',
                       default=None)
   parser.add_argument('--endpoint', type=str, default='create_pipeline',
-                      choices=['create_pipeline', 'delete_pipeline', 'get_apps'],
+                      choices=['create_pipeline', 'delete_pipeline', 'get_apps', 'send_app_command', 'send_instance_command'],
                       help='API endpoint to call')
 
   args = parser.parse_args()
