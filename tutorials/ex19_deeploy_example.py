@@ -8,7 +8,7 @@ This tutorial demonstrates how to interact with the Deeploy API using the ratio1
 It shows how to:
 - Build and sign messages for Deeploy API requests
 - Send authenticated requests to the Deeploy API
-- Handle responses and debug information
+- Handle responses
 
 The example includes a CLI client that can be used to:
 - Create pipelines
@@ -19,7 +19,7 @@ Example Usage:
 -------------
 1. Get list of apps:
    ```bash
-   python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --request path/to/request.json --endpoint get_apps > res.json
+   python3 ex19_deeploy_example.py --private-key path/to/private-key.pem --endpoint get_apps > res.json
    ```
 
 2. Create a pipeline:
@@ -55,11 +55,11 @@ if __name__ == "__main__":
   parser.add_argument('--private-key', type=str, required=True, help='Path to PEM private key file')
   parser.add_argument('--key-password', type=str, required=False, help='Private key password (if PK has any).',
                       default=None)
-  parser.add_argument('--request', type=str, required=True, help='Path to request JSON file')
+  parser.add_argument('--request', type=str, required=False, help='Path to request JSON file',
+                      default=None)
   parser.add_argument('--endpoint', type=str, default='create_pipeline',
                       choices=['create_pipeline', 'delete_pipeline', 'get_apps'],
                       help='API endpoint to call')
-  parser.add_argument('--debug', action='store_true', help='Enable debug output')
 
   args = parser.parse_args()
   logger = Logger("DEEPLOY", base_folder=".", app_folder="ex_19_deeploy_example")
@@ -73,9 +73,12 @@ if __name__ == "__main__":
     print("Error: Private key file does not exist.")
     exit(1)
 
-  # Read request
-  with open(args.request, 'r') as f:
-    request_data = json.load(f)
+  # Read request data if provided or use default empty request
+  if args.request:
+    with open(args.request, 'r') as f:
+      request_data = json.load(f)
+  else:
+    request_data = {'request': {}}
 
   try:
     nonce = f"0x{int(time.time() * 1000):x}"
@@ -97,10 +100,6 @@ if __name__ == "__main__":
       no_hash=True,
       message_prefix="Please sign this message for Deeploy: "
     )
-
-    # Add signature and sender to request
-    request_data['request']['EE_ETH_SIGN'] = signature
-    request_data['request']['EE_ETH_SENDER'] = block_engine.eth_address
 
     # Send request
     response = requests.post(f"{API_BASE_URL}/{endpoint}", json=request_data)
