@@ -1761,10 +1761,10 @@ class GenericSession(BaseDecentrAIObject):
           # endif dest_addr found
         # endfor destination list
         if len(unknown) > 0:
-          self.P(f"Warning! {len(unknown)} unknown destination(s): {unknown}!", color='r', show=True)
+          self.P(f"Warning! {len(unknown)} unknown destination(s): {unknown}!", color='r')
           if len(destination_addresses) > 0:
             self.P(f"Attempting to send to the {len(destination_addresses)} known destination(s): "
-                   f"{destination_addresses}", color='y', show=True)
+                   f"{destination_addresses}", color='y')
         if len(destination_addresses) < 1:
           msg = f"No known destination(s) found for {destination}!\nPlease check your network configuration."
           self.P(msg, color='r', show=True)
