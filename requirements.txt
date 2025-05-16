@@ -7,4 +7,3 @@ pyopenssl>=23.0.0
 cryptography>=39.0.0
 python-dateutil
 pyaml
-requests>=2.31.0
