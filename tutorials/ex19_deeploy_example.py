@@ -68,7 +68,7 @@ if __name__ == "__main__":
   private_key_password = args.key_password
   endpoint = args.endpoint
 
-  # check if PK exists
+  # Check if PK exists
   if not os.path.isfile(args.private_key):
     print("Error: Private key file does not exist.")
     exit(1)
@@ -81,9 +81,11 @@ if __name__ == "__main__":
     request_data = {'request': {}}
 
   try:
+    # Set the nonce for the request
     nonce = f"0x{int(time.time() * 1000):x}"
     request_data['request']['nonce'] = nonce
 
+    # Create a block engine instance with the private key
     block_engine = DefaultBlockEngine(
       log=logger,
       name="default",
