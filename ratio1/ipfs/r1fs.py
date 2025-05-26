@@ -414,6 +414,7 @@ class R1FSEngine:
                 # Record the time if not already set
                 relay_found = True
                 log_func(f"Relay check #{self.__relay_check_cnt}: Relay ok: {line.strip()}")
+                break
               #end if
             #end for
             # now reset the connected_at time if we found the relay peer
@@ -863,7 +864,18 @@ class R1FSEngine:
       key = self._hash_secret(secret)
 
       if pin:
-        pin_result = self.__pin_add(cid)
+        try:
+          pin_result = self.__pin_add(cid)
+        except Exception as e:
+          msg = f"Error pinning CID {cid}: {e}"
+          if raise_on_error:
+            raise RuntimeError(msg)
+          else:
+            self.P(msg, color='r')
+            return None
+          # end if
+        #end try
+      #end if pin
 
       if local_folder is None:
         local_folder = self.__downloads_dir # default downloads directory
@@ -1119,6 +1131,7 @@ class R1FSEngine:
     ) -> bool:
       """
       This method initializes the IPFS repository if needed, connects to a relay, and starts the daemon.
+      TODO: (Vitalii) Split this into smaller methods.
       """
       if self.ipfs_started:
         return
@@ -1274,15 +1287,22 @@ class R1FSEngine:
 
       # last phase: connect to the relay      
       try:
+        relay_ip = ipfs_relay.split("/")[2]
         self.P("Getting the IPFS ID...")
         my_id = self.__get_id()
         assert my_id != ERROR_TAG, "Failed to get IPFS ID."
         self.P("Checking swarm peers...")
         swarm_peers = self._get_swarm_peers()
         if len(swarm_peers) > 0:
-          self.__ipfs_started = True
           self.P(f"{len(swarm_peers)} swarm peers detected. Checking for relay connection...")
-          self._check_and_record_relay_connection(debug=True)
+          relay_found = self._check_and_record_relay_connection(debug=True)
+          if relay_found:
+            self.__ipfs_started = True
+            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+          else:
+            self.P("No relay connection found in swarm peers.", color='r')
+            self.__ipfs_started = False
+          #end if relay_found
         else:
           msg =  f"Connecting to R1FS relay"
           msg += f"\n  IPFS Home:  {self.ipfs_home}"
@@ -1292,7 +1312,6 @@ class R1FSEngine:
           msg += f"\n  Relay:      {ipfs_relay}"
           self.P(msg, color='m')
           result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
-          relay_ip = ipfs_relay.split("/")[2]
           if "connect" in result.lower() and "success" in result.lower():
             self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
             self.__ipfs_started = True
