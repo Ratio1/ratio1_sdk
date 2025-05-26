@@ -95,6 +95,43 @@ Example Usage:
 
 Note: The private key file should be in PEM format (typically with .pem extension) and contain your Ethereum private key.
 The request JSON file should contain the appropriate request data for the endpoint you're calling.
+
+
+
+```python
+
+from ratio1 import Session
+
+if __name__ == '__main__':
+  # we do not setup any node as we will not use direct SDK deployment but rather the Deeploy API
+  sess = Session()
+
+  launch_result = sess.deeploy_launch_container_app(
+    image="tvitalii/flask-docker-app:latest",
+    name="ratio1_simple_container_webapp",
+    port=5000,  
+    # signer_key_path="../../path/to/private-key.pem",
+    # signer_key_password=None,  # if your private key has a password, set it here
+    signer_key_string=str_metamask_key,  # if you want to use a private key string instead of a file
+    target_nodes=["0xai_target_node_1"],  # replace with your target node address
+    # target_nodes_count=0,  # if you want to deploy to all nodes, set this to 0
+  )
+
+  # no neeed for further `sess.deploy()` as the `deeploy_*` methods handle the deployment automatically
+  # now we interpret the launch_result and extract app-id, etc
+  # ...
+
+  # if all ok sleep for a while to allow app testing (say 60 seconds)
+
+  # finally use deeploy close
+
+  close_result = sess.deeploy_close(
+    ... # use `launch_result` to get the necessary parameters
+  )
+  
+  # log the result
+```
+
 """
 
 import json
