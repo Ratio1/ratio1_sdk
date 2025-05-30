@@ -205,23 +205,28 @@ def _send_command_to_node(args, command, ignore_not_found=False):
   
   t1 = time()
   df, _, _, _, _, sess = _get_netstats(
-    silent=silent, online_only=True, return_session=True,
+    silent=silent, online_only=True, return_session=True, all_info=True,
     wait_for_node=node
   )
   
   peered = None
-  selection = df.Alias == node
+  selection = (df.Alias == node) | (df.Address == node)
+  if 'ETH Address' in df.columns:
+    selection = selection | (df['ETH Address'] == node)
   found = selection.any()
   node_addr = None
+  alias = None
   df_found =  df[selection]
   if found:
+    alias = df_found.Alias.values[0]
     peered = df_found.Peered.values[0]
     node_addr = df_found.Address.values[0]   
     log_with_color(f"{df_found}")
-  if not found:
+  else:
     log_with_color("Node '{}' <{}> not found in network (toal {} nodes, {} peered).".format(
       node, node_addr, df.shape[0], df.Peered.sum()), color='r'
     )
+    node_addr = node
     
   if not peered:
     if found:
@@ -232,12 +237,14 @@ def _send_command_to_node(args, command, ignore_not_found=False):
   # TODO: currently this is based on node alias, but we should be based on node address
   #       and maybe even node alias
   if (found and peered) or ignore_not_found:
-    if ignore_not_found:
-      log_with_color(f"Sending blind '{command}' to node <{node}>", color='b')
+    if found and peered:
+      log_with_color(f"Sending '{command}' to node '{alias}' <{node_addr}>", color='b')
+    else:
+      log_with_color(f"Sending blind '{command}' to node '{alias}' <{node_addr}>", color='b')      
     if command == COMMANDS.RESTART:
-      sess._send_command_restart_node(node)
+      sess._send_command_restart_node(node_addr)
     elif command == COMMANDS.STOP:
-      sess._send_command_stop_node(node)
+      sess._send_command_stop_node(node_addr)
     else:
       log_with_color(f"Command '{command}' not supported.", color='r')
       return
