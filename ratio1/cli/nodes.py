@@ -34,6 +34,7 @@ def _get_netstats(
   dct_info = sess.get_network_known_nodes(
     online_only=online_only, allowed_only=allowed_only, supervisor=supervisor,
     supervisors_only=supervisors_only,
+    min_supervisors=1,
     eth=eth,
     all_info=all_info, 
   )

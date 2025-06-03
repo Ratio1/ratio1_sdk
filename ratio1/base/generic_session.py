@@ -1173,14 +1173,16 @@ class GenericSession(BaseDecentrAIObject):
       self._main_loop_thread.start()
       
       start_wait = tm()
+      self.Pd(f"Blocking main thread for 1st NET_MON_01 with timeout={self.START_TIMEOUT}...")
       while not self.__at_least_a_netmon_received:
-        if (tm() - start_wait) > self.START_TIMEOUT:
+        elapsed = tm() - start_wait
+        if elapsed > self.START_TIMEOUT:
           msg = "Timeout waiting for NET_MON_01 message. No connections. Exiting..."
           self.P(msg, color='r', show=True)
           break
-        sleep(0.1)
-      if self.__at_least_a_netmon_received:
-        self.P("Received at least one NET_MON_01 message. Resuming the main thread...", color='g')
+        sleep(0.1)      
+      if self.__at_least_a_netmon_received:        
+        self.Pd(f"Received NET_MON_01 message after {elapsed:.1f}s. Resuming the main thread...")
       return
 
     def __handle_open_transactions(self):
@@ -3596,6 +3598,7 @@ class GenericSession(BaseDecentrAIObject):
       # the following loop will wait for the desired number of supervisors to appear online
       # for the current session
       start = tm()      
+      self.Pd(f"Waiting for {min_supervisors} supervisors to appear online, {timeout=}...")
       result = False
       while (tm() - start) < timeout:
         if supervisor is not None:
