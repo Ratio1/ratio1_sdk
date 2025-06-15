@@ -1174,6 +1174,7 @@ class GenericSession(BaseDecentrAIObject):
       
       start_wait = tm()
       self.Pd(f"Blocking main thread for 1st NET_MON_01 with timeout={self.START_TIMEOUT}...")
+      elapsed = 0
       while not self.__at_least_a_netmon_received:
         elapsed = tm() - start_wait
         if elapsed > self.START_TIMEOUT:
