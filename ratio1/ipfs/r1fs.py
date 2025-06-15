@@ -428,7 +428,11 @@ class R1FSEngine:
             else:              
               # TODO: maybe add first & last connected time
               # self.__connected_at = None # this is already None or the first connection
-              log_func(f"Relay check #{self.__relay_check_cnt}: FAIL: relay {self.__ipfs_relay.split('/')[2]} not found in swarm peers.", color='r')
+              log_func("Relay check #{}: FAIL: relay {} not found in swarm peers:\n{}".format(
+                self.__relay_check_cnt, self.__ipfs_relay.split('/')[2],
+                json.dumps(peer_lines, indent=2)
+                ), color='r'\
+              )
             #end if relay_found or not
           #end if len(peer_lines) > 0
       except subprocess.TimeoutExpired:
@@ -1303,7 +1307,8 @@ class R1FSEngine:
             self.P("No relay connection found in swarm peers.", color='r')
             self.__ipfs_started = False
           #end if relay_found
-        else:
+        
+        if not self.__ipfs_started:
           msg =  f"Connecting to R1FS relay"
           msg += f"\n  IPFS Home:  {self.ipfs_home}"
           msg += f"\n  IPFS ID:    {my_id}"
