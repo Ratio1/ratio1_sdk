@@ -109,6 +109,7 @@ class BaseLogger(object):
     self._lock_table = OrderedDict({
       _LOGGER_LOCK_ID: threading.Lock(),
       })
+    self._lock_table_identities = {}
     
     self._lock_table_mutex = threading.Lock()
     
@@ -572,7 +573,7 @@ class BaseLogger(object):
     result = None
     self._lock_table_mutex.acquire(blocking=True)
     try:
-      if str_res not in self._lock_table:      
+      if str_res not in self._lock_table:
         self._lock_table[str_res] = threading.Lock()
     except:
       print("**************************************************************\nPANIC: Failed to create lock for resource '{}'\n**************************************************************".format(str_res))
@@ -581,12 +582,14 @@ class BaseLogger(object):
 
     if str_res in self._lock_table:      
       self._lock_table[str_res].acquire(blocking=True)
+      self._lock_table_identities[str_res] = threading.get_ident()
       result = self._lock_table[str_res]
       
     return result
   
   def unlock_resource(self, str_res):
     if str_res in self._lock_table:
+      self._lock_table_identities[str_res] = None
       self._lock_table[str_res].release()
     return
   
