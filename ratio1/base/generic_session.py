@@ -1695,7 +1695,8 @@ class GenericSession(BaseDecentrAIObject):
           The address of the node.
       """
       result = None
-      if node in self._dct_node_last_seen_time.keys():
+      is_address = self.bc_engine.address_is_valid(node)
+      if is_address:
         # node seems to be already an address
         result = node
       elif node in self.__dct_node_eth_addr_to_node_addr.keys():
@@ -1709,7 +1710,7 @@ class GenericSession(BaseDecentrAIObject):
 
     def __prepare_message(
         self, msg_data, encrypt_message: bool = True,
-        destination: str = None, destination_id: str = None,
+        destination: any = None, destination_id: str = None,
         session_id: str = None, additional_data: dict = None
     ):
       """
@@ -2570,10 +2571,15 @@ class GenericSession(BaseDecentrAIObject):
         sleep(0.1)
         found = self.check_node_config_received(node)
         if not found and not additional_request_sent and (tm() - _start) > request_time_thr and attempt_additional_requests:
-          self.P("Re-requesting configurations of node '{}'...".format(short_addr), show=True)
-          node_addr = self.__get_node_address(node)
-          self.__request_pipelines_from_net_config_monitor(node_addr)
-          additional_request_sent = True
+          try:
+            self.P("Re-requesting configurations of node '{}'...".format(short_addr), show=True)
+            node_addr = self.__get_node_address(node)
+            self.__request_pipelines_from_net_config_monitor(node_addr)
+            additional_request_sent = True
+          except Exception as e:
+            self.P(f"Failed to re-request configurations of node '{node_addr}': {e}", color='r')
+          #end try
+        # end if additional request
       # end while
 
       if verbose:
