@@ -1305,7 +1305,7 @@ class GenericSession(BaseDecentrAIObject):
       """
       raise NotImplementedError
 
-    def _send_raw_message(self, to, msg, communicator='default'):
+    def _send_raw_message(self, to, msg, communicator='default', **kwargs):
       """
       Send a message to a node.
 
@@ -1318,7 +1318,7 @@ class GenericSession(BaseDecentrAIObject):
       """
       raise NotImplementedError
 
-    def _send_command(self, to, command):
+    def _send_command(self, to, command, **kwargs):
       """
       Send a command to a node.
 
@@ -1854,7 +1854,7 @@ class GenericSession(BaseDecentrAIObject):
           color='y',
           verbosity=1
         )
-      self._send_command(worker, msg_to_send)
+      self._send_command(worker, msg_to_send, debug=show_command)
       return
 
     def _send_command_create_pipeline(self, worker, pipeline_config, **kwargs):

@@ -95,11 +95,13 @@ class MqttSession(GenericSession):
       return to_alias
     return to_addr
 
-  def _send_raw_message(self, to, msg, communicator='default'):
+  def _send_raw_message(self, to, msg, communicator='default', debug=False, **kwargs):
     payload = json.dumps(msg)
     communicator_obj = self.__communicators.get(communicator, self._default_communicator)
     # communicator_obj._send_to = to
     processed_to = self.__process_receiver_for_subtopic(to)
+    if debug:
+      self.log.P(f"Processed destination: {to} -> {processed_to}")
     # This does not support multiple receivers for now.
     communicator_obj.send(payload, send_to=processed_to)
     return
@@ -109,6 +111,10 @@ class MqttSession(GenericSession):
     self._send_raw_message(to=None, msg=payload, communicator='default')
     return
 
-  def _send_command(self, to, command):
-    self._send_raw_message(to=to, msg=command, communicator='heartbeats')
+  def _send_command(self, to, command, debug=False, **kwargs):
+    self._send_raw_message(
+      to=to, msg=command,
+      communicator='heartbeats',
+      debug=debug, **kwargs
+    )
     return
