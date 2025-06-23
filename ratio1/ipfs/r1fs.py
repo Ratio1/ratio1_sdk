@@ -161,7 +161,8 @@ class R1FSEngine:
     uploads_dir: str = None,
     base64_swarm_key: str = None,
     ipfs_relay_api: str = None,
-    ipfs_api_key_base64: str = None,
+    ipfs_api_key_username: str = None,
+    ipfs_api_key_password: str = None,
     ipfs_certificate_path: str = None,
     ipfs_relay: str = None,   
     debug=False,     
@@ -177,7 +178,8 @@ class R1FSEngine:
           base64_swarm_key=base64_swarm_key,
           ipfs_relay=ipfs_relay,
           ipfs_relay_api=ipfs_relay_api,
-          ipfs_api_key_base64=ipfs_api_key_base64,
+          ipfs_api_key_username=ipfs_api_key_username,
+          ipfs_api_key_password=ipfs_api_key_password,
           ipfs_certificate_path=ipfs_certificate_path,
           debug=debug,
           min_connection_age=min_connection_age,
@@ -200,7 +202,8 @@ class R1FSEngine:
       base64_swarm_key: str = None, 
       ipfs_relay: str = None,
       ipfs_relay_api: str = None,
-      ipfs_api_key_base64: str = None,
+      ipfs_api_key_username: str = None,
+      ipfs_api_key_password: str = None,
       ipfs_certificate_path: str = None,
       min_connection_age: int = DEFAULT_MIN_CONNECTION_AGE,
       debug=False,     
@@ -231,7 +234,8 @@ class R1FSEngine:
       self.__base64_swarm_key = base64_swarm_key
       self.__ipfs_relay = ipfs_relay
       self.__ipfs_relay_api = ipfs_relay_api
-      self.__ipfs_api_key_base64 = ipfs_api_key_base64
+      self.__ipfs_api_key_username = ipfs_api_key_username
+      self.__ipfs_api_key_password = ipfs_api_key_password
       self.__ipfs_certificate_path = ipfs_certificate_path
       self.__ipfs_home = None
       self.__downloads_dir = downloads_dir
@@ -271,7 +275,8 @@ class R1FSEngine:
         base64_swarm_key=self.__base64_swarm_key,
         ipfs_relay=self.__ipfs_relay,
         ipfs_relay_api=self.__ipfs_relay_api,
-        ipfs_api_key_base64=self.__ipfs_api_key_base64,
+        ipfs_api_key_username=self.__ipfs_api_key_username,
+        ipfs_api_key_password=self.__ipfs_api_key_password,
         ipfs_certificate_path=self.__ipfs_certificate_path
       )
       return
@@ -812,6 +817,30 @@ class R1FSEngine:
       os.remove(tmp_cipher_path)
       
       if folder_cid is not None:
+        if self.__ipfs_relay_api is not None:
+          #  Notifying the Relay about a new CID.
+          try:
+            request_url = f"{self.__ipfs_relay_api}/api/v0/pin/add?arg={folder_cid}"
+            response = requests.post(request_url,
+                                     auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
+                                     verify=self.__ipfs_certificate_path)
+            if response.status_code == 200:
+              self.Pd(f"Relay successfully notified about CID={folder_cid}.")
+            else:
+              msg = f"Failed to notify relay about CID {folder_cid}: {response.text}"
+              if raise_on_error:
+                raise RuntimeError(msg)
+              else:
+                self.P(msg, color='r')
+            #end if response status code
+          except requests.RequestException as e:
+            msg = f"Error notifying relay about CID {folder_cid}: {e}"
+            if raise_on_error:
+              raise RuntimeError(msg)
+            else:
+              self.P(msg, color='r')
+          #end try
+
         self.__uploaded_files[folder_cid] = file_path
         # now we pin the folder
         res = self.__pin_add(folder_cid)
@@ -1160,7 +1189,8 @@ class R1FSEngine:
       base64_swarm_key: str = None, 
       ipfs_relay: str = None,
       ipfs_relay_api: str = None,
-      ipfs_api_key_base64: str = None,
+      ipfs_api_key_username: str = None,
+      ipfs_api_key_password: str = None,
       ipfs_certificate_path: str = None,
     ) -> bool:
       """
@@ -1193,14 +1223,20 @@ class R1FSEngine:
         if ipfs_relay_api is not None:
           self.P(f"Found env IPFS relay API: {ipfs_relay_api}", color='d')
 
-      if ipfs_api_key_base64 is None:
+      # Set up IPFS API key username and password.
+      if ipfs_api_key_username is None or ipfs_api_key_password is None:
         ipfs_api_key_base64 = os.getenv(IPFSCt.EE_IPFS_API_KEY_BASE64_KEY)
+        ipfs_api_key = base64.b64decode(ipfs_api_key_base64)
+        split_api_key = ipfs_api_key.split(":")
+        ipfs_api_key_username = split_api_key[0]
+        ipfs_api_key_password = split_api_key[1]
+
 
       # Set up certificate
       if ipfs_certificate_path is None:
         try:
           certificate_encoded = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
-          decoded = self.decode_base64_gzip_to_text()
+          decoded = self.__decode_base64_gzip_to_text()
 
           with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.crt') as f:
             f.write(decoded)
@@ -1221,7 +1257,8 @@ class R1FSEngine:
       self.__base64_swarm_key = base64_swarm_key
       self.__ipfs_relay = ipfs_relay
       self.__ipfs_relay_api = ipfs_relay_api
-      self.__relay_api_key = b64decode(ipfs_api_key_base64)
+      self.__ipfs_api_key_username = ipfs_api_key_username
+      self.__ipfs_api_key_password = ipfs_api_key_password
       self.__ipfs_certificate_path = ipfs_certificate_path
       hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
       
@@ -1387,9 +1424,17 @@ class R1FSEngine:
       except Exception as e:
         self.P(f"Error connecting to relay: {e}", color='r')
       #end try
-      return self.ipfs_started    
-    
-    
+      return self.ipfs_started
+
+  def __decode_base64_gzip_to_text(encoded_str):
+    # Step 1: Decode base64
+    compressed_data = base64.b64decode(encoded_str)
+    # Step 2: Decompress gzip
+    with gzip.GzipFile(fileobj=BytesIO(compressed_data)) as f:
+      decompressed_data = f.read()
+    # Step 3: Convert bytes to string
+    return decompressed_data.decode('utf-8')
+
 if __name__ == '__main__':
   from ratio1 import Logger
   log = Logger("IPFST")
