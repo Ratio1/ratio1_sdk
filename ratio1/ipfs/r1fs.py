@@ -1226,7 +1226,8 @@ class R1FSEngine:
       # Set up IPFS API key username and password.
       if ipfs_api_key_username is None or ipfs_api_key_password is None:
         ipfs_api_key_base64 = os.getenv(IPFSCt.EE_IPFS_API_KEY_BASE64_KEY)
-        ipfs_api_key = base64.b64decode(ipfs_api_key_base64)
+        ipfs_api_key_b = base64.b64decode(ipfs_api_key_base64)
+        ipfs_api_key = str(ipfs_api_key_b, 'utf-8')
         split_api_key = ipfs_api_key.split(":")
         ipfs_api_key_username = split_api_key[0]
         ipfs_api_key_password = split_api_key[1]
