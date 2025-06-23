@@ -483,11 +483,23 @@ class R1FSEngine:
       result = self.__run_command(cmd)
       return result
 
-    
-    def __set_relay(self):
-      # Command to enable the IPFS relay
+
+    # TODO: Create a function for setting variables below.
+    def __disable_auto_tls(self):
       result = self.__run_command(
-        ["ipfs", "config", "--json", "Swarm.DisableRelay", "false"]
+        ["ipfs", "config", "--json", "AutoTLS.Enabled", "false"]
+      )
+      return result
+
+    def __set_routing_type_dht(self):
+      result = self.__run_command(
+        ["ipfs", "config", "--json", "Routing.Type", '"dht"']
+      )
+      return result
+
+    def __disable_ws_transport(self):
+      result = self.__run_command(
+        ["ipfs", "config", "--json", "Swarm.Transports.Network.Websocket", "false"]
       )
       return result
 
@@ -1363,9 +1375,11 @@ class R1FSEngine:
           #######        END OF CLEANUP PHASE        ########
           ###################################################
           self.__set_reprovider_interval()
-          self.__set_relay()
+          self.__disable_auto_tls()
+          self.__set_routing_type_dht()
+          self.__disable_ws_transport()
           self.P("Starting IPFS daemon in background...")
-          subprocess.Popen(["ipfs", "daemon"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+          subprocess.Popen(["ipfs", "daemon", "--enable-gc", "--migrate=true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
           max_attempts = 10
           sleep_time = 2
           for attempt in range(max_attempts):
