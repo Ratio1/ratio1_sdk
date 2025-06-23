@@ -62,6 +62,11 @@ import uuid
 import requests
 import hashlib
 import shutil
+import gzip
+from io import BytesIO
+import ssl
+from requests.auth import HTTPBasicAuth
+import tempfile
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -78,6 +83,9 @@ DEFAULT_MIN_CONNECTION_AGE = 1800 # seconds
 class IPFSCt:
   EE_IPFS_RELAY_ENV_KEY = "EE_IPFS_RELAY"
   EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY = "EE_SWARM_KEY_CONTENT_BASE64"
+  EE_IPFS_RELAY_API_KEY = "EE_IPFS_RELAY_API"
+  EE_IPFS_API_KEY_BASE64_KEY = "EE_IPFS_API_KEY_BASE64"
+  EE_IPFS_CERTIFICATE_BASE64_KEY = "EE_IPFS_CERTIFICATE_BASE64"
   R1FS_DOWNLOADS = "ipfs_downloads"
   R1FS_UPLOADS = "ipfs_uploads"
   CACHE_ROOT = "_local_cache"
@@ -151,7 +159,10 @@ class R1FSEngine:
     logger: any = None, 
     downloads_dir: str = None,
     uploads_dir: str = None,
-    base64_swarm_key: str = None, 
+    base64_swarm_key: str = None,
+    ipfs_relay_api: str = None,
+    ipfs_api_key_base64: str = None,
+    ipfs_certificate_path: str = None,
     ipfs_relay: str = None,   
     debug=False,     
     min_connection_age: int = DEFAULT_MIN_CONNECTION_AGE,
@@ -160,8 +171,15 @@ class R1FSEngine:
       if name not in cls.__instances:
         instance = super(R1FSEngine, cls).__new__(cls)
         instance._build(
-          name=name, logger=logger, downloads_dir=downloads_dir, uploads_dir=uploads_dir,
-          base64_swarm_key=base64_swarm_key, ipfs_relay=ipfs_relay, debug=debug,
+          name=name, logger=logger,
+          downloads_dir=downloads_dir,
+          uploads_dir=uploads_dir,
+          base64_swarm_key=base64_swarm_key,
+          ipfs_relay=ipfs_relay,
+          ipfs_relay_api=ipfs_relay_api,
+          ipfs_api_key_base64=ipfs_api_key_base64,
+          ipfs_certificate_path=ipfs_certificate_path,
+          debug=debug,
           min_connection_age=min_connection_age,
         )
         cls.__instances[name] = instance
@@ -180,7 +198,10 @@ class R1FSEngine:
       downloads_dir: str = None,
       uploads_dir: str = None,
       base64_swarm_key: str = None, 
-      ipfs_relay: str = None,   
+      ipfs_relay: str = None,
+      ipfs_relay_api: str = None,
+      ipfs_api_key_base64: str = None,
+      ipfs_certificate_path: str = None,
       min_connection_age: int = DEFAULT_MIN_CONNECTION_AGE,
       debug=False,     
     ):
@@ -209,6 +230,9 @@ class R1FSEngine:
       self.__downloaded_files = {}
       self.__base64_swarm_key = base64_swarm_key
       self.__ipfs_relay = ipfs_relay
+      self.__ipfs_relay_api = ipfs_relay_api
+      self.__ipfs_api_key_base64 = ipfs_api_key_base64
+      self.__ipfs_certificate_path = ipfs_certificate_path
       self.__ipfs_home = None
       self.__downloads_dir = downloads_dir
       self.__uploads_dir = uploads_dir    
@@ -246,6 +270,9 @@ class R1FSEngine:
       self.maybe_start_ipfs(
         base64_swarm_key=self.__base64_swarm_key,
         ipfs_relay=self.__ipfs_relay,
+        ipfs_relay_api=self.__ipfs_relay_api,
+        ipfs_api_key_base64=self.__ipfs_api_key_base64,
+        ipfs_certificate_path=self.__ipfs_certificate_path
       )
       return
       
@@ -1131,7 +1158,10 @@ class R1FSEngine:
     def maybe_start_ipfs(
       self, 
       base64_swarm_key: str = None, 
-      ipfs_relay: str = None
+      ipfs_relay: str = None,
+      ipfs_relay_api: str = None,
+      ipfs_api_key_base64: str = None,
+      ipfs_certificate_path: str = None,
     ) -> bool:
       """
       This method initializes the IPFS repository if needed, connects to a relay, and starts the daemon.
@@ -1157,14 +1187,42 @@ class R1FSEngine:
           if len(ipfs_relay) < 10:
             self.P(f"Invalid IPFS relay: `{ipfs_relay}`", color='r')
             return False
-        
-      
+
+      if ipfs_relay_api is None:
+        ipfs_relay_api = os.getenv(IPFSCt.EE_IPFS_RELAY_API_KEY)
+        if ipfs_relay_api is not None:
+          self.P(f"Found env IPFS relay API: {ipfs_relay_api}", color='d')
+
+      if ipfs_api_key_base64 is None:
+        ipfs_api_key_base64 = os.getenv(IPFSCt.EE_IPFS_API_KEY_BASE64_KEY)
+
+      # Set up certificate
+      if ipfs_certificate_path is None:
+        try:
+          certificate_encoded = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
+          decoded = self.decode_base64_gzip_to_text()
+
+          with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.crt') as f:
+            f.write(decoded)
+            ipfs_certificate_path = f.name
+
+          with open(CERTIFICATE_FILE_PATH, 'w') as f:
+            f.write(decoded)
+
+          if not os.path.isfile(ipfs_certificate_path):
+            raise FileNotFoundError(f"Could not create certificate file : {ipfs_certificate_path}")
+        except Exception as e:
+          print(f"Error reading the certificate file: {e}")
+
       if not base64_swarm_key or not ipfs_relay:
         self.P("Missing env values EE_SWARM_KEY_CONTENT_BASE64 and EE_IPFS_RELAY.", color='r')
         return False
       
       self.__base64_swarm_key = base64_swarm_key
       self.__ipfs_relay = ipfs_relay
+      self.__ipfs_relay_api = ipfs_relay_api
+      self.__relay_api_key = b64decode(ipfs_api_key_base64)
+      self.__ipfs_certificate_path = ipfs_certificate_path
       hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
       
       existing_ipfs_home = os.getenv("IPFS_PATH")
