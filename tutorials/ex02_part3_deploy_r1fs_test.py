@@ -65,13 +65,15 @@ if __name__ == '__main__':
     # on ChainStorage from other plugins/nodes that create R1FS demo files
     # while itself also creating R1FS demo files
     instance: Instance = pipeline.create_plugin_instance(
-      signature='R1FS_DEMO', on_data=payload_handler.instance_on_data,
+      signature='R1FS_DEMO',
+      on_data=payload_handler.instance_on_data,
       instance_id='inst01',
       debug=True,
+      config={'CHAINSTORE_PEERS': nodes}
     )
 
     pipeline.deploy()
-  WAIT_TIME = 150
+  WAIT_TIME = 3600
   session.P(f"All pipelines deployed, we wait for {WAIT_TIME} seconds...")
   session.wait(
     seconds=WAIT_TIME,            # we wait the session for 60 seconds

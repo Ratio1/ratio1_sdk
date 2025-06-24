@@ -483,11 +483,29 @@ class R1FSEngine:
       result = self.__run_command(cmd)
       return result
 
-    
-    def __set_relay(self):
-      # Command to enable the IPFS relay
+
+    # TODO: Create a function for setting variables below.
+    def __disable_auto_tls(self):
       result = self.__run_command(
-        ["ipfs", "config", "--json", "Swarm.DisableRelay", "false"]
+        ["ipfs", "config", "--json", "AutoTLS.Enabled", "false"]
+      )
+      return result
+
+    def __set_routing_type_dht(self):
+      result = self.__run_command(
+        ["ipfs", "config", "--json", "Routing.Type", '"dht"']
+      )
+      return result
+
+    def __disable_ws_transport(self):
+      result = self.__run_command(
+        ["ipfs", "config", "--json", "Swarm.Transports.Network.Websocket", "false"]
+      )
+      return result
+
+    def __bootstrap_add(self, ipfs_relay):
+      result = self.__run_command(
+        ["ipfs", "bootstrap", "add", ipfs_relay]
       )
       return result
 
@@ -1225,30 +1243,31 @@ class R1FSEngine:
 
       # Set up IPFS API key username and password.
       if ipfs_api_key_username is None or ipfs_api_key_password is None:
-        ipfs_api_key_base64 = os.getenv(IPFSCt.EE_IPFS_API_KEY_BASE64_KEY)
-        ipfs_api_key = base64.b64decode(ipfs_api_key_base64)
-        split_api_key = ipfs_api_key.split(":")
-        ipfs_api_key_username = split_api_key[0]
-        ipfs_api_key_password = split_api_key[1]
+        try:
+          ipfs_api_key_base64 = os.getenv(IPFSCt.EE_IPFS_API_KEY_BASE64_KEY)
+          ipfs_api_key_b = base64.b64decode(ipfs_api_key_base64)
+          ipfs_api_key = str(ipfs_api_key_b, 'utf-8')
+          split_api_key = ipfs_api_key.split(":")
+          ipfs_api_key_username = split_api_key[0]
+          ipfs_api_key_password = split_api_key[1]
+        except Exception as e:
+          self.P(f"An error occurred while extracting IPFS Relay username and password {e}", color='r')
 
 
       # Set up certificate
       if ipfs_certificate_path is None:
         try:
-          certificate_encoded = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
-          decoded = self.__decode_base64_gzip_to_text()
+          certificate_encoded = os.getenv(IPFSCt.EE_IPFS_CERTIFICATE_BASE64_KEY)
+          decoded = self.__decode_base64_gzip_to_text(certificate_encoded)
 
           with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.crt') as f:
             f.write(decoded)
             ipfs_certificate_path = f.name
 
-          with open(CERTIFICATE_FILE_PATH, 'w') as f:
-            f.write(decoded)
-
           if not os.path.isfile(ipfs_certificate_path):
             raise FileNotFoundError(f"Could not create certificate file : {ipfs_certificate_path}")
         except Exception as e:
-          print(f"Error reading the certificate file: {e}")
+          self.P(f"Error reading the certificate file: {e}", color='r')
 
       if not base64_swarm_key or not ipfs_relay:
         self.P("Missing env values EE_SWARM_KEY_CONTENT_BASE64 and EE_IPFS_RELAY.", color='r')
@@ -1362,9 +1381,12 @@ class R1FSEngine:
           #######        END OF CLEANUP PHASE        ########
           ###################################################
           self.__set_reprovider_interval()
-          self.__set_relay()
+          self.__disable_auto_tls()
+          self.__set_routing_type_dht()
+          self.__disable_ws_transport()
+          self.__bootstrap_add(self.__ipfs_relay)
           self.P("Starting IPFS daemon in background...")
-          subprocess.Popen(["ipfs", "daemon"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+          subprocess.Popen(["ipfs", "daemon", "--enable-gc", "--migrate=true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
           max_attempts = 10
           sleep_time = 2
           for attempt in range(max_attempts):
@@ -1390,17 +1412,17 @@ class R1FSEngine:
         self.P("Getting the IPFS ID...")
         my_id = self.__get_id()
         assert my_id != ERROR_TAG, "Failed to get IPFS ID."
-        self.P("Checking swarm peers...")
-        swarm_peers = self._get_swarm_peers()
-        if len(swarm_peers) > 0:
-          self.P(f"{len(swarm_peers)} swarm peers detected. Checking for relay connection...")
-          relay_found = self._check_and_record_relay_connection(debug=True)
-          if relay_found:
-            self.__ipfs_started = True
-            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
-          else:
-            self.P("No relay connection found in swarm peers.", color='r')
-            self.__ipfs_started = False
+        # self.P("Checking swarm peers...")
+        # swarm_peers = self._get_swarm_peers()
+        # if len(swarm_peers) > 0:
+        #   self.P(f"{len(swarm_peers)} swarm peers detected. Checking for relay connection...")
+        #   relay_found = self._check_and_record_relay_connection(debug=True)
+        #   if relay_found:
+        #     self.__ipfs_started = True
+        #     self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+        #   else:
+        #     self.P("No relay connection found in swarm peers.", color='r')
+        #     self.__ipfs_started = False
           #end if relay_found
         
         if not self.__ipfs_started:
@@ -1411,29 +1433,38 @@ class R1FSEngine:
           msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
           msg += f"\n  Relay:      {ipfs_relay}"
           self.P(msg, color='m')
-          result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
-          if "connect" in result.lower() and "success" in result.lower():
-            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
-            self.__ipfs_started = True
-            self.P("Re-checking swarm peers...")
-            swarm_peers = self._get_swarm_peers()
-            self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
-            self._check_and_record_relay_connection(debug=True)
-          else:
-            self.P("Relay connection result did not indicate success.", color='r')
+          # result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
+          # if "connect" in result.lower() and "success" in result.lower():
+          #   self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+          #   self.__ipfs_started = True
+          #   self.P("Re-checking swarm peers...")
+          #   swarm_peers = self._get_swarm_peers()
+          #   self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
+          #   # self._check_and_record_relay_connection(debug=True)
+          # else:
+          #   self.P("Relay connection result did not indicate success.", color='r')
       except Exception as e:
         self.P(f"Error connecting to relay: {e}", color='r')
       #end try
       return self.ipfs_started
 
-  def __decode_base64_gzip_to_text(encoded_str):
-    # Step 1: Decode base64
-    compressed_data = base64.b64decode(encoded_str)
-    # Step 2: Decompress gzip
-    with gzip.GzipFile(fileobj=BytesIO(compressed_data)) as f:
-      decompressed_data = f.read()
-    # Step 3: Convert bytes to string
-    return decompressed_data.decode('utf-8')
+  def __decode_base64_gzip_to_text(self, encoded_str):
+    try:
+      self.P(f"Decoding scring: {encoded_str}")
+      # Step 1: Decode base64
+      compressed_data = base64.b64decode(encoded_str)
+      # Step 2: Decompress gzip
+      self.P(f"compressed scring: {compressed_data}")
+
+      with gzip.GzipFile(fileobj=BytesIO(compressed_data)) as f:
+        decompressed_data = f.read()
+      # Step 3: Convert bytes to string
+      self.P(f"decompressed scring: {decompressed_data}")
+
+      return decompressed_data.decode('utf-8')
+    except Exception as e:
+      self.P(f"Error decoding base64 string: {e}")
+    return ''
 
 if __name__ == '__main__':
   from ratio1 import Logger
