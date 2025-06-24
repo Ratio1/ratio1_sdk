@@ -50,19 +50,8 @@ if __name__ == '__main__':
   
   # this code assumes the node have "allowed" the SDK to deploy the pipeline
   nodes = [
-    # "0xai_AnwwPTsZj5St9klv2C-AGUXQw7ggJPcCPijxiJ56OcED", #DEV Vi
-    # "0xai_AyhxIWhibMw2X0kUq7tEYMxYq9XZCR0-TtIqn530ginB" #DEV Vi
-    # '0xai_AhIQz47-2dpbncDTODXcP7_cByr0_CI9VEB1dCXnbbG7',  ##DEV dev 01 Oracle
-    # '0xai_AgnygSlY8BwnmaCj6mItg36JHlG_Lh3UqqFaTPbuNzy0',  ##DEV dev 02 oracle
-    # '0xai_Aj1FpPQHISEBelp-tQ8cegwk434Dcl6xaHmuhZQT74if', # MAIN r1s-01 oracle
-    # '0xai_AzySbyf7ggk1UOWkujAy6GFFmDy2MID8Jz7gqxZaDhy8', # MAIN r1s-02 oracle
-    # '0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6',  # tr1s-01 testnet oracle
-    # '0xai_A61eKDV1otIH6uWy3zDlbJNJUWayp1jAsirOuYxztf82',  # tr1s-02 testnet oracle
-    # '0xai_Aznthe4sDsCSzExKM9PV7GN5UQF2CAwLEfagFuR8VQ5N',  # 01 testnet local
-    # '0xai_Az4ES-cMy-WZ0UAK9g6XHtXD_irXZivZoM587W2h5VPs',  # 02 testnet local
-
-    '0xai_A5UKxpSizb-O-4nE23vog8ioR-kQy64W3iePncYo4Jfc',
-    '0xai_AhIQz47-2dpbncDTODXcP7_cByr0_CI9VEB1dCXnbbG7',
+    '0xai_A2LfyeItL5oEp7nHONlczGgwS3SV8Ims9ujJ0soJ6Anx',
+    '0xai_AqgKnJMNvUvq5n1wIin_GD2i1FbZ4FBTUJaCI6cWf7i4',
   ]
 
   for node in nodes:
