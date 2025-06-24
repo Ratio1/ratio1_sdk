@@ -42,7 +42,7 @@ class dAuth:
   EVM_NET_DATA = EVM_NET_DATA
     
   DAUTH_NET_ENV_KEY = 'EE_EVM_NET'
-  DAUTH_SDK_NET_DEFAULT = 'testnet'
+  DAUTH_SDK_NET_DEFAULT = 'mainnet'
     
   DAUTH_SENDER_ALIAS = 'sender_alias'
   DAUTH_SENDER_ALIAS_DEFAULT = 'direct-call'
