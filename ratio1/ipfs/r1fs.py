@@ -1384,17 +1384,17 @@ class R1FSEngine:
         self.P("Getting the IPFS ID...")
         my_id = self.__get_id()
         assert my_id != ERROR_TAG, "Failed to get IPFS ID."
-        # self.P("Checking swarm peers...")
-        # swarm_peers = self._get_swarm_peers()
-        # if len(swarm_peers) > 0:
-        #   self.P(f"{len(swarm_peers)} swarm peers detected. Checking for relay connection...")
-        #   relay_found = self._check_and_record_relay_connection(debug=True)
-        #   if relay_found:
-        #     self.__ipfs_started = True
-        #     self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
-        #   else:
-        #     self.P("No relay connection found in swarm peers.", color='r')
-        #     self.__ipfs_started = False
+        self.P("Checking swarm peers...")
+        swarm_peers = self._get_swarm_peers()
+        if len(swarm_peers) > 0:
+          self.P(f"{len(swarm_peers)} swarm peers detected. Checking for relay connection...")
+          relay_found = self._check_and_record_relay_connection(debug=True)
+          if relay_found:
+            self.__ipfs_started = True
+            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+          else:
+            self.P("No relay connection found in swarm peers.", color='r')
+            self.__ipfs_started = False
           #end if relay_found
         
         if not self.__ipfs_started:
@@ -1405,16 +1405,16 @@ class R1FSEngine:
           msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
           msg += f"\n  Relay:      {ipfs_relay}"
           self.P(msg, color='m')
-          # result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
-          # if "connect" in result.lower() and "success" in result.lower():
-          #   self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
-          #   self.__ipfs_started = True
-          #   self.P("Re-checking swarm peers...")
-          #   swarm_peers = self._get_swarm_peers()
-          #   self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
-          #   # self._check_and_record_relay_connection(debug=True)
-          # else:
-          #   self.P("Relay connection result did not indicate success.", color='r')
+          result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
+          if "connect" in result.lower() and "success" in result.lower():
+            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+            self.__ipfs_started = True
+            self.P("Re-checking swarm peers...")
+            swarm_peers = self._get_swarm_peers()
+            self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
+            # self._check_and_record_relay_connection(debug=True)
+          else:
+            self.P("Relay connection result did not indicate success.", color='r')
       except Exception as e:
         self.P(f"Error connecting to relay: {e}", color='r')
       #end try
