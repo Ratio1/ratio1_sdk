@@ -222,7 +222,6 @@ class R1FSEngine:
       self.logger = logger
 
       self.__ipfs_started = False
-      self.__ipfs_warmed_up = False
       self.__ipfs_address = None
       self.__ipfs_id = None
       self.__ipfs_id_result = None
@@ -1109,44 +1108,7 @@ class R1FSEngine:
         result = False
       return result
       
-    
-    def check_ipfs_warmed(self) -> bool:
-      """
-      1) Checks if we appear to be connected to the relay at all.
-      2) If so, checks how long we've been connected. If it's >= min_connection_age, returns True.
-      """
-      if not self.ipfs_started:
-        # Not ipfs_started no need for further checks
-        return False
-      if self.__ipfs_warmed_up and self.__connected_at is not None:
-        # Already warmed up, no need to check again
-        return True
-      
-      # we might be started but not iet connected to the relay
-      self.Pd("Checking if R1FS is warmed up...")
-      connected = self._check_and_record_relay_connection()
-      if not connected:
-        # Not connected to the relay yet        
-        return False    
-      # If we have a connection, see how old it is
-      connection_age = time.time() - self.connected_at
-      is_connection_aged =  connection_age >= self.__min_connection_age
-      self.__ipfs_warmed_up = is_connection_aged
-      if is_connection_aged:
-        self.Pd(f"IPFS warmed-up with connection age {connection_age:.1f}s, >= {self.__min_connection_age}s")
-      else:
-        self.Pd(f"IPFS not warmed with connection age {connection_age:.1f}s, < {self.__min_connection_age}s")
-      return is_connection_aged
 
-
-    @property
-    def is_ipfs_warmed(self) -> bool:
-      """
-      Check if IPFS is warmed up (connected to the relay and has been for a while).
-      """
-      return self.check_ipfs_warmed()  
-
-  
   # Start/stop IPFS methods (R1FS API)
   if True:
     
