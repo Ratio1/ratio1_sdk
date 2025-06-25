@@ -935,6 +935,16 @@ class R1FSEngine:
       /app/downloads/QmEncFolderXYZ/original_filename.bin
       
       """
+      # Validate CID parameter
+      if cid in [None, ""]:
+        msg = "CID parameter cannot be None or empty"
+        if raise_on_error:
+          raise ValueError(msg)
+        else:
+          if show_logs:
+            self.P(msg, color='r')
+          return None
+      
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
         
