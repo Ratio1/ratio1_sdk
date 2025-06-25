@@ -1412,7 +1412,7 @@ class R1FSEngine:
             self.P("Re-checking swarm peers...")
             swarm_peers = self._get_swarm_peers()
             self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
-            # self._check_and_record_relay_connection(debug=True)
+            self._check_and_record_relay_connection(debug=True)
           else:
             self.P("Relay connection result did not indicate success.", color='r')
       except Exception as e:
