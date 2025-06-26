@@ -222,7 +222,6 @@ class R1FSEngine:
       self.logger = logger
 
       self.__ipfs_started = False
-      self.__ipfs_warmed_up = False
       self.__ipfs_address = None
       self.__ipfs_id = None
       self.__ipfs_id_result = None
@@ -936,6 +935,16 @@ class R1FSEngine:
       /app/downloads/QmEncFolderXYZ/original_filename.bin
       
       """
+      # Validate CID parameter
+      if cid in [None, ""]:
+        msg = "CID parameter cannot be None or empty"
+        if raise_on_error:
+          raise ValueError(msg)
+        else:
+          if show_logs:
+            self.P(msg, color='r')
+          return None
+      
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
         
@@ -1109,47 +1118,18 @@ class R1FSEngine:
         result = False
       return result
       
-    
-    def check_ipfs_warmed(self) -> bool:
-      """
-      1) Checks if we appear to be connected to the relay at all.
-      2) If so, checks how long we've been connected. If it's >= min_connection_age, returns True.
-      """
-      if not self.ipfs_started:
-        # Not ipfs_started no need for further checks
-        return False
-      if self.__ipfs_warmed_up and self.__connected_at is not None:
-        # Already warmed up, no need to check again
-        return True
-      
-      # we might be started but not iet connected to the relay
-      self.Pd("Checking if R1FS is warmed up...")
-      connected = self._check_and_record_relay_connection()
-      if not connected:
-        # Not connected to the relay yet        
-        return False    
-      # If we have a connection, see how old it is
-      connection_age = time.time() - self.connected_at
-      is_connection_aged =  connection_age >= self.__min_connection_age
-      self.__ipfs_warmed_up = is_connection_aged
-      if is_connection_aged:
-        self.Pd(f"IPFS warmed-up with connection age {connection_age:.1f}s, >= {self.__min_connection_age}s")
-      else:
-        self.Pd(f"IPFS not warmed with connection age {connection_age:.1f}s, < {self.__min_connection_age}s")
-      return is_connection_aged
 
-
+  # Start/stop IPFS methods (R1FS API)
+  if True:
     @property
     def is_ipfs_warmed(self) -> bool:
       """
+      @Deprecated:
+      This method is deprecated and will be removed in future versions.
       Check if IPFS is warmed up (connected to the relay and has been for a while).
       """
-      return self.check_ipfs_warmed()  
+      return True
 
-  
-  # Start/stop IPFS methods (R1FS API)
-  if True:
-    
     def is_ipfs_daemon_running(
       self,
       host="127.0.0.1",
@@ -1412,17 +1392,17 @@ class R1FSEngine:
         self.P("Getting the IPFS ID...")
         my_id = self.__get_id()
         assert my_id != ERROR_TAG, "Failed to get IPFS ID."
-        # self.P("Checking swarm peers...")
-        # swarm_peers = self._get_swarm_peers()
-        # if len(swarm_peers) > 0:
-        #   self.P(f"{len(swarm_peers)} swarm peers detected. Checking for relay connection...")
-        #   relay_found = self._check_and_record_relay_connection(debug=True)
-        #   if relay_found:
-        #     self.__ipfs_started = True
-        #     self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
-        #   else:
-        #     self.P("No relay connection found in swarm peers.", color='r')
-        #     self.__ipfs_started = False
+        self.P("Checking swarm peers...")
+        swarm_peers = self._get_swarm_peers()
+        if len(swarm_peers) > 0:
+          self.P(f"{len(swarm_peers)} swarm peers detected. Checking for relay connection...")
+          relay_found = self._check_and_record_relay_connection(debug=True)
+          if relay_found:
+            self.__ipfs_started = True
+            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+          else:
+            self.P("No relay connection found in swarm peers.", color='r')
+            self.__ipfs_started = False
           #end if relay_found
         
         if not self.__ipfs_started:
@@ -1433,16 +1413,16 @@ class R1FSEngine:
           msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
           msg += f"\n  Relay:      {ipfs_relay}"
           self.P(msg, color='m')
-          # result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
-          # if "connect" in result.lower() and "success" in result.lower():
-          #   self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
-          #   self.__ipfs_started = True
-          #   self.P("Re-checking swarm peers...")
-          #   swarm_peers = self._get_swarm_peers()
-          #   self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
-          #   # self._check_and_record_relay_connection(debug=True)
-          # else:
-          #   self.P("Relay connection result did not indicate success.", color='r')
+          result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
+          if "connect" in result.lower() and "success" in result.lower():
+            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
+            self.__ipfs_started = True
+            self.P("Re-checking swarm peers...")
+            swarm_peers = self._get_swarm_peers()
+            self.P(f"Swarm peers:\n {json.dumps(swarm_peers, indent=2)}")
+            self._check_and_record_relay_connection(debug=True)
+          else:
+            self.P("Relay connection result did not indicate success.", color='r')
       except Exception as e:
         self.P(f"Error connecting to relay: {e}", color='r')
       #end try
@@ -1450,17 +1430,12 @@ class R1FSEngine:
 
   def __decode_base64_gzip_to_text(self, encoded_str):
     try:
-      self.P(f"Decoding scring: {encoded_str}")
       # Step 1: Decode base64
       compressed_data = base64.b64decode(encoded_str)
       # Step 2: Decompress gzip
-      self.P(f"compressed scring: {compressed_data}")
-
       with gzip.GzipFile(fileobj=BytesIO(compressed_data)) as f:
         decompressed_data = f.read()
       # Step 3: Convert bytes to string
-      self.P(f"decompressed scring: {decompressed_data}")
-
       return decompressed_data.decode('utf-8')
     except Exception as e:
       self.P(f"Error decoding base64 string: {e}")
