@@ -1121,7 +1121,15 @@ class R1FSEngine:
 
   # Start/stop IPFS methods (R1FS API)
   if True:
-    
+    @property
+    def is_ipfs_warmed(self) -> bool:
+      """
+      @Deprecated:
+      This method is deprecated and will be removed in future versions.
+      Check if IPFS is warmed up (connected to the relay and has been for a while).
+      """
+      return True
+
     def is_ipfs_daemon_running(
       self,
       host="127.0.0.1",
