@@ -1422,17 +1422,12 @@ class R1FSEngine:
 
   def __decode_base64_gzip_to_text(self, encoded_str):
     try:
-      self.P(f"Decoding scring: {encoded_str}")
       # Step 1: Decode base64
       compressed_data = base64.b64decode(encoded_str)
       # Step 2: Decompress gzip
-      self.P(f"compressed scring: {compressed_data}")
-
       with gzip.GzipFile(fileobj=BytesIO(compressed_data)) as f:
         decompressed_data = f.read()
       # Step 3: Convert bytes to string
-      self.P(f"decompressed scring: {decompressed_data}")
-
       return decompressed_data.decode('utf-8')
     except Exception as e:
       self.P(f"Error decoding base64 string: {e}")
