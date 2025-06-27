@@ -225,7 +225,6 @@ class R1FSEngine:
       self.__ipfs_address = None
       self.__ipfs_id = None
       self.__ipfs_id_result = None
-      self.__min_connection_age = min_connection_age
       self.__connected_at = None
       self.__ipfs_agent = None
       self.__uploaded_files = {}
@@ -312,9 +311,9 @@ class R1FSEngine:
 
     def _set_min_connection_age(self, min_connection_age: int):
       """
+      @Deprecated: Don't use this method anymore, Warm up is not used anymore.
       Set the minimum connection age for IPFS to be considered warmed up.
       """
-      self.__min_connection_age = min_connection_age
       return
 
   # Public properties
