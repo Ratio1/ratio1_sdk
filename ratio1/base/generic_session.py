@@ -3635,6 +3635,7 @@ class GenericSession(BaseDecentrAIObject):
       min_supervisors=2,
       allowed_only=False,
       supervisor=None,
+      alias_filter=None,
       df_only=False,
       debug=False,
       eth=False,
@@ -3665,6 +3666,9 @@ class GenericSession(BaseDecentrAIObject):
           
       supervisor : str, optional  
           The supervisor to wait for. Defaults to None.
+          
+      alias_filter : str, optional
+          If provided, will filter the nodes by a alias partial string. Defaults to None.
           
       df_only : bool, optional
           If True, will return only the Pandas dataframe. Defaults to False.
@@ -3799,6 +3803,8 @@ class GenericSession(BaseDecentrAIObject):
       # end if
       pd.options.display.float_format = '{:.1f}'.format
       df_res = pd.DataFrame(res)
+      if alias_filter is not None:
+        df_res = df_res[df_res['Alias'].str.contains(alias_filter, case=False, na=False)]
       if not all_info:
         DROPPABLE = ['State', 'Last probe']
         to_drop = [x for x in DROPPABLE if x in df_res.columns]

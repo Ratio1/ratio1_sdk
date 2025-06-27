@@ -15,6 +15,7 @@ def _get_netstats(
   online_only=False, 
   allowed_only=False, 
   supervisor=None,
+  alias_filter=None,
   supervisors_only=False,
   return_session=False,
   eth=False,
@@ -34,6 +35,7 @@ def _get_netstats(
   dct_info = sess.get_network_known_nodes(
     online_only=online_only, allowed_only=allowed_only, supervisor=supervisor,
     supervisors_only=supervisors_only,
+    alias_filter=alias_filter,
     min_supervisors=1,
     eth=eth,
     all_info=all_info, 
@@ -60,6 +62,7 @@ def get_nodes(args):
   4. Get the active nodes union via Session and display the nodes marking those peered vs non-peered.
   """
   supervisor_addr = args.supervisor
+  alias_filter = args.alias
   online = args.online
   online = True # always online, flag deprecated
   wide = args.wide
@@ -71,6 +74,7 @@ def get_nodes(args):
     online_only=online or args.peered,
     allowed_only=args.peered,
     supervisor=supervisor_addr,
+    alias_filter=alias_filter,
     eth=args.eth,
     all_info=wide,
     return_session=True,
