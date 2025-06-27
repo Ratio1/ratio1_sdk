@@ -777,6 +777,11 @@ class R1FSEngine:
       if not os.path.isfile(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
 
+      # Check file size and throw an error if larger than 2 GB.
+      file_size = os.path.getsize(file_path)
+      if file_size > 2 * 1024 * 1024 * 1024:
+        raise ValueError(f"File {file_path} is too large ({file_size} bytes). Maximum allowed size is 2 GB.")
+
       key = self._hash_secret(secret)  # mandatory passphrase
       nonce = os.urandom(12)           # recommended for GCM
       original_basename = os.path.basename(file_path)
