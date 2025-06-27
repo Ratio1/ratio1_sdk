@@ -77,7 +77,7 @@ from threading import Lock
 __VER__ = "0.2.2"
 
 # empirically determined minimum connection age for IPFS relay
-DEFAULT_MIN_CONNECTION_AGE = 1800 # seconds
+DEFAULT_MIN_CONNECTION_AGE = 0 # seconds
 
 
 class IPFSCt:
@@ -312,9 +312,9 @@ class R1FSEngine:
 
     def _set_min_connection_age(self, min_connection_age: int):
       """
+      @Deprecated: Don't use this method anymore, Warm up is not used anymore.
       Set the minimum connection age for IPFS to be considered warmed up.
       """
-      self.__min_connection_age = min_connection_age
       return
 
   # Public properties
@@ -777,6 +777,11 @@ class R1FSEngine:
       
       if not os.path.isfile(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
+
+      # Check file size and throw an error if larger than 2 GB.
+      file_size = os.path.getsize(file_path)
+      if file_size > 2 * 1024 * 1024 * 1024:
+        raise ValueError(f"File {file_path} is too large ({file_size} bytes). Maximum allowed size is 2 GB.")
 
       key = self._hash_secret(secret)  # mandatory passphrase
       nonce = os.urandom(12)           # recommended for GCM
