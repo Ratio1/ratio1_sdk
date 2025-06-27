@@ -1,4 +1,8 @@
 class EvmNetData:
+  MAINNET = 'mainnet'
+  TESTNET = 'testnet'
+  DEVNET = 'devnet'
+
   DAUTH_URL_KEY = 'EE_DAUTH_URL'
   DAUTH_ND_ADDR_KEY = 'EE_DAUTH_ND_ADDR'
   DAUTH_RPC_KEY = 'EE_DAUTH_RPC'
@@ -16,7 +20,15 @@ class EvmNetData:
   EE_SUPERVISOR_MIN_AVAIL_PRC_KEY = 'EE_SUPERVISOR_MIN_AVAIL_PRC'
 
   EE_ORACLE_API_URL_KEY = 'EE_ORACLE_API_URL'
-  
+# endclass EvmNetData
+
+
+# Below are basic parameters for plugins that do not interact directly with the blockchain.
+class EvmNetConstants:
+  EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY = 'EE_NET_MON_01_SUPERVISOR_LOG_TIME'
+  NET_CONFIG_MONITOR_SHOW_EACH_KEY = 'NET_CONFIG_MONITOR_SHOW_EACH'
+# endclass EvmNetConstants
+
 
 _DAUTH_ABI_IS_NODE_ACTIVE = [{
   "inputs": [
@@ -202,10 +214,9 @@ _ERC20_ABI = [
 ]
 
 
-  
-  
+# Here are all the constants used for blockchain interaction for each network.
 EVM_NET_DATA = {
-  'mainnet': {
+  EvmNetData.MAINNET: {
     EvmNetData.DAUTH_URL_KEY                    : "https://dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_CONTROLLER_ADDR_KEY        : "0x90dA5FdaA92edDC80FB73114fb7FE7D97f2be017",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0xE658DF6dA3FB5d4FBa562F1D5934bd0F9c6bd423",
@@ -216,12 +227,13 @@ EVM_NET_DATA = {
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
-    EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.96,
+    # TODO: move back to 0.96 on next epoch!!!!
+    EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.8,
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://oracle.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
-  'testnet': {
+  EvmNetData.TESTNET: {
     EvmNetData.DAUTH_URL_KEY                    : "https://testnet-dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_CONTROLLER_ADDR_KEY        : "0x63BEC1B3004154698830C7736107E7d3cfcbde79",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0x18E86a5829CA1F02226FA123f30d90dCd7cFd0ED",
@@ -238,7 +250,7 @@ EVM_NET_DATA = {
   },
 
   
-  'devnet' : {
+  EvmNetData.DEVNET : {
     EvmNetData.DAUTH_URL_KEY                    : "https://devnet-dauth.ratio1.ai/get_auth_data",
     EvmNetData.DAUTH_CONTROLLER_ADDR_KEY        : "0xdd56E920810e2FD9a07C1718643E179839867253",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0x8D0CE4933728FF7C04388f0bEcC9a45676E232F7",
@@ -252,6 +264,24 @@ EVM_NET_DATA = {
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.6,
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://devnet-oracle.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
+  },
+}
+
+
+# Here are all the constants used for anything unrelated to blockchain interaction
+# (e.g. logging parameters for certain admin plugins).
+EVM_NET_CONSTANTS = {
+  EvmNetData.MAINNET: {
+    EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: None,  # Default is None, meaning no logging.
+    EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: None,  # Default is None, meaning no periodic logging.
+  },
+  EvmNetData.TESTNET: {
+    EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: 120,  # Log every 2 minutes.
+    EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: 120,  # Show every 2 minutes.
+  },
+  EvmNetData.DEVNET: {
+    EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: 60,  # Log every minute.
+    EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: 60,  # Show every minute.
   },
 }
 

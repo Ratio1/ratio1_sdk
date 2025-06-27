@@ -495,7 +495,10 @@ class OracleTester:
       valid, msg = self.check_data(oracle_data, node_eth_addr)
       if not valid:
         return [msg]
-      msg_list = [f'Availability for <{node_eth_addr}> from epoch {start} to epoch {end} on {rounds} rounds:\n']
+      cnt_oracles = len(oracle_data)
+      msg_list = [
+        f'Received availability for <{node_eth_addr}> from epoch {start} to epoch {end} on {rounds} rounds from {cnt_oracles} total oracles:\n'
+      ]
       frequencies = stats_dict.get(node_eth_addr, {}).get(ct.FREQUENCY, {})
       it = 0
       for sender, sender_data in oracle_data.items():
@@ -511,7 +514,7 @@ class OracleTester:
           else:
             # No errors
             if not is_valid:
-              curr_msg += '\t\t WARNING:   Oracle returned invalid data due to uncertainty\n'
+              curr_msg += f'\t\t WARNING:   Oracle {sender} returned invalid data due to uncertainty\n'
             # endif uncertainty
           # endif errors
           color = None if is_valid else 'r'

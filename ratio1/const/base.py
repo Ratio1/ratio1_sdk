@@ -1,6 +1,7 @@
 from .evm_net import (
   EvmNetData, 
   EVM_NET_DATA,
+  EVM_NET_CONSTANTS,
   EVM_ABI_DATA,
 )
 
