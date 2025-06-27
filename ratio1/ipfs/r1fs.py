@@ -77,7 +77,7 @@ from threading import Lock
 __VER__ = "0.2.2"
 
 # empirically determined minimum connection age for IPFS relay
-DEFAULT_MIN_CONNECTION_AGE = 1800 # seconds
+DEFAULT_MIN_CONNECTION_AGE = 0 # seconds
 
 
 class IPFSCt:
@@ -225,6 +225,7 @@ class R1FSEngine:
       self.__ipfs_address = None
       self.__ipfs_id = None
       self.__ipfs_id_result = None
+      self.__min_connection_age = min_connection_age
       self.__connected_at = None
       self.__ipfs_agent = None
       self.__uploaded_files = {}
