@@ -14,7 +14,7 @@ from ratio1.cli.nodes import (
   restart_node, shutdown_node,
   get_apps
 )
-from ratio1.cli.oracles import get_availability
+from ratio1.cli.oracles import get_availability, oracle_rollout
 from ratio1.utils.config import (
   show_config, reset_config, show_address, get_set_network,
   get_networks, get_set_alias, get_eth_addr
@@ -126,5 +126,9 @@ CLI_COMMANDS = {
         "params": {
             "node": "The node to shutdown"
         }
+    },
+    "oracle-rollout": {
+        "func": oracle_rollout,
+        "description": "Rollout update on all nodes in the network. The rollout order is seed nodes -> oracle nodes -> all other edge nodes. This command is needed when defining new environment variables in seed nodes, in order to make it available to all nodes in the network.",
     }
 }
