@@ -103,7 +103,7 @@ def oracle_rollout():
   # 3. Send restart command to all remaining edge nodes.
   log_with_color(f"Sending restart commands to all remaining edge nodes: {remaining_nodes_addresses}", color='b')
 
-  send_restart_command(nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=15)
+  send_restart_command(nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
 
   log_with_color(f"All nodes restarted successfully.", color='g')
 
