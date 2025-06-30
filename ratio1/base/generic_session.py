@@ -2919,9 +2919,10 @@ class GenericSession(BaseDecentrAIObject):
         docker_image: str,
         port: int,
         signer_private_key_path: str,
+        logger,
         target_nodes = [],
         signer_private_key_password='',
-        ngrok_edge_label=None,
+        ngrok_edge_label='',
         docker_cr_username='',
         docker_cr_password='',
         docker_cr='docker.io',
@@ -2930,14 +2931,27 @@ class GenericSession(BaseDecentrAIObject):
         target_nodes_count=0,
         **kwargs
     ):
-      logger = Logger("DEEPLOY", base_folder=".", app_folder="deeploy_launch_container_app")
 
       if target_nodes_count == 0 and len(target_nodes) == 0:
         raise ValueError("You must specify at least one target node to deploy the container app.")
 
-      api_base_url = 'https://devnet-deeploy-api.ratio1.ai'
-      endpoint = 'create_pipeline'
+      # Create a block engine instance with the private key
+      block_engine = DefaultBlockEngine(
+        log=logger,
+        name="default",
+        config={
+          BCct.K_PEM_FILE: signer_private_key_path,
+          BCct.K_PASSWORD: signer_private_key_password,
+        }
+      )
 
+      api_base_url = 'https://devnet-deeploy-api.ratio1.ai'
+      if block_engine.current_evm_network == 'mainnet':
+        api_base_url = 'https://deeploy-api.ratio1.ai'
+      elif block_engine.current_evm_network == 'testnet':
+        api_base_url = 'https://testnet-deeploy-api.ratio1.ai'
+
+      endpoint = 'create_pipeline'
 
       # Check if PK exists
       if not os.path.isfile(signer_private_key_path):
@@ -2946,19 +2960,23 @@ class GenericSession(BaseDecentrAIObject):
       request_data = {"request": {
         "app_alias": name,
         "plugin_signature": "CONTAINER_APP_RUNNER",
-        "target_nodes": target_nodes
+        "target_nodes": target_nodes,
+        "target_nodes_count": target_nodes_count,
       }}
 
       request_data['request']['app_params'] = {
         'CONTAINER_RESOURCES': container_resources,
         "CR": docker_cr,
+        "CR_USER": docker_cr_username,
+        "CR_PASSWORD": docker_cr_password,
         "RESTART_POLICY": "always",
         "IMAGE_PULL_POLICY": "always",
+        "NGROK_EDGE_LABEL": ngrok_edge_label,
         "ENV": {
         },
         "DYNAMIC_ENV": {
         },
-        "IMAGE": "tvitalii/flask-docker-app:latest",
+        "IMAGE": docker_image,
         "PORT": port,
       }
       try:
@@ -2966,15 +2984,6 @@ class GenericSession(BaseDecentrAIObject):
         nonce = f"0x{int(time.time() * 1000):x}"
         request_data['request']['nonce'] = nonce
 
-        # Create a block engine instance with the private key
-        block_engine = DefaultBlockEngine(
-          log=logger,
-          name="default",
-          config={
-            BCct.K_PEM_FILE: signer_private_key_path,
-            BCct.K_PASSWORD: signer_private_key_password,
-          }
-        )
 
         # Sign the payload using eth_sign_payload
         signature = block_engine.eth_sign_payload(
@@ -2992,8 +3001,7 @@ class GenericSession(BaseDecentrAIObject):
         raise e
 
 
-    def deeploy_close(self, app_id, target_nodes, **kwargs):
-      logger = Logger("DEEPLOY", base_folder=".", app_folder="deeploy_close")
+    def deeploy_close(self, logger, app_id, target_nodes, **kwargs):
       api_base_url = 'https://devnet-deeploy-api.ratio1.ai'
       endpoint = 'delete_pipeline'
       request_data = {'request': {}}
