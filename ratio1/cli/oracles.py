@@ -217,6 +217,12 @@ if True:
 
     This function is needed in order to ensure that all nodes in the network receive the new configuration defined on the seed nodes.
     """
+    user_confirmation = input("Are you sure you want to restart all nodes? Write down 'RESTART ALL' in order to proceed...")
+
+    if user_confirmation != "RESTART ALL":
+      log_with_color("Aborted by user...", color='y')
+      return
+
     seed_nodes_addresses = get_seed_nodes()
 
     all_online_nodes = get_all_online_nodes()
