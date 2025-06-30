@@ -62,27 +62,38 @@ def oracle_rollout():
   seed_nodes_addresses = get_seed_nodes()
 
   all_online_nodes = get_all_online_nodes()
-  remaining_nodes_addresses = [node['address'] for node in all_online_nodes]
+  remaining_nodes = [
+    node
+    for node in all_online_nodes
+    if node['address'] not in seed_nodes_addresses
+  ]
 
   # 1. Send restart command to Seed Nodes.
   log_with_color(f"Sending restart commands to seed nodes: {seed_nodes_addresses}", color='b')
   send_restart_command(seed_nodes_addresses)
 
   # Remove seed node addresses from all_nodes_addresses
-  remaining_nodes_addresses = [address for address in remaining_nodes_addresses if address not in seed_nodes_addresses]
-
   log_with_color(
     f"Seed nodes restarted. Waiting 30 seconds before sending restart commands to all Oracle nodes, except seed nodes.",
     color='g')
   sleep(30)
 
   # 2. Send restart commands to all Oracle nodes, except seed nodes.
-  log_with_color(f"Sending restart commands to all Oracle nodes, except seed nodes: {remaining_nodes_addresses}", color='b')
-  oracle_nodes_addresses = [node['address'] for node in all_online_nodes if node['oracle'] == True]
+  log_with_color(f"Sending restart commands to all Oracle nodes, except seed nodes: {remaining_nodes}", color='b')
+  oracle_nodes_addresses = [
+    node['address']
+    for node in remaining_nodes
+    if node['oracle'] == True
+  ]
+
   send_restart_command(nodes=oracle_nodes_addresses)
 
   # Remove oracle node addresses from all_nodes_addresses
-  remaining_nodes_addresses = [address for address in remaining_nodes_addresses if address not in oracle_nodes_addresses]
+  remaining_nodes_addresses = [
+    node['address']
+    for node in remaining_nodes
+    if node['address'] not in oracle_nodes_addresses
+  ]
 
   log_with_color(
     f"Oracles restarted. Waiting 30 seconds before sending restart commands to all Oracle nodes, except seed nodes.",
