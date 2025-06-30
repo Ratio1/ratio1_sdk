@@ -2919,15 +2919,14 @@ class GenericSession(BaseDecentrAIObject):
         docker_image: str,
         port: int,
         signer_private_key_path: str,
-        requested_resources: dict,
-        target_nodes: list[str],
+        target_nodes = [],
         signer_private_key_password='',
-        ngrok_edge_label='',
+        ngrok_edge_label=None,
         docker_cr_username='',
         docker_cr_password='',
         docker_cr='docker.io',
         container_resources=None,
-        name="Deeploy container app via SDK",
+        name="simple_container",
         target_nodes_count=0,
         **kwargs
     ):
@@ -2944,8 +2943,13 @@ class GenericSession(BaseDecentrAIObject):
       if not os.path.isfile(signer_private_key_path):
         raise ValueError("Private key path is not valid.")
 
-      request_data = {'request': {}}
-      request_data['app_params'] = {
+      request_data = {"request": {
+        "app_alias": name,
+        "plugin_signature": "CONTAINER_APP_RUNNER",
+        "target_nodes": target_nodes
+      }}
+
+      request_data['request']['app_params'] = {
         'CONTAINER_RESOURCES': container_resources,
         "CR": docker_cr,
         "RESTART_POLICY": "always",
@@ -2982,11 +2986,25 @@ class GenericSession(BaseDecentrAIObject):
 
         # Send request
         response = requests.post(f"{api_base_url}/{endpoint}", json=request_data)
-        response = response.json()
-        return response
+        return response.json()
       except Exception as e:
         logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
         raise e
+
+
+    def deeploy_close(self, app_id, target_nodes, **kwargs):
+      logger = Logger("DEEPLOY", base_folder=".", app_folder="deeploy_close")
+      api_base_url = 'https://devnet-deeploy-api.ratio1.ai'
+      endpoint = 'delete_pipeline'
+      request_data = {'request': {}}
+      request_data['request']['app_id'] = app_id
+      request_data['request']['target_nodes'] = target_nodes
+
+      nonce = f"0x{int(time.time() * 1000):x}"
+      request_data['request']['nonce'] = nonce
+
+      response = requests.post(f"{api_base_url}/{endpoint}", json=request_data)
+      return response.json()
 
 
     def __is_assets_valid(self, assets, mandatory=True, raise_exception=True, default_field_values=None):
