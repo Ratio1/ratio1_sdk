@@ -3000,9 +3000,29 @@ class GenericSession(BaseDecentrAIObject):
         logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
         raise e
 
+    def deeploy_close(self, logger,
+                      signer_private_key_path: str,
+                      app_id: str,
+                      target_nodes: list[str],
+                      signer_private_key_password='',
+                      **kwargs
+                      ):
+      # Create a block engine instance with the private key
+      block_engine = DefaultBlockEngine(
+        log=logger,
+        name="default",
+        config={
+          BCct.K_PEM_FILE: signer_private_key_path,
+          BCct.K_PASSWORD: signer_private_key_password,
+        }
+      )
 
-    def deeploy_close(self, logger, app_id, target_nodes, **kwargs):
       api_base_url = 'https://devnet-deeploy-api.ratio1.ai'
+      if block_engine.current_evm_network == 'mainnet':
+        api_base_url = 'https://deeploy-api.ratio1.ai'
+      elif block_engine.current_evm_network == 'testnet':
+        api_base_url = 'https://testnet-deeploy-api.ratio1.ai'
+
       endpoint = 'delete_pipeline'
       request_data = {'request': {}}
       request_data['request']['app_id'] = app_id
@@ -3010,6 +3030,14 @@ class GenericSession(BaseDecentrAIObject):
 
       nonce = f"0x{int(time.time() * 1000):x}"
       request_data['request']['nonce'] = nonce
+
+      # Sign the payload using eth_sign_payload
+      block_engine.eth_sign_payload(
+        payload=request_data['request'],
+        indent=1,
+        no_hash=True,
+        message_prefix="Please sign this message for Deeploy: "
+      )
 
       response = requests.post(f"{api_base_url}/{endpoint}", json=request_data)
       return response.json()
