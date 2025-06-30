@@ -10,7 +10,12 @@ from ratio1.utils.config import log_with_color
 
 
 def get_seed_nodes():
-  return ['0xai_Aznthe4sDsCSzExKM9PV7GN5UQF2CAwLEfagFuR8VQ5N']
+  return [
+    '0xai_Aj1FpPQHISEBelp-tQ8cegwk434Dcl6xaHmuhZQT74if', # r1s-01
+    '0xai_AzySbyf7ggk1UOWkujAy6GFFmDy2MID8Jz7gqxZaDhy8', # r1s-02
+    '0xai_Apkb2i2m8zy8h2H4zAhEnZxgV1sLKAPhjD29B1I_I9z7', # r1s-03
+    '0xai_AgNhMIJZkkWdrTjnmrqdOa6hzAXkoXPNV4Zbvbm_piYJ', # r1s-04
+  ]
 
 
 def get_all_online_nodes():
