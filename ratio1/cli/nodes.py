@@ -100,7 +100,7 @@ def get_nodes(args):
     import pandas as pd
     pd.set_option('display.float_format', '{:.4f}'.format)
     log_with_color(f"{df}\n")    
-  return
+  return df
   
   
 def get_supervisors(args):
