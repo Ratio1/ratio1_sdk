@@ -39,6 +39,11 @@ from ..utils.config import (
   EE_SDK_ALIAS_ENV_KEY, EE_SDK_ALIAS_DEFAULT
 )
 
+import requests
+import json
+import time
+from ..bc import DefaultBlockEngine
+from ..const.base import BCct
 # from ..default.instance import PLUGIN_TYPES # circular import
 
 
@@ -2907,6 +2912,81 @@ class GenericSession(BaseDecentrAIObject):
       )
 
       return pipeline, instance
+
+
+    def deeploy_launch_container_app(
+        self,
+        docker_image: str,
+        port: int,
+        signer_private_key_path: str,
+        requested_resources: dict,
+        target_nodes: list[str],
+        signer_private_key_password='',
+        ngrok_edge_label='',
+        docker_cr_username='',
+        docker_cr_password='',
+        docker_cr='docker.io',
+        container_resources=None,
+        name="Deeploy container app via SDK",
+        target_nodes_count=0,
+        **kwargs
+    ):
+      logger = Logger("DEEPLOY", base_folder=".", app_folder="deeploy_launch_container_app")
+
+      if target_nodes_count == 0 and len(target_nodes) == 0:
+        raise ValueError("You must specify at least one target node to deploy the container app.")
+
+      api_base_url = 'https://devnet-deeploy-api.ratio1.ai'
+      endpoint = 'create_pipeline'
+
+
+      # Check if PK exists
+      if not os.path.isfile(signer_private_key_path):
+        raise ValueError("Private key path is not valid.")
+
+      request_data = {'request': {}}
+      request_data['app_params'] = {
+        'CONTAINER_RESOURCES': container_resources,
+        "CR": docker_cr,
+        "RESTART_POLICY": "always",
+        "IMAGE_PULL_POLICY": "always",
+        "ENV": {
+        },
+        "DYNAMIC_ENV": {
+        },
+        "IMAGE": "tvitalii/flask-docker-app:latest",
+        "PORT": port,
+      }
+      try:
+        # Set the nonce for the request
+        nonce = f"0x{int(time.time() * 1000):x}"
+        request_data['request']['nonce'] = nonce
+
+        # Create a block engine instance with the private key
+        block_engine = DefaultBlockEngine(
+          log=logger,
+          name="default",
+          config={
+            BCct.K_PEM_FILE: signer_private_key_path,
+            BCct.K_PASSWORD: signer_private_key_password,
+          }
+        )
+
+        # Sign the payload using eth_sign_payload
+        signature = block_engine.eth_sign_payload(
+          payload=request_data['request'],
+          indent=1,
+          no_hash=True,
+          message_prefix="Please sign this message for Deeploy: "
+        )
+
+        # Send request
+        response = requests.post(f"{api_base_url}/{endpoint}", json=request_data)
+        response = response.json()
+        return response
+      except Exception as e:
+        logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
+        raise e
 
 
     def __is_assets_valid(self, assets, mandatory=True, raise_exception=True, default_field_values=None):
