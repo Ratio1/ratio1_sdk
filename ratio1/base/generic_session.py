@@ -3355,8 +3355,8 @@ class GenericSession(BaseDecentrAIObject):
       if processing_handler is not None:
         _, proc_func_args, proc_func_base64_code = pipeline._get_method_data(processing_handler)
 
-      if len(func_args) != 2:
-        raise ValueError("The message handler function must have exactly 3 arguments: `plugin`, `message` and `user`.")
+      if len(func_args) != 3:
+        raise ValueError("The message handler function must have exactly 4 arguments: `plugin`, `message`, `user` and `chat_id`.")
       
       obfuscated_token = telegram_bot_token[:4] + "*" * (len(telegram_bot_token) - 4)      
       self.P(f"Creating telegram bot {telegram_bot_name} with token {obfuscated_token}...", color='b')      
