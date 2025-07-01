@@ -95,11 +95,13 @@ TODO: (future)
   - check ETH signature of the oracle data
 
 """
-
+from ratio1.const.base import LocalInfo
+from ratio1.const.evm_net import EVM_NET_CONSTANTS, EvmNetConstants
 from ratio1.utils.config import log_with_color
 from ratio1.utils.oracle_sync.oracle_tester import oracle_tester_init, handle_command_results
 from ratio1.cli.nodes import restart_node, get_nodes
 from ratio1.utils.config import log_with_color
+from ratio1 import Session
 
 from random import randint
 from time import sleep
@@ -160,16 +162,13 @@ def get_availability(args):
   return
 
 if True:
-  def get_seed_nodes():
-    return [
-      '0xai_Aj1FpPQHISEBelp-tQ8cegwk434Dcl6xaHmuhZQT74if', # r1s-01
-      '0xai_AzySbyf7ggk1UOWkujAy6GFFmDy2MID8Jz7gqxZaDhy8', # r1s-02
-      '0xai_Apkb2i2m8zy8h2H4zAhEnZxgV1sLKAPhjD29B1I_I9z7', # r1s-03
-      '0xai_AgNhMIJZkkWdrTjnmrqdOa6hzAXkoXPNV4Zbvbm_piYJ', # r1s-04
-    ]
+  def _get_seed_nodes(current_network):
+    """Gets the seed nodes and returns them in an array."""
+    seed_nodes = EVM_NET_CONSTANTS[current_network][EvmNetConstants.SEED_NODES_ADDRESSES_KEY]
+    return [node[LocalInfo.K_ADDRESS] for node in seed_nodes]
 
 
-  def get_all_online_nodes():
+  def _get_all_online_nodes():
     """Gets all online nodes and returns them in an array."""
     args = Namespace(supervisor=None, online_only=True, allowed_only=False, alias_filter=None, wide=True, eth=False,
                      all_info=True, wait_for_node=None, alias=None, online=False, verbose=False, peered=True)
@@ -190,7 +189,7 @@ if True:
     return all_online_nodes
 
 
-  def send_restart_command(nodes, timeout_min=0, timeout_max=0, verbose=True):
+  def _send_restart_command(nodes, timeout_min=0, timeout_max=0, verbose=True):
     """
     Send a restart command to the specified nodes.
 
@@ -218,15 +217,20 @@ if True:
 
     This function is needed in order to ensure that all nodes in the network receive the new configuration defined on the seed nodes.
     """
-    user_confirmation = input("Are you sure you want to restart all nodes? Write down 'RESTART ALL' in order to proceed...")
+    session = Session()
+    current_network = session.bc_engine.current_evm_network
+    session.close()
+    log_with_color(f"ATTENTION! Current network: {current_network}", color='y')
+    log_with_color(f"Are you sure you want to restart all nodes on the network {current_network}?", color='b')
+    user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...")
 
-    if user_confirmation != "RESTART ALL":
+    if user_confirmation != f"RESTART ALL on {current_network}":
       log_with_color("Aborted by user...", color='y')
       return
 
-    seed_nodes_addresses = get_seed_nodes()
+    seed_nodes_addresses = _get_seed_nodes(current_network)
 
-    all_online_nodes = get_all_online_nodes()
+    all_online_nodes = _get_all_online_nodes()
     remaining_nodes = [
       node
       for node in all_online_nodes
@@ -235,7 +239,7 @@ if True:
 
     # 1. Send restart command to Seed Nodes.
     log_with_color(f"Sending restart commands to seed nodes: {seed_nodes_addresses}", color='b')
-    send_restart_command(seed_nodes_addresses)
+    _send_restart_command(seed_nodes_addresses)
 
     # Remove seed node addresses from all_nodes_addresses
     log_with_color(
@@ -251,7 +255,7 @@ if True:
       if node['oracle'] == True
     ]
 
-    send_restart_command(nodes=oracle_nodes_addresses)
+    _send_restart_command(nodes=oracle_nodes_addresses)
 
     # Remove oracle node addresses from all_nodes_addresses
     remaining_nodes_addresses = [
@@ -268,7 +272,7 @@ if True:
     # 3. Send restart command to all remaining edge nodes.
     log_with_color(f"Sending restart commands to all remaining edge nodes: {remaining_nodes_addresses}", color='b')
 
-    send_restart_command(nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
+    _send_restart_command(nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
 
     log_with_color(f"All nodes restarted successfully.", color='g')
 

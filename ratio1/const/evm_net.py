@@ -1,6 +1,3 @@
-from ratio1.const.base import LocalInfo
-
-
 class EvmNetData:
   MAINNET = 'mainnet'
   TESTNET = 'testnet'
@@ -279,17 +276,17 @@ EVM_NET_CONSTANTS = {
     EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: None,  # Default is None, meaning no periodic logging.
     EvmNetConstants.SEED_NODES_ADDRESSES_KEY: [
       # r1s-01
-      {[LocalInfo.K_ADDRESS]: "0xai_Aj1FpPQHISEBelp-tQ8cegwk434Dcl6xaHmuhZQT74if",
-       [LocalInfo.K_ETH_ADDRESS]: "0x2539fDD57f93b267E58d5f2E6F77063C0230F6F4"},
+      {'address': "0xai_Aj1FpPQHISEBelp-tQ8cegwk434Dcl6xaHmuhZQT74if",
+       'address_eth': "0x2539fDD57f93b267E58d5f2E6F77063C0230F6F4"},
       # r1s-02
-      {[LocalInfo.K_ADDRESS]: "0xai_AzySbyf7ggk1UOWkujAy6GFFmDy2MID8Jz7gqxZaDhy8",
-       [LocalInfo.K_ETH_ADDRESS]: "0xdc4fDFd5B86aeA7BaB17d4742B7c39A2728Ff59B"},
+      {'address': "0xai_AzySbyf7ggk1UOWkujAy6GFFmDy2MID8Jz7gqxZaDhy8",
+       'address_eth': "0xdc4fDFd5B86aeA7BaB17d4742B7c39A2728Ff59B"},
       # r1s-03
-      {[LocalInfo.K_ADDRESS]: "0xai_Apkb2i2m8zy8h2H4zAhEnZxgV1sLKAPhjD29B1I_I9z7",
-       [LocalInfo.K_ETH_ADDRESS]: "0x7388fC301eb7CF6743ecF9e6c781210758669bAD"},
+      {'address': "0xai_Apkb2i2m8zy8h2H4zAhEnZxgV1sLKAPhjD29B1I_I9z7",
+       'address_eth': "0x7388fC301eb7CF6743ecF9e6c781210758669bAD"},
       # r1s-04
-      {[LocalInfo.K_ADDRESS]: "0xai_AgNhMIJZkkWdrTjnmrqdOa6hzAXkoXPNV4Zbvbm_piYJ",
-       [LocalInfo.K_ETH_ADDRESS]: "0x3B373897136687af87DDbF65662Eb7004090eAF8"},
+      {'address': "0xai_AgNhMIJZkkWdrTjnmrqdOa6hzAXkoXPNV4Zbvbm_piYJ",
+       'address_eth': "0x3B373897136687af87DDbF65662Eb7004090eAF8"},
     ],
   },
   EvmNetData.TESTNET: {
@@ -297,11 +294,11 @@ EVM_NET_CONSTANTS = {
     EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: 120,  # Show every 2 minutes.
     EvmNetConstants.SEED_NODES_ADDRESSES_KEY: [
       # tr1s-01
-      {[LocalInfo.K_ADDRESS]: "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
-       [LocalInfo.K_ETH_ADDRESS]: "0x129a21A78EBBA79aE78B8f11d5B57102950c1Fc0"},
+      {'address': "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",
+       'address_eth': "0x129a21A78EBBA79aE78B8f11d5B57102950c1Fc0"},
       # tr1s-02
-      {[LocalInfo.K_ADDRESS]: "0xai_A61eKDV1otIH6uWy3zDlbJNJUWayp1jAsirOuYxztf82",
-       [LocalInfo.K_ETH_ADDRESS]: "0x00CA39C3A316DcaCEEF702E46EED2D61e07677e7"},
+      {'address': "0xai_A61eKDV1otIH6uWy3zDlbJNJUWayp1jAsirOuYxztf82",
+       'address_eth': "0x00CA39C3A316DcaCEEF702E46EED2D61e07677e7"},
     ],
   },
   EvmNetData.DEVNET: {
@@ -309,14 +306,14 @@ EVM_NET_CONSTANTS = {
     EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: 60,  # Show every minute.
     EvmNetConstants.SEED_NODES_ADDRESSES_KEY: [
       # dr1s-01
-      {[LocalInfo.K_ADDRESS]: "0xai_AhIQz47-2dpbncDTODXcP7_cByr0_CI9VEB1dCXnbbG7",
-       [LocalInfo.K_ETH_ADDRESS]: "0x49CD9D9528A4F6aEf94A0EB63E7745Eca4F9b57e"},
+      {'address': "0xai_AhIQz47-2dpbncDTODXcP7_cByr0_CI9VEB1dCXnbbG7",
+       'address_eth': "0x49CD9D9528A4F6aEf94A0EB63E7745Eca4F9b57e"},
       # dr1s-02
-      {[LocalInfo.K_ADDRESS]: "0xai_AgnygSlY8BwnmaCj6mItg36JHlG_Lh3UqqFaTPbuNzy0",
-       [LocalInfo.K_ETH_ADDRESS]: "0x717d8C669871641A52a6d26E23582f397B2936eC"},
+      {'address': "0xai_AgnygSlY8BwnmaCj6mItg36JHlG_Lh3UqqFaTPbuNzy0",
+       'address_eth': "0x717d8C669871641A52a6d26E23582f397B2936eC"},
       # dr1s-db-1
-      {[LocalInfo.K_ADDRESS]: "0xai_A74xZKZJa4LekjvJ6oJz29qxOOs5nLClXAZEhYv59t3Z",
-       [LocalInfo.K_ETH_ADDRESS]: "0x37379B80c7657620E5631832c4437B51D67A88cB"},
+      {'address': "0xai_A74xZKZJa4LekjvJ6oJz29qxOOs5nLClXAZEhYv59t3Z",
+       'address_eth': "0x37379B80c7657620E5631832c4437B51D67A88cB"},
     ],
   },
 }
