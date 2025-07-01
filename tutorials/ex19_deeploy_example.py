@@ -5,6 +5,72 @@ ex19_deeploy_example.py
 ---------------------
 
 This tutorial demonstrates how to interact with the Deeploy API using the ratio1 SDK.
+It shows how to:
+- Launch a containerized application on remote nodes using Deeploy
+- Monitor the deployment process
+- Close/stop the deployed application when done
+
+The example uses the simplified SDK methods for Deeploy operations:
+- `session.deeploy_launch_container_app()` - Launch a Docker container on target nodes
+- `session.deeploy_close()` - Stop and remove the deployed application
+
+What you need:
+- A PEM private key file for signing requests
+- Target node addresses where you want to deploy
+- A Docker image to deploy (publicly accessible)
+
+Example Usage:
+-------------
+1. Prepare your private key:
+   - Save your Ethereum private key in PEM format (e.g., private_key.pem)
+   - Update the `private_key_path` variable to point to your key file
+
+2. Configure target nodes:
+   - Update the `target_nodes` list with your actual node addresses
+   - These should be nodes that support Deeploy container deployment
+
+3. Customize the deployment:
+   - `docker_image`: Docker image to deploy (must be publicly accessible)
+   - `name`: Unique name for your application
+   - `port`: Port that your application listens on
+   - `container_resources`: CPU, memory, and GPU requirements
+
+4. Run the script:
+   ```bash
+   python3 ex19_deeploy_example.py
+   ```
+
+The script will:
+1. Launch the container on the specified nodes
+2. Wait for 60 seconds to allow testing
+3. Automatically close/stop the deployed application
+4. Clean up resources
+
+Container Resources:
+------------------
+You can specify resource requirements for your container:
+- `cpu`: Number of CPU cores (e.g., 1, 2, 0.5)
+- `memory`: Memory limit (e.g., "512m", "1g", "2048m")
+- `gpu`: Number of GPU units (0 for CPU-only applications)
+
+Example Docker Images:
+--------------------
+- `tvitalii/flask-docker-app:latest` - Simple Flask web application
+- `nginx:alpine` - Nginx web server
+- `httpd:alpine` - Apache web server
+
+Note: 
+- The private key file should be in PEM format and contain your Ethereum private key
+- Target nodes must support Deeploy container deployment
+- The Docker image must be publicly accessible (Docker Hub, etc.)
+- Make sure your application listens on the specified port
+- The deployment will automatically clean up after the demo completes
+
+For production use, you may want to:
+- Remove the automatic cleanup (`deeploy_close`) to keep your app running
+- Add proper error handling and retry logic
+- Monitor application health and logs
+- Use environment variables for configuration
 """
 import json
 
@@ -17,7 +83,7 @@ if __name__ == '__main__':
   session = Session()
   logger = Logger("DEEPLOY", base_folder=".", app_folder="deeploy_launch_container_app")
 
-  private_key_path = '' # The path to your Private Key
+  private_key_path = '/home/vi/work/ratio1/repos/ratio1_sdk/tutorials/ex19/private_key.pem' # The path to your Private Key
   target_nodes = ["0xai_AzMjCS6GuOV8Q3O-XvQfkvy9J-9F20M_yCGDzLFOd4mn"]  # replace with your target node address
   launch_result = session.deeploy_launch_container_app(
     docker_image="tvitalii/flask-docker-app:latest",
@@ -31,7 +97,7 @@ if __name__ == '__main__':
     signer_private_key_path=private_key_path,
     # signer_key_path="../../path/to/private-key.pem",
     # signer_key_password=None,  # if your private key has a password, set it here
-    target_nodes=target_nodes
+    target_nodes=target_nodes,
     # target_nodes_count=0,  # if you want to deploy to all nodes, set this to 0
     logger=logger,
   )
