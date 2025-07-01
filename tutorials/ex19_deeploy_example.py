@@ -43,7 +43,7 @@ if __name__ == '__main__':
     exit(1)
   print("Deeploy app launched successfully.")
 
-  session.sleep(10)
+  session.sleep(60)
 
   # no neeed for further `sess.deploy()` as the `deeploy_*` methods handle the deployment automatically
   # now we interpret the launch_result and extract app-id, etc
