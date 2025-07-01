@@ -75,7 +75,7 @@ For production use, you may want to:
 import json
 
 from ratio1.logging import Logger
-from ratio1.const.plugins.deeploy_const import DEEPLOY_KEYS, DEEPLOY_STATUS
+from ratio1.const import DEEPLOY_CT
 
 from ratio1 import Session
 
@@ -105,8 +105,8 @@ if __name__ == '__main__':
 
   session.P(json.dumps(launch_result))
 
-  if launch_result and launch_result[DEEPLOY_KEYS.RESULT].get(DEEPLOY_KEYS.STATUS) == DEEPLOY_STATUS.FAIL:
-    session.P("Deeploy app launch failed:", launch_result[DEEPLOY_KEYS.RESULT].get(DEEPLOY_KEYS.ERROR, 'Unknown error'))
+  if launch_result and launch_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT].get(DEEPLOY_CT.DEEPLOY_KEYS.STATUS) == DEEPLOY_CT.DEEPLOY_STATUS.FAIL:
+    session.P("Deeploy app launch failed:", launch_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT].get(DEEPLOY_CT.DEEPLOY_KEYS.ERROR, 'Unknown error'))
     exit(1)
   print("Deeploy app launched successfully.")
 
@@ -121,16 +121,16 @@ if __name__ == '__main__':
   # finally use deeploy close
 
   close_result = session.deeploy_close(
-    app_id=launch_result[DEEPLOY_KEYS.RESULT][DEEPLOY_KEYS.APP_ID],
-    target_nodes=launch_result[DEEPLOY_KEYS.RESULT][DEEPLOY_KEYS.REQUEST][DEEPLOY_KEYS.TARGET_NODES],
+    app_id=launch_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT][DEEPLOY_CT.DEEPLOY_KEYS.APP_ID],
+    target_nodes=launch_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT][DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES],
     signer_private_key_path=private_key_path,
     logger=logger
   )
 
   session.P(json.dumps(close_result))
 
-  if close_result[DEEPLOY_KEYS.RESULT] and close_result[DEEPLOY_KEYS.RESULT].get(DEEPLOY_KEYS.STATUS) == DEEPLOY_STATUS.FAIL:
-    session.P(f"Closing deployed container faild. {close_result[DEEPLOY_KEYS.RESULT].get(DEEPLOY_KEYS.ERROR, 'Unknown error')}")
+  if close_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT] and close_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT].get(DEEPLOY_CT.DEEPLOY_KEYS.STATUS) == DEEPLOY_CT.DEEPLOY_STATUS.FAIL:
+    session.P(f"Closing deployed container faild. {close_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT].get(DEEPLOY_CT.DEEPLOY_KEYS.ERROR, 'Unknown error')}")
     exit(2)
 
   session.P("Demo run successfully!")

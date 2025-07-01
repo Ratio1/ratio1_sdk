@@ -26,6 +26,8 @@ from ..const import (
   BLOCKCHAIN_CONFIG, SESSION_CT, NET_CONFIG
 )
 from ..const import comms as comm_ct
+from ..const.evm_net import EVM_NET_DATA, EvmNetData
+from ..const import DEEPLOY_CT
 from ..io_formatter import IOFormatterWrapper
 from ..logging import Logger
 from ..utils import load_dotenv
@@ -2938,63 +2940,58 @@ class GenericSession(BaseDecentrAIObject):
       # Create a block engine instance with the private key
       block_engine = DefaultBlockEngine(
         log=logger,
-        name="default",
+        name="deeploy_launch_container_app",
         config={
           BCct.K_PEM_FILE: signer_private_key_path,
           BCct.K_PASSWORD: signer_private_key_password,
         }
       )
 
-      api_base_url = 'https://devnet-deeploy-api.ratio1.ai'
-      if block_engine.current_evm_network == 'mainnet':
-        api_base_url = 'https://deeploy-api.ratio1.ai'
-      elif block_engine.current_evm_network == 'testnet':
-        api_base_url = 'https://testnet-deeploy-api.ratio1.ai'
-
-      endpoint = 'create_pipeline'
+      current_env = block_engine.current_evm_network
+      api_base_url = EVM_NET_DATA[current_env][EvmNetData.EE_DEEPLOY_API_URL_KEY]
 
       # Check if PK exists
       if not os.path.isfile(signer_private_key_path):
         raise ValueError("Private key path is not valid.")
 
-      request_data = {"request": {
-        "app_alias": name,
-        "plugin_signature": "CONTAINER_APP_RUNNER",
-        "target_nodes": target_nodes,
-        "target_nodes_count": target_nodes_count,
+      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
+        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: DEEPLOY_CT.DEEPLOY_PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
       }}
 
-      request_data['request']['app_params'] = {
-        'CONTAINER_RESOURCES': container_resources,
-        "CR": docker_cr,
-        "CR_USER": docker_cr_username,
-        "CR_PASSWORD": docker_cr_password,
-        "RESTART_POLICY": "always",
-        "IMAGE_PULL_POLICY": "always",
-        "NGROK_EDGE_LABEL": ngrok_edge_label,
-        "ENV": {
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = {
+        DEEPLOY_CT.DEEPLOY_RESOURCES.CONTAINER_RESOURCES: container_resources,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CR: docker_cr,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CR_USER: docker_cr_username,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CR_PASSWORD: docker_cr_password,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_RESTART_POLICY: DEEPLOY_CT.DEEPLOY_POLICY_VALUES.ALWAYS,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_IMAGE_PULL_POLICY: DEEPLOY_CT.DEEPLOY_POLICY_VALUES.ALWAYS,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_NGROK_EDGE_LABEL: ngrok_edge_label,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_ENV: {
         },
-        "DYNAMIC_ENV": {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_DYNAMIC_ENV: {
         },
-        "IMAGE": docker_image,
-        "PORT": port,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_IMAGE: docker_image,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_PORT: port,
       }
       try:
         # Set the nonce for the request
         nonce = f"0x{int(time.time() * 1000):x}"
-        request_data['request']['nonce'] = nonce
+        request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
 
 
         # Sign the payload using eth_sign_payload
         signature = block_engine.eth_sign_payload(
-          payload=request_data['request'],
+          payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
           indent=1,
           no_hash=True,
           message_prefix="Please sign this message for Deeploy: "
         )
 
         # Send request
-        response = requests.post(f"{api_base_url}/{endpoint}", json=request_data)
+        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
         return response.json()
       except Exception as e:
         logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
@@ -3023,17 +3020,17 @@ class GenericSession(BaseDecentrAIObject):
       elif block_engine.current_evm_network == 'testnet':
         api_base_url = 'https://testnet-deeploy-api.ratio1.ai'
 
-      endpoint = 'delete_pipeline'
-      request_data = {'request': {}}
-      request_data['request']['app_id'] = app_id
-      request_data['request']['target_nodes'] = target_nodes
+      endpoint = DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE
+      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {}}
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_ID] = app_id
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES] = target_nodes
 
       nonce = f"0x{int(time.time() * 1000):x}"
-      request_data['request']['nonce'] = nonce
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
 
       # Sign the payload using eth_sign_payload
       block_engine.eth_sign_payload(
-        payload=request_data['request'],
+        payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
         indent=1,
         no_hash=True,
         message_prefix="Please sign this message for Deeploy: "
