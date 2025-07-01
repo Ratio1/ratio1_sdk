@@ -75,6 +75,7 @@ For production use, you may want to:
 import json
 
 from ratio1.logging import Logger
+from ratio1.const.plugins.deeploy_const import DEEPLOY_KEYS, DEEPLOY_STATUS
 
 from ratio1 import Session
 
@@ -83,8 +84,8 @@ if __name__ == '__main__':
   session = Session()
   logger = Logger("DEEPLOY", base_folder=".", app_folder="deeploy_launch_container_app")
 
-  private_key_path = '/home/vi/work/ratio1/repos/ratio1_sdk/tutorials/ex19/private_key.pem' # The path to your Private Key
-  target_nodes = ["0xai_AzMjCS6GuOV8Q3O-XvQfkvy9J-9F20M_yCGDzLFOd4mn"]  # replace with your target node address
+  private_key_path = '' # The path to your Private Key
+  target_nodes = [""]  # replace with your target node address
   launch_result = session.deeploy_launch_container_app(
     docker_image="tvitalii/flask-docker-app:latest",
     name="ratio1_simple_container_webapp",
@@ -104,8 +105,8 @@ if __name__ == '__main__':
 
   session.P(json.dumps(launch_result))
 
-  if launch_result and launch_result['result'].get('status') == 'fail':
-    session.P("Deeploy app launch failed:", launch_result['result'].get('error', 'Unknown error'))
+  if launch_result and launch_result[DEEPLOY_KEYS.RESULT].get(DEEPLOY_KEYS.STATUS) == DEEPLOY_STATUS.FAIL:
+    session.P("Deeploy app launch failed:", launch_result[DEEPLOY_KEYS.RESULT].get(DEEPLOY_KEYS.ERROR, 'Unknown error'))
     exit(1)
   print("Deeploy app launched successfully.")
 
@@ -120,16 +121,16 @@ if __name__ == '__main__':
   # finally use deeploy close
 
   close_result = session.deeploy_close(
-    app_id=launch_result['result']['app_id'],
-    target_nodes=launch_result['result']['request']['target_nodes'],
+    app_id=launch_result[DEEPLOY_KEYS.RESULT][DEEPLOY_KEYS.APP_ID],
+    target_nodes=launch_result[DEEPLOY_KEYS.RESULT][DEEPLOY_KEYS.REQUEST][DEEPLOY_KEYS.TARGET_NODES],
     signer_private_key_path=private_key_path,
     logger=logger
   )
 
   session.P(json.dumps(close_result))
 
-  if close_result['result'] and close_result['result'].get('status') == 'fail':
-    session.P(f"Closing deployed container faild. {close_result['result'].get('error', 'Unknown error')}")
+  if close_result[DEEPLOY_KEYS.RESULT] and close_result[DEEPLOY_KEYS.RESULT].get(DEEPLOY_KEYS.STATUS) == DEEPLOY_STATUS.FAIL:
+    session.P(f"Closing deployed container faild. {close_result[DEEPLOY_KEYS.RESULT].get(DEEPLOY_KEYS.ERROR, 'Unknown error')}")
     exit(2)
 
   session.P("Demo run successfully!")
