@@ -8,3 +8,6 @@ from .base import CONFIG_STREAM, BIZ_PLUGIN_DATA, PLUGIN_INFO, BLOCKCHAIN_CONFIG
 from . import heartbeat as HB
 from .environment import ENVIRONMENT
 from .apps import PLUGIN_SIGNATURES, DEFAULT_PIPELINES
+
+# Imports of plugin constants
+from .plugins import deeploy_const as DEEPLOY_CT
