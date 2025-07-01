@@ -24,7 +24,7 @@ from ratio1 import Session, CustomPluginTemplate
 # --------------------------------------------------
 session = Session()  # Uses .ratio1 config or env variables
 
-def reply(plugin: CustomPluginTemplate, message: str, user: str):
+def reply(plugin: CustomPluginTemplate, message: str, user: str, **kwargs):
   # --------------------------------------------------
   # GAME CONSTANTS
   # --------------------------------------------------

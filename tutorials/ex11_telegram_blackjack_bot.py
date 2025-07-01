@@ -3,7 +3,7 @@ import time
 
 from ratio1 import Session, CustomPluginTemplate
 
-def reply(plugin, message: str, user: str):
+def reply(plugin, message: str, user: str, **kwargs):
   # Define the deck of cards and their values
   cards = ['2', '3', '4', '5', '6', '7', '8', '9', '10',
            'Jack', 'Queen', 'King', 'Ace']
