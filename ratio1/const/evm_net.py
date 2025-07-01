@@ -20,6 +20,7 @@ class EvmNetData:
   EE_SUPERVISOR_MIN_AVAIL_PRC_KEY = 'EE_SUPERVISOR_MIN_AVAIL_PRC'
 
   EE_ORACLE_API_URL_KEY = 'EE_ORACLE_API_URL'
+  EE_DEEPLOY_API_URL_KEY = 'EE_DEEPLOY_API_URL'
 # endclass EvmNetData
 
 
@@ -229,6 +230,7 @@ EVM_NET_DATA = {
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.96,
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://oracle.ratio1.ai",
+    EvmNetData.EE_DEEPLOY_API_URL_KEY           : "https://deeploy-api.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
@@ -245,6 +247,7 @@ EVM_NET_DATA = {
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.6,
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://testnet-oracle.ratio1.ai",
+    EvmNetData.EE_DEEPLOY_API_URL_KEY           : "https://testnet-deeploy-api.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
@@ -262,6 +265,7 @@ EVM_NET_DATA = {
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
     EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.6,
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://devnet-oracle.ratio1.ai",
+    EvmNetData.EE_DEEPLOY_API_URL_KEY           : "https://devnet-deeploy-api.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 }
