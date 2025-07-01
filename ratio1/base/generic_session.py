@@ -10,9 +10,10 @@ TODO:
 import json
 import os
 import traceback
+import numpy as np
 import pandas as pd
 
-from collections import deque, OrderedDict
+from collections import deque, OrderedDict, defaultdict
 from datetime import datetime as dt
 from threading import Lock, Thread
 from time import sleep
@@ -250,6 +251,10 @@ class GenericSession(BaseDecentrAIObject):
     self._eth_enabled = eth_enabled
 
     self.encrypt_comms = encrypt_comms
+    
+    self._netmon_second_bins = [0] * 60 # this is used to track the second bins of the netmon messages received
+    # this is used to track the elapsed time between netmon messages received from each oracle
+    self._netmon_elapsed_by_oracle = defaultdict(lambda: deque(maxlen=100)) 
 
     self._dct_online_nodes_pipelines: dict[str, Pipeline] = {}
     self._dct_online_nodes_last_heartbeat: dict[str, dict] = {}
@@ -941,6 +946,24 @@ class GenericSession(BaseDecentrAIObject):
       return
     
     
+    def _netmon_check_oracles_cadence(self):
+      """
+      This methods checks the when the netmon messages were received in the minute "bins" to
+      determine if the oracles are sending messages at the expected cadence.
+      """
+      msg = "Netmon second bins:\n{}".format(self._netmon_second_bins)
+      for oracle_addr in self._netmon_elapsed_by_oracle:
+        timestamps = self._netmon_elapsed_by_oracle[oracle_addr]
+        if len(timestamps) > 2:
+          elapsed = np.diff(timestamps)
+          avg_elapsed = np.mean(elapsed)
+          msg += f"\n - Oracle '{self.get_node_alias(oracle_addr)}' <{self._shorten_addr(oracle_addr)}> avg netmon interval: {avg_elapsed:.2f}s in {len(timestamps)} responses"
+        else:
+          msg += f"\n - Oracle '{self.get_node_alias(oracle_addr)}' <{self._shorten_addr(oracle_addr)}> responded 1 time, no average available"
+      self.P(msg, color='y', verbosity=2)
+      return
+    
+    
     def __maybe_process_net_mon(
       self, 
       dict_msg: dict,  
@@ -948,6 +971,10 @@ class GenericSession(BaseDecentrAIObject):
       msg_signature : str,
       sender_addr: str,
     ):
+      """
+      This method processes the net-mon messages received from the communication
+      channel.
+      """
       REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
       REQUIRED_SIGNATURE = PLUGIN_SIGNATURES.NET_MON_01
       msg_pipeline = msg_pipeline.lower() if msg_pipeline is not None else None
@@ -959,6 +986,13 @@ class GenericSession(BaseDecentrAIObject):
         ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
         current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})        
         if current_network:
+          # received valid netmon current network
+          
+          # first we record the second of the minute
+          second_bin = self.log.second_of_minute()
+          self._netmon_second_bins[second_bin] += 1
+          self._netmon_elapsed_by_oracle[sender_addr].append(tm())
+          
           self.__at_least_a_netmon_received = True
           self.__current_network_statuses[sender_addr] = current_network
           online_addresses = []

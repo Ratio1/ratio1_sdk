@@ -1718,6 +1718,19 @@ class BaseLogger(object):
   
   
   @staticmethod
+  def second_of_minute():
+    """
+    Returns the current second of the minute.
+    
+    Returns
+    -------
+    int
+      The current second of the minute (0-59).
+    """
+    return dt.now().second
+  
+  
+  @staticmethod
   def time_to_str(t=None, fmt='%Y-%m-%d %H:%M:%S'):
     if t is None:
       t = tm()
