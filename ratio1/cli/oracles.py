@@ -164,8 +164,7 @@ def get_availability(args):
 if True:
   def _get_seed_nodes(current_network):
     """Gets the seed nodes and returns them in an array."""
-    seed_nodes = EVM_NET_CONSTANTS[current_network][EvmNetConstants.SEED_NODES_ADDRESSES_KEY]
-    return [node[LocalInfo.K_ADDRESS] for node in seed_nodes]
+    return EVM_NET_CONSTANTS[current_network][EvmNetConstants.SEED_NODES_ADDRESSES_KEY]
 
 
   def _get_all_online_nodes():
