@@ -342,7 +342,7 @@ DEEPLOY_CREATE_REQUEST_SERVICE_APP = {
   "chainstore_response" : True,
 }
 
-DEEPLOY_CREATE_REQUES_NATIVE_APPS = {
+DEEPLOY_CREATE_REQUEST_NATIVE_APPS = {
   "app_alias" : "some_app_name", 
   "plugin_signature" : "SOME_PLUGIN_01",
   "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)
