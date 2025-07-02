@@ -19,6 +19,7 @@ from ratio1.utils.config import (
   show_config, reset_config, show_address, get_set_network,
   get_networks, get_set_alias, get_eth_addr
 )
+from ratio1.cli.package_update import update_package
 
 # Define the available commands
 CLI_COMMANDS = {
@@ -105,7 +106,7 @@ CLI_COMMANDS = {
             }
         },
         
-        "alias" :{
+        "alias": {
             "func": get_set_alias, # DONE
             "description": "Show and sets the current client alias",
             "params": {
@@ -125,6 +126,13 @@ CLI_COMMANDS = {
         "description": "Shutdown a node",
         "params": {
             "node": "The node to shutdown"
+        }
+    },
+    "update": {
+        "func": update_package,
+        "description": "Update the Ratio1 SDK client package",
+        "params": {
+            "--quiet": "Run the update in quiet mode (flag)",
         }
     }
 }
