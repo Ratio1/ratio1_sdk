@@ -1493,6 +1493,36 @@ class GenericSession(BaseDecentrAIObject):
   # Utils
   if True:
     
+    def __validate_deeploy_network_and_get_api_url(self, block_engine):
+      """
+      Validate the network configuration and oracle setup for Deeploy operations.
+      
+      Parameters
+      ----------
+      block_engine : DefaultBlockEngine
+          The blockchain engine instance to validate
+          
+      Returns
+      -------
+      tuple
+          A tuple containing (current_network, api_base_url)
+          
+      Raises
+      ------
+      ValueError
+          If no oracles are found for the wallet on the current network
+      """
+      current_network = block_engine.current_evm_network
+      api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
+
+      wallet_nodes = block_engine.web3_get_wallet_nodes(block_engine.eth_address)
+      oracles_on_the_network = block_engine.web3_get_oracles(current_network)
+      if len(set(wallet_nodes) & set(oracles_on_the_network)) == 0:
+        raise ValueError(
+          f"No oracles found for the wallet {block_engine.eth_address} on {current_network} network. Please check your configuration.")
+
+      return current_network, api_base_url
+    
     def __load_user_config(self, dotenv_path):
       # if the ~/.ratio1/config file exists, load the credentials from there 
       # else try to load them from .env
@@ -2933,6 +2963,104 @@ class GenericSession(BaseDecentrAIObject):
         target_nodes_count=0,
         **kwargs
     ):
+      """
+      Launch a containerized application on the Ratio1 Edge Protocol network using the Deeploy API.
+      
+      This method deploys a Docker container to specified edge nodes through the Deeploy service.
+      It handles authentication, network validation, payload signing, and API communication.
+
+      Parameters
+      ----------
+      docker_image : str
+          The Docker image name to deploy (e.g., 'nginx:latest', 'myapp:v1.0')
+          
+      port : int
+          The port number that the container exposes for external access
+          
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the deployment request
+          
+      logger : Logger
+          Logger instance for recording deployment activities and errors
+          
+      target_nodes : list, optional
+          List of specific node addresses to deploy the container to.
+          If empty, uses target_nodes_count instead. Defaults to []
+          
+      signer_private_key_password : str, optional
+          Password for the private key file if it's encrypted. Defaults to ''
+          
+      ngrok_edge_label : str, optional
+          Ngrok edge label for exposing the container to the internet. Defaults to ''
+          
+      docker_cr_username : str, optional
+          Username for private Docker registry authentication. Defaults to ''
+          
+      docker_cr_password : str, optional
+          Password for private Docker registry authentication. Defaults to ''
+          
+      docker_cr : str, optional
+          Docker registry URL. Defaults to 'docker.io'
+          
+      container_resources : dict, optional
+          Resource limits and requests for the container (CPU, memory, etc.). Defaults to None
+          
+      name : str, optional
+          Application alias/name for identification. Defaults to "simple_container"
+          
+      target_nodes_count : int, optional
+          Number of nodes to deploy to when target_nodes is not specified. Defaults to 0
+          
+      **kwargs : dict
+          Additional parameters passed to the deployment request
+
+      Returns
+      -------
+      dict
+          JSON response from the Deeploy API containing deployment status and details
+
+      Raises
+      ------
+      ValueError
+          - If neither target_nodes nor target_nodes_count is specified
+          - If the private key file path is invalid or doesn't exist
+          - If no oracles are found for the wallet on the current network
+          
+      Exception
+          If there's an error during the deployment process (network, API, signing, etc.)
+
+      Notes
+      -----
+      - The method automatically validates network configuration and oracle availability
+      - The deployment request is cryptographically signed using the provided private key
+      - Container restart and image pull policies are set to 'always' by default
+      - The function creates a temporary blockchain engine instance for this operation
+
+      Examples
+      --------
+      Deploy a simple web application:
+      
+      >>> response = session.deeploy_launch_container_app(
+      ...     docker_image="nginx:latest",
+      ...     port=80,
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     logger=my_logger,
+      ...     target_nodes_count=2,
+      ...     name="my_web_server"
+      ... )
+      
+      Deploy to specific nodes with ngrok exposure:
+      
+      >>> response = session.deeploy_launch_container_app(
+      ...     docker_image="myapp:v1.0",
+      ...     port=8080,
+      ...     signer_private_key_path="/path/to/key.pem",
+      ...     logger=my_logger,
+      ...     target_nodes=["node1_address", "node2_address"],
+      ...     ngrok_edge_label="my-app-edge",
+      ...     container_resources={"cpu": 1, "memory": "512m"}
+      ... )
+      """
 
       if target_nodes_count == 0 and len(target_nodes) == 0:
         raise ValueError("You must specify at least one target node to deploy the container app.")
@@ -2951,14 +3079,7 @@ class GenericSession(BaseDecentrAIObject):
         }
       )
 
-      current_network = block_engine.current_evm_network
-      api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
-
-      wallet_nodes = block_engine.web3_get_wallet_nodes(block_engine.eth_address)
-      oracles_on_the_network = block_engine.web3_get_oracles(current_network)
-      if len(set(wallet_nodes) & set(oracles_on_the_network)) == 0:
-        raise ValueError(
-          f"No oracles found for the wallet {block_engine.eth_address} on {current_network} network. Please check your configuration.")
+      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
 
       request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
         DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
@@ -2987,7 +3108,6 @@ class GenericSession(BaseDecentrAIObject):
         nonce = f"0x{int(time.time() * 1000):x}"
         request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
 
-
         # Sign the payload using eth_sign_payload
         signature = block_engine.eth_sign_payload(
           payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
@@ -3010,6 +3130,79 @@ class GenericSession(BaseDecentrAIObject):
                       signer_private_key_password='',
                       **kwargs
                       ):
+      """
+      Close and remove a previously deployed containerized application from the Ratio1 Edge Protocol network using the Deeploy API.
+      
+      This method terminates and removes a Docker container deployment from specified edge nodes through the Deeploy service.
+      It handles authentication, network validation, payload signing, and API communication for the deletion operation.
+
+      Parameters
+      ----------
+      logger : Logger
+          Logger instance for recording deletion activities and errors
+          
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the deletion request
+          
+      app_id : str
+          Unique identifier of the deployed application to be closed/removed
+          
+      target_nodes : list[str]
+          List of node addresses where the application should be removed from
+          
+      signer_private_key_password : str, optional
+          Password for the private key file if it's encrypted. Defaults to ''
+          
+      **kwargs : dict
+          Additional parameters passed to the deletion request
+
+      Returns
+      -------
+      dict
+          JSON response from the Deeploy API containing deletion status and details
+
+      Raises
+      ------
+      ValueError
+          - If the private key file path is invalid or doesn't exist
+          - If no oracles are found for the wallet on the current network
+          
+      Exception
+          If there's an error during the deletion process (network, API, signing, etc.)
+
+      Notes
+      -----
+      - The method automatically validates network configuration and oracle availability
+      - The deletion request is cryptographically signed using the provided private key
+      - The function creates a temporary blockchain engine instance for this operation
+      - This operation will permanently remove the application and cannot be undone
+      - All running containers associated with the app_id will be stopped and removed
+
+      Examples
+      --------
+      Close an application on specific nodes:
+      
+      >>> response = session.deeploy_close(
+      ...     logger=my_logger,
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     app_id="my_app_12345",
+      ...     target_nodes=["node1_address", "node2_address"]
+      ... )
+      
+      Close an application with encrypted private key:
+      
+      >>> response = session.deeploy_close(
+      ...     logger=my_logger,
+      ...     signer_private_key_path="/path/to/encrypted_key.pem",
+      ...     app_id="web_server_67890",
+      ...     target_nodes=["node1_address"],
+      ...     signer_private_key_password="my_secure_password"
+      ... )
+
+      See Also
+      --------
+      deeploy_launch_container_app : Deploy a new containerized application
+      """
       # Create a block engine instance with the private key
       block_engine = DefaultBlockEngine(
         log=logger,
@@ -3020,14 +3213,7 @@ class GenericSession(BaseDecentrAIObject):
         }
       )
 
-      current_network = block_engine.current_evm_network
-      api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
-
-      wallet_nodes = block_engine.web3_get_wallet_nodes(block_engine.eth_address)
-      oracles_on_the_network = block_engine.web3_get_oracles(current_network)
-      if len(set(wallet_nodes) & set(oracles_on_the_network)) == 0:
-        raise ValueError(
-          f"No oracles found for the wallet {block_engine.eth_address} on {current_network} network. Please check your configuration.")
+      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
 
       endpoint = DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE
       request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {}}
