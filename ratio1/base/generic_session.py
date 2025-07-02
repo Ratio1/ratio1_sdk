@@ -27,6 +27,8 @@ from ..const import (
   BLOCKCHAIN_CONFIG, SESSION_CT, NET_CONFIG
 )
 from ..const import comms as comm_ct
+from ..const.evm_net import EVM_NET_DATA, EvmNetData
+from ..const import DEEPLOY_CT
 from ..io_formatter import IOFormatterWrapper
 from ..logging import Logger
 from ..utils import load_dotenv
@@ -39,7 +41,13 @@ from ..utils.config import (
   seconds_to_short_format, log_with_color, set_client_alias,
   EE_SDK_ALIAS_ENV_KEY, EE_SDK_ALIAS_DEFAULT
 )
+from ..code_cheker.base import BaseCodeChecker
 
+import requests
+import json
+import time
+from ..bc import DefaultBlockEngine
+from ..const.base import BCct
 # from ..default.instance import PLUGIN_TYPES # circular import
 
 
@@ -1520,6 +1528,36 @@ class GenericSession(BaseDecentrAIObject):
   # Utils
   if True:
     
+    def __validate_deeploy_network_and_get_api_url(self, block_engine):
+      """
+      Validate the network configuration and oracle setup for Deeploy operations.
+      
+      Parameters
+      ----------
+      block_engine : DefaultBlockEngine
+          The blockchain engine instance to validate
+          
+      Returns
+      -------
+      tuple
+          A tuple containing (current_network, api_base_url)
+          
+      Raises
+      ------
+      ValueError
+          If no oracles are found for the wallet on the current network
+      """
+      current_network = block_engine.current_evm_network
+      api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
+
+      wallet_nodes = block_engine.web3_get_wallet_nodes(block_engine.eth_address)
+      oracles_on_the_network = block_engine.web3_get_oracles(current_network)
+      if len(set(wallet_nodes) & set(oracles_on_the_network)) == 0:
+        raise ValueError(
+          f"No oracles found for the wallet {block_engine.eth_address} on {current_network} network. Please check your configuration.")
+
+      return current_network, api_base_url
+    
     def __load_user_config(self, dotenv_path):
       # if the ~/.ratio1/config file exists, load the credentials from there 
       # else try to load them from .env
@@ -2941,6 +2979,528 @@ class GenericSession(BaseDecentrAIObject):
       )
 
       return pipeline, instance
+
+
+    def deeploy_launch_container_app(
+        self,
+        docker_image: str,
+        port: int,
+        signer_private_key_path: str,
+        logger,
+        target_nodes = [],
+        signer_private_key_password='',
+        ngrok_edge_label='',
+        docker_cr_username='',
+        docker_cr_password='',
+        docker_cr='docker.io',
+        container_resources=None,
+        name="simple_container",
+        target_nodes_count=0,
+        **kwargs
+    ):
+      """
+      Launch a containerized application on the Ratio1 Edge Protocol network using the Deeploy API.
+      
+      This method deploys a Docker container to specified edge nodes through the Deeploy service.
+      It handles authentication, network validation, payload signing, and API communication.
+
+      Parameters
+      ----------
+      docker_image : str
+          The Docker image name to deploy (e.g., 'nginx:latest', 'myapp:v1.0')
+          
+      port : int
+          The port number that the container exposes for external access
+          
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the deployment request
+          
+      logger : Logger
+          Logger instance for recording deployment activities and errors
+          
+      target_nodes : list, optional
+          List of specific node addresses to deploy the container to.
+          If empty, uses target_nodes_count instead. Defaults to []
+          
+      signer_private_key_password : str, optional
+          Password for the private key file if it's encrypted. Defaults to ''
+          
+      ngrok_edge_label : str, optional
+          Ngrok edge label for exposing the container to the internet. Defaults to ''
+          
+      docker_cr_username : str, optional
+          Username for private Docker registry authentication. Defaults to ''
+          
+      docker_cr_password : str, optional
+          Password for private Docker registry authentication. Defaults to ''
+          
+      docker_cr : str, optional
+          Docker registry URL. Defaults to 'docker.io'
+          
+      container_resources : dict, optional
+          Resource limits and requests for the container (CPU, memory, etc.). Defaults to None
+          
+      name : str, optional
+          Application alias/name for identification. Defaults to "simple_container"
+          
+      target_nodes_count : int, optional
+          Number of nodes to deploy to when target_nodes is not specified. Defaults to 0
+          
+      **kwargs : dict
+          Additional parameters passed to the deployment request
+
+      Returns
+      -------
+      dict
+          JSON response from the Deeploy API containing deployment status and details
+
+      Raises
+      ------
+      ValueError
+          - If neither target_nodes nor target_nodes_count is specified
+          - If the private key file path is invalid or doesn't exist
+          - If no oracles are found for the wallet on the current network
+          
+      Exception
+          If there's an error during the deployment process (network, API, signing, etc.)
+
+      Notes
+      -----
+      - The method automatically validates network configuration and oracle availability
+      - The deployment request is cryptographically signed using the provided private key
+      - Container restart and image pull policies are set to 'always' by default
+      - The function creates a temporary blockchain engine instance for this operation
+
+      Examples
+      --------
+      Deploy a simple web application:
+      
+      >>> response = session.deeploy_launch_container_app(
+      ...     docker_image="nginx:latest",
+      ...     port=80,
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     logger=my_logger,
+      ...     target_nodes_count=2,
+      ...     name="my_web_server"
+      ... )
+      
+      Deploy to specific nodes with ngrok exposure:
+      
+      >>> response = session.deeploy_launch_container_app(
+      ...     docker_image="myapp:v1.0",
+      ...     port=8080,
+      ...     signer_private_key_path="/path/to/key.pem",
+      ...     logger=my_logger,
+      ...     target_nodes=["node1_address", "node2_address"],
+      ...     ngrok_edge_label="my-app-edge",
+      ...     container_resources={"cpu": 1, "memory": "512m"}
+      ... )
+      """
+
+      if target_nodes_count == 0 and len(target_nodes) == 0:
+        raise ValueError("You must specify at least one target node to deploy the container app.")
+
+      # Check if PK exists
+      if not os.path.isfile(signer_private_key_path):
+        raise ValueError("Private key path is not valid.")
+
+      # Create a block engine instance with the private key
+      block_engine = DefaultBlockEngine(
+        log=logger,
+        name="deeploy_launch_container_app",
+        config={
+          BCct.K_PEM_FILE: signer_private_key_path,
+          BCct.K_PASSWORD: signer_private_key_password,
+        }
+      )
+
+      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
+
+      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
+        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: DEEPLOY_CT.DEEPLOY_PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
+      }}
+
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = {
+        DEEPLOY_CT.DEEPLOY_RESOURCES.CONTAINER_RESOURCES: container_resources,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CR: docker_cr,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CR_USER: docker_cr_username,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CR_PASSWORD: docker_cr_password,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_RESTART_POLICY: DEEPLOY_CT.DEEPLOY_POLICY_VALUES.ALWAYS,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_IMAGE_PULL_POLICY: DEEPLOY_CT.DEEPLOY_POLICY_VALUES.ALWAYS,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_NGROK_EDGE_LABEL: ngrok_edge_label,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_ENV: {
+        },
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_DYNAMIC_ENV: {
+        },
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_IMAGE: docker_image,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_PORT: port,
+      }
+      try:
+        # Set the nonce for the request
+        nonce = f"0x{int(time.time() * 1000):x}"
+        request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
+
+        # Sign the payload using eth_sign_payload
+        signature = block_engine.eth_sign_payload(
+          payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
+          indent=1,
+          no_hash=True,
+          message_prefix="Please sign this message for Deeploy: "
+        )
+
+        # Send request
+        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
+        return response.json()
+      except Exception as e:
+        logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
+        raise e
+
+
+    def deeploy_simple_telegram_bot(
+        self,
+        signer_private_key_path: str,
+        logger,
+        target_nodes = [],
+        target_nodes_count=0,
+        signer_private_key_password='',
+        name="deeploy_simple_tg_bot",
+
+        signature=PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01,
+        message_handler=None,
+        processing_handler=None,
+        telegram_bot_token=None,
+        telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
+        telegram_bot_name=None,
+        telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,
+        **kwargs
+    ):
+      """
+      Deploy a simple Telegram bot on the Ratio1 Edge Protocol network using the Deeploy API.
+      
+      This method deploys a custom Telegram bot with user-defined message handling logic to specified edge nodes 
+      through the Deeploy service. It processes Python functions, converts them to deployable format, and handles 
+      authentication, network validation, payload signing, and API communication.
+
+      Parameters
+      ----------
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the deployment request
+          
+      logger : Logger
+          Logger instance for recording deployment activities and errors
+          
+      target_nodes : list, optional
+          List of specific node addresses to deploy the Telegram bot to.
+          If empty, uses target_nodes_count instead. Defaults to []
+          
+      target_nodes_count : int, optional
+          Number of nodes to deploy to when target_nodes is not specified. Defaults to 0
+          
+      signer_private_key_password : str, optional
+          Password for the private key file if it's encrypted. Defaults to ''
+          
+      name : str, optional
+          Application alias/name for identification. Defaults to "deeploy_simple_tg_bot"
+          
+      signature : str, optional
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01
+          
+      message_handler : callable
+          Python function that handles incoming Telegram messages. Must accept exactly 2 arguments: (plugin, message, user)
+          This function will be serialized and deployed to the edge nodes
+          
+      processing_handler : callable, optional
+          Python function that runs in a processing loop within the Telegram bot plugin.
+          Runs in parallel with the message handler. Defaults to None
+          
+      telegram_bot_token : str, optional
+          The Telegram bot token obtained from @BotFather. If None, will be retrieved from environment variable.
+          Defaults to None
+          
+      telegram_bot_token_env_key : str, optional
+          Environment variable key that holds the Telegram bot token. 
+          Defaults to ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY
+          
+      telegram_bot_name : str, optional
+          The Telegram bot name/username. If None, will be retrieved from environment variable or use the app name.
+          Defaults to None
+          
+      telegram_bot_name_env_key : str, optional
+          Environment variable key that holds the Telegram bot name.
+          Defaults to ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY
+          
+      **kwargs : dict
+          Additional parameters passed to the deployment request
+
+      Returns
+      -------
+      dict
+          JSON response from the Deeploy API containing deployment status and details
+
+      Raises
+      ------
+      ValueError
+          - If neither target_nodes nor target_nodes_count is specified
+          - If the private key file path is invalid or doesn't exist
+          - If no oracles are found for the wallet on the current network
+          - If message_handler is not provided or not callable
+          - If message_handler doesn't have exactly 2 arguments
+          - If Telegram bot token is not provided via parameter or environment variable
+          
+      Exception
+          If there's an error during the deployment process (network, API, signing, etc.)
+
+      Notes
+      -----
+      - The method automatically validates network configuration and oracle availability
+      - The deployment request is cryptographically signed using the provided private key
+      - The message_handler function is serialized to base64 and deployed to edge nodes
+      - The processing_handler (if provided) runs in parallel with message handling
+      - The function creates a temporary blockchain engine instance for this operation
+      - Telegram bot token is obfuscated in logs for security
+      - Both message_handler and processing_handler are validated and processed using BaseCodeChecker
+
+      Examples
+      --------
+      Deploy a simple echo bot:
+      
+      >>> def my_message_handler(plugin, message):
+      ...     # Echo back the received message
+      ...     return f"You said: {message}"
+      ...
+      >>> response = session.deeploy_simple_telegram_bot(
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     logger=my_logger,
+      ...     target_nodes_count=2,
+      ...     name="echo_bot",
+      ...     message_handler=my_message_handler,
+      ...     telegram_bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+      ... )
+      
+      Deploy a bot with processing loop to specific nodes:
+      
+      >>> def handle_message(plugin, message):
+      ...     # Custom message handling logic
+      ...     if message.lower() == "status":
+      ...         return "Bot is running!"
+      ...     return "Hello from the edge!"
+      ...
+      >>> def background_processor(plugin):
+      ...     # Background processing task
+      ...     plugin.log("Processing task executed")
+      ...
+      >>> response = session.deeploy_simple_telegram_bot(
+      ...     signer_private_key_path="/path/to/key.pem",
+      ...     logger=my_logger,
+      ...     target_nodes=["node1_address", "node2_address"],
+      ...     name="smart_bot",
+      ...     message_handler=handle_message,
+      ...     processing_handler=background_processor,
+      ...     telegram_bot_name="MySmartBot"
+      ... )
+
+      """
+
+      if target_nodes_count == 0 and len(target_nodes) == 0:
+        raise ValueError("You must specify at least one target node to deploy the container app.")
+
+      # Check if PK exists
+      if not os.path.isfile(signer_private_key_path):
+        raise ValueError("Private key path is not valid.")
+
+      # Create a block engine instance with the private key
+      block_engine = DefaultBlockEngine(
+        log=logger,
+        name="deeploy_launch_container_app",
+        config={
+          BCct.K_PEM_FILE: signer_private_key_path,
+          BCct.K_PASSWORD: signer_private_key_password,
+        }
+      )
+
+      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
+      #####################################################
+
+      assert callable(message_handler), "The `message_handler` method parameter must be provided."
+
+      if telegram_bot_token is None:
+        telegram_bot_token = os.getenv(telegram_bot_token_env_key)
+        if telegram_bot_token is None:
+          message = f"Warning! No Telegram bot token provided as via env '{telegram_bot_token_env_key}' or explicitly as `telegram_bot_token` param."
+          raise ValueError(message)
+
+      if telegram_bot_name is None:
+        telegram_bot_name = os.getenv(telegram_bot_name_env_key, name)
+        if telegram_bot_name is None:
+          message = f"Warning! No Telegram bot name provided as via env '{telegram_bot_name_env_key}' or explicitly as `telegram_bot_name` param."
+          raise ValueError(message)
+
+      base_code_checker_inst = BaseCodeChecker()
+
+      func_name, func_args, func_base64_code = base_code_checker_inst._get_method_data(message_handler)
+
+      proc_func_args, proc_func_base64_code = [], None
+      if processing_handler is not None:
+        _, proc_func_args, proc_func_base64_code = base_code_checker_inst._get_method_data(processing_handler)
+
+      if len(func_args) != 2:
+        raise ValueError("The message handler function must have exactly 3 arguments: `plugin`, `message` and `user`.")
+
+      obfuscated_token = telegram_bot_token[:4] + "*" * (len(telegram_bot_token) - 4)
+      self.P(f"Creating telegram bot {telegram_bot_name} with token {obfuscated_token}...", color='b')
+
+
+      #####################################################
+      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
+        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: signature,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
+      }}
+
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = {
+        'TELEGRAM_BOT_TOKEN': telegram_bot_token,
+        'TELEGRAM_BOT_NAME': telegram_bot_name,
+        'MESSAGE_HANDLER': func_base64_code,
+        'MESSAGE_HANDLER_ARGS': func_args,  # mandatory message and user
+        'MESSAGE_HANDLER_NAME': func_name,  # not mandatory
+        'PROCESSING_HANDLER': proc_func_base64_code,  # not mandatory
+        'PROCESSING_HANDLER_ARGS': proc_func_args,  # not mandatory
+      }
+
+      try:
+        # Set the nonce for the request
+        nonce = f"0x{int(time.time() * 1000):x}"
+        request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
+
+        # Sign the payload using eth_sign_payload
+        signature = block_engine.eth_sign_payload(
+          payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
+          indent=1,
+          no_hash=True,
+          message_prefix="Please sign this message for Deeploy: "
+        )
+
+        # Send request
+        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
+        return response.json()
+      except Exception as e:
+        logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
+        raise e
+
+    def deeploy_close(self, logger,
+                      signer_private_key_path: str,
+                      app_id: str,
+                      target_nodes: list[str],
+                      signer_private_key_password='',
+                      **kwargs
+                      ):
+      """
+      Close and remove a previously deployed containerized application from the Ratio1 Edge Protocol network using the Deeploy API.
+      
+      This method terminates and removes a Docker container deployment from specified edge nodes through the Deeploy service.
+      It handles authentication, network validation, payload signing, and API communication for the deletion operation.
+
+      Parameters
+      ----------
+      logger : Logger
+          Logger instance for recording deletion activities and errors
+          
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the deletion request
+          
+      app_id : str
+          Unique identifier of the deployed application to be closed/removed
+          
+      target_nodes : list[str]
+          List of node addresses where the application should be removed from
+          
+      signer_private_key_password : str, optional
+          Password for the private key file if it's encrypted. Defaults to ''
+          
+      **kwargs : dict
+          Additional parameters passed to the deletion request
+
+      Returns
+      -------
+      dict
+          JSON response from the Deeploy API containing deletion status and details
+
+      Raises
+      ------
+      ValueError
+          - If the private key file path is invalid or doesn't exist
+          - If no oracles are found for the wallet on the current network
+          
+      Exception
+          If there's an error during the deletion process (network, API, signing, etc.)
+
+      Notes
+      -----
+      - The method automatically validates network configuration and oracle availability
+      - The deletion request is cryptographically signed using the provided private key
+      - The function creates a temporary blockchain engine instance for this operation
+      - This operation will permanently remove the application and cannot be undone
+      - All running containers associated with the app_id will be stopped and removed
+
+      Examples
+      --------
+      Close an application on specific nodes:
+      
+      >>> response = session.deeploy_close(
+      ...     logger=my_logger,
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     app_id="my_app_12345",
+      ...     target_nodes=["node1_address", "node2_address"]
+      ... )
+      
+      Close an application with encrypted private key:
+      
+      >>> response = session.deeploy_close(
+      ...     logger=my_logger,
+      ...     signer_private_key_path="/path/to/encrypted_key.pem",
+      ...     app_id="web_server_67890",
+      ...     target_nodes=["node1_address"],
+      ...     signer_private_key_password="my_secure_password"
+      ... )
+
+      See Also
+      --------
+      deeploy_launch_container_app : Deploy a new containerized application
+      """
+      # Create a block engine instance with the private key
+      block_engine = DefaultBlockEngine(
+        log=logger,
+        name="deeploy_close",
+        config={
+          BCct.K_PEM_FILE: signer_private_key_path,
+          BCct.K_PASSWORD: signer_private_key_password,
+        }
+      )
+
+      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
+
+      endpoint = DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE
+      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {}}
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_ID] = app_id
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES] = target_nodes
+
+      nonce = f"0x{int(time.time() * 1000):x}"
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
+
+      # Sign the payload using eth_sign_payload
+      block_engine.eth_sign_payload(
+        payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
+        indent=1,
+        no_hash=True,
+        message_prefix="Please sign this message for Deeploy: "
+      )
+
+      response = requests.post(f"{api_base_url}/{endpoint}", json=request_data)
+      return response.json()
 
 
     def __is_assets_valid(self, assets, mandatory=True, raise_exception=True, default_field_values=None):
