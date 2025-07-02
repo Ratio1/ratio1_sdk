@@ -2937,6 +2937,10 @@ class GenericSession(BaseDecentrAIObject):
       if target_nodes_count == 0 and len(target_nodes) == 0:
         raise ValueError("You must specify at least one target node to deploy the container app.")
 
+      # Check if PK exists
+      if not os.path.isfile(signer_private_key_path):
+        raise ValueError("Private key path is not valid.")
+
       # Create a block engine instance with the private key
       block_engine = DefaultBlockEngine(
         log=logger,
@@ -2947,12 +2951,14 @@ class GenericSession(BaseDecentrAIObject):
         }
       )
 
-      current_env = block_engine.current_evm_network
-      api_base_url = EVM_NET_DATA[current_env][EvmNetData.EE_DEEPLOY_API_URL_KEY]
+      current_network = block_engine.current_evm_network
+      api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
 
-      # Check if PK exists
-      if not os.path.isfile(signer_private_key_path):
-        raise ValueError("Private key path is not valid.")
+      wallet_nodes = block_engine.web3_get_wallet_nodes(block_engine.eth_address)
+      oracles_on_the_network = block_engine.web3_get_oracles(current_network)
+      if len(set(wallet_nodes) & set(oracles_on_the_network)) == 0:
+        raise ValueError(
+          f"No oracles found for the wallet {block_engine.eth_address} on {current_network} network. Please check your configuration.")
 
       request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
         DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
@@ -3007,18 +3013,21 @@ class GenericSession(BaseDecentrAIObject):
       # Create a block engine instance with the private key
       block_engine = DefaultBlockEngine(
         log=logger,
-        name="default",
+        name="deeploy_close",
         config={
           BCct.K_PEM_FILE: signer_private_key_path,
           BCct.K_PASSWORD: signer_private_key_password,
         }
       )
 
-      api_base_url = 'https://devnet-deeploy-api.ratio1.ai'
-      if block_engine.current_evm_network == 'mainnet':
-        api_base_url = 'https://deeploy-api.ratio1.ai'
-      elif block_engine.current_evm_network == 'testnet':
-        api_base_url = 'https://testnet-deeploy-api.ratio1.ai'
+      current_network = block_engine.current_evm_network
+      api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
+
+      wallet_nodes = block_engine.web3_get_wallet_nodes(block_engine.eth_address)
+      oracles_on_the_network = block_engine.web3_get_oracles(current_network)
+      if len(set(wallet_nodes) & set(oracles_on_the_network)) == 0:
+        raise ValueError(
+          f"No oracles found for the wallet {block_engine.eth_address} on {current_network} network. Please check your configuration.")
 
       endpoint = DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE
       request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {}}
