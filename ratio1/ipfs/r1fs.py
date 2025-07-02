@@ -269,7 +269,9 @@ class R1FSEngine:
         else:
           self.__uploads_dir = IPFSCt.TEMP_UPLOAD
       os.makedirs(self.__uploads_dir, exist_ok=True)    
-      
+
+      self.maybe_reset_ipfs()
+
       self.maybe_start_ipfs(
         base64_swarm_key=self.__base64_swarm_key,
         ipfs_relay=self.__ipfs_relay,
@@ -1186,6 +1188,9 @@ class R1FSEngine:
         waited += step
       return False    
     
+    def maybe_reset_ipfs(self):
+      """ Reset the IPFS repository if needed, remove swarm key and ipfs home."""
+      
 
     def maybe_start_ipfs(
       self, 

@@ -28,6 +28,7 @@ class EvmNetData:
 class EvmNetConstants:
   EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY = 'EE_NET_MON_01_SUPERVISOR_LOG_TIME'
   NET_CONFIG_MONITOR_SHOW_EACH_KEY = 'NET_CONFIG_MONITOR_SHOW_EACH'
+  SEED_NODES_ADDRESSES_KEY = 'SEED_NODES_ADDRESSES' # This is a list of seed nodes for the network, used for initial connections.
 # endclass EvmNetConstants
 
 
@@ -277,14 +278,29 @@ EVM_NET_CONSTANTS = {
   EvmNetData.MAINNET: {
     EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: None,  # Default is None, meaning no logging.
     EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: None,  # Default is None, meaning no periodic logging.
+    EvmNetConstants.SEED_NODES_ADDRESSES_KEY: [
+      "0xai_Aj1FpPQHISEBelp-tQ8cegwk434Dcl6xaHmuhZQT74if",  # r1s-01
+      "0xai_AzySbyf7ggk1UOWkujAy6GFFmDy2MID8Jz7gqxZaDhy8",  # r1s-02
+      "0xai_Apkb2i2m8zy8h2H4zAhEnZxgV1sLKAPhjD29B1I_I9z7",  # r1s-03
+      "0xai_AgNhMIJZkkWdrTjnmrqdOa6hzAXkoXPNV4Zbvbm_piYJ",  # r1s-04
+    ],
   },
   EvmNetData.TESTNET: {
     EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: 120,  # Log every 2 minutes.
     EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: 120,  # Show every 2 minutes.
+    EvmNetConstants.SEED_NODES_ADDRESSES_KEY: [
+      "0xai_Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6",  # tr1s-01
+      "0xai_A61eKDV1otIH6uWy3zDlbJNJUWayp1jAsirOuYxztf82",  # tr1s-02
+    ],
   },
   EvmNetData.DEVNET: {
     EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: 60,  # Log every minute.
     EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: 60,  # Show every minute.
+    EvmNetConstants.SEED_NODES_ADDRESSES_KEY: [
+      "0xai_AhIQz47-2dpbncDTODXcP7_cByr0_CI9VEB1dCXnbbG7",  # dr1s-01
+      "0xai_AgnygSlY8BwnmaCj6mItg36JHlG_Lh3UqqFaTPbuNzy0",  # dr1s-02
+      "0xai_A74xZKZJa4LekjvJ6oJz29qxOOs5nLClXAZEhYv59t3Z",  # dr1s-db-1
+    ],
   },
 }
 

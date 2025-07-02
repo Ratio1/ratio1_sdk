@@ -95,10 +95,17 @@ TODO: (future)
   - check ETH signature of the oracle data
 
 """
-
+from ratio1.const.base import LocalInfo
+from ratio1.const.evm_net import EVM_NET_CONSTANTS, EvmNetConstants
 from ratio1.utils.config import log_with_color
 from ratio1.utils.oracle_sync.oracle_tester import oracle_tester_init, handle_command_results
+from ratio1.cli.nodes import restart_node, get_nodes
+from ratio1.utils.config import log_with_color
+from ratio1 import Session
 
+from random import randint
+from time import sleep
+from argparse import Namespace
 
 def get_availability(args):
   """
@@ -153,3 +160,125 @@ def get_availability(args):
   )
   handle_command_results(res)
   return
+
+if True:
+  def _get_seed_nodes(current_network):
+    """Gets the seed nodes and returns them in an array."""
+    return EVM_NET_CONSTANTS[current_network][EvmNetConstants.SEED_NODES_ADDRESSES_KEY]
+
+
+  def _get_all_online_nodes():
+    """Gets all online nodes and returns them in an array."""
+    args = Namespace(supervisor=None, online_only=True, allowed_only=False, alias_filter=None, wide=True, eth=False,
+                     all_info=True, wait_for_node=None, alias=None, online=False, verbose=False, peered=True)
+    all_online_nodes_df = get_nodes(args)
+
+    all_online_nodes = []
+    # Transform DataFrame to array of node info with multiple fields
+    if all_online_nodes_df is not None and not all_online_nodes_df.empty:
+      # Extract multiple fields into structured data
+      for _, row in all_online_nodes_df.iterrows():
+        node_info = {
+          'address': row['Address'],
+          'eth_address': row['ETH Address'],
+          'oracle': row['Oracle']
+        }
+        all_online_nodes.append(node_info)
+
+    return all_online_nodes
+
+
+  def _send_restart_command(nodes, timeout_min=0, timeout_max=0, verbose=True):
+    """
+    Send a restart command to the specified nodes.
+
+    Parameters:
+      nodes (list): List of node addresses to send the restart command to.
+      timeout_min (int): Minimum timeout in seconds for the command to complete.
+      timeout_max (int): Maximum timeout in seconds for the command to complete.
+      verbose (bool): Whether to enable verbose output.
+    """
+    for node in nodes:
+      # Create an args object that restart_node expects
+      args = Namespace(node=node, verbose=verbose)
+      restart_node(args)
+      timeout = randint(timeout_min, timeout_max)
+      log_with_color(f"Waiting {timeout} seconds before next restart...", color='y')
+      sleep(timeout)
+    return
+
+
+  def oracle_rollout():
+    """
+    This function performs an oracle rollout by restarting seed nodes, oracle nodes, and edge nodes in sequence.
+    It first restarts the seed nodes, waits for a specified time, then restarts all oracle nodes except the seed nodes,
+    waits again, and finally restarts all remaining edge nodes.
+
+    This function is needed in order to ensure that all nodes in the network receive the new configuration defined on the seed nodes.
+    """
+    session = Session()
+    current_network = session.bc_engine.current_evm_network
+    session.close()
+    log_with_color(f"ATTENTION! Current network: {current_network}", color='y')
+    log_with_color(f"Are you sure you want to restart all nodes on the network {current_network}?", color='b')
+    user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...")
+
+    if user_confirmation != f"RESTART ALL on {current_network}":
+      log_with_color("Aborted by user...", color='y')
+      return
+
+    seed_nodes_addresses = _get_seed_nodes(current_network)
+
+    all_online_nodes = _get_all_online_nodes()
+    remaining_nodes = [
+      node
+      for node in all_online_nodes
+      if node['address'] not in seed_nodes_addresses
+    ]
+
+    # 1. Send restart command to Seed Nodes.
+    log_with_color(f"Sending restart commands to seed nodes: {seed_nodes_addresses}", color='b')
+    _send_restart_command(seed_nodes_addresses)
+
+    # Remove seed node addresses from all_nodes_addresses
+    log_with_color(
+      f"Seed nodes restarted. Waiting 30 seconds before sending restart commands to all Oracle nodes, except seed nodes.",
+      color='g')
+    sleep(30)
+
+    # 2. Send restart commands to all Oracle nodes, except seed nodes.
+    log_with_color(f"Sending restart commands to all Oracle nodes, except seed nodes: {remaining_nodes}", color='b')
+    oracle_nodes_addresses = [
+      node['address']
+      for node in remaining_nodes
+      if node['oracle'] == True
+    ]
+
+    _send_restart_command(nodes=oracle_nodes_addresses)
+
+    # Remove oracle node addresses from all_nodes_addresses
+    remaining_nodes_addresses = [
+      node['address']
+      for node in remaining_nodes
+      if node['address'] not in oracle_nodes_addresses
+    ]
+
+    log_with_color(
+      f"Oracles restarted. Waiting 30 seconds before sending restart commands to all Oracle nodes, except seed nodes.",
+      color='g')
+    sleep(30)
+
+    # 3. Send restart command to all remaining edge nodes.
+    log_with_color(f"Sending restart commands to all remaining edge nodes: {remaining_nodes_addresses}", color='b')
+
+    _send_restart_command(nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
+
+    log_with_color(f"All nodes restarted successfully.", color='g')
+
+    return
+
+
+if __name__ == "__main__":
+  log_with_color(f"Starting oracle rollout...", color='b')
+  oracle_rollout()
+  log_with_color(f"Oracle rollout completed.", color='g')
