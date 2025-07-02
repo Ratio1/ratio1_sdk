@@ -40,6 +40,7 @@ from ..utils.config import (
   seconds_to_short_format, log_with_color, set_client_alias,
   EE_SDK_ALIAS_ENV_KEY, EE_SDK_ALIAS_DEFAULT
 )
+from ..code_cheker.base import BaseCodeChecker
 
 import requests
 import json
@@ -3103,6 +3104,116 @@ class GenericSession(BaseDecentrAIObject):
         DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_IMAGE: docker_image,
         DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_PORT: port,
       }
+      try:
+        # Set the nonce for the request
+        nonce = f"0x{int(time.time() * 1000):x}"
+        request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
+
+        # Sign the payload using eth_sign_payload
+        signature = block_engine.eth_sign_payload(
+          payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
+          indent=1,
+          no_hash=True,
+          message_prefix="Please sign this message for Deeploy: "
+        )
+
+        # Send request
+        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
+        return response.json()
+      except Exception as e:
+        logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
+        raise e
+
+
+    def deeploy_simple_telegram_bot(
+        self,
+        signer_private_key_path: str,
+        logger,
+        target_nodes = [],
+        target_nodes_count=0,
+        signer_private_key_password='',
+        name="deeploy_simple_tg_bot",
+
+        signature=PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01,
+        message_handler=None,
+        processing_handler=None,
+        telegram_bot_token=None,
+        telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
+        telegram_bot_name=None,
+        telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,
+        **kwargs
+    ):
+      """
+
+      """
+
+      if target_nodes_count == 0 and len(target_nodes) == 0:
+        raise ValueError("You must specify at least one target node to deploy the container app.")
+
+      # Check if PK exists
+      if not os.path.isfile(signer_private_key_path):
+        raise ValueError("Private key path is not valid.")
+
+      # Create a block engine instance with the private key
+      block_engine = DefaultBlockEngine(
+        log=logger,
+        name="deeploy_launch_container_app",
+        config={
+          BCct.K_PEM_FILE: signer_private_key_path,
+          BCct.K_PASSWORD: signer_private_key_password,
+        }
+      )
+
+      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
+      #####################################################
+
+      assert callable(message_handler), "The `message_handler` method parameter must be provided."
+
+      if telegram_bot_token is None:
+        telegram_bot_token = os.getenv(telegram_bot_token_env_key)
+        if telegram_bot_token is None:
+          message = f"Warning! No Telegram bot token provided as via env '{telegram_bot_token_env_key}' or explicitly as `telegram_bot_token` param."
+          raise ValueError(message)
+
+      if telegram_bot_name is None:
+        telegram_bot_name = os.getenv(telegram_bot_name_env_key, name)
+        if telegram_bot_name is None:
+          message = f"Warning! No Telegram bot name provided as via env '{telegram_bot_name_env_key}' or explicitly as `telegram_bot_name` param."
+          raise ValueError(message)
+
+      base_code_checker_inst = BaseCodeChecker()
+
+      func_name, func_args, func_base64_code = base_code_checker_inst._get_method_data(message_handler)
+
+      proc_func_args, proc_func_base64_code = [], None
+      if processing_handler is not None:
+        _, proc_func_args, proc_func_base64_code = base_code_checker_inst._get_method_data(processing_handler)
+
+      if len(func_args) != 2:
+        raise ValueError("The message handler function must have exactly 3 arguments: `plugin`, `message` and `user`.")
+
+      obfuscated_token = telegram_bot_token[:4] + "*" * (len(telegram_bot_token) - 4)
+      self.P(f"Creating telegram bot {telegram_bot_name} with token {obfuscated_token}...", color='b')
+
+
+      #####################################################
+      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
+        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: signature,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
+      }}
+
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = {
+        'TELEGRAM_BOT_TOKEN': telegram_bot_token,
+        'TELEGRAM_BOT_NAME': telegram_bot_name,
+        'MESSAGE_HANDLER': func_base64_code,
+        'MESSAGE_HANDLER_ARGS': func_args,  # mandatory message and user
+        'MESSAGE_HANDLER_NAME': func_name,  # not mandatory
+        'PROCESSING_HANDLER': proc_func_base64_code,  # not mandatory
+        'PROCESSING_HANDLER_ARGS': proc_func_args,  # not mandatory
+      }
+
       try:
         # Set the nonce for the request
         nonce = f"0x{int(time.time() * 1000):x}"
