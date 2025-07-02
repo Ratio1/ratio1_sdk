@@ -10,6 +10,27 @@ def _dist_name() -> str:
   return metadata.distribution(pkg).metadata["Name"]
 
 
+def _local_version(dist: str) -> str:
+  try:
+    return metadata.version(dist)
+  except metadata.PackageNotFoundError:
+    return "unknown"
+
+
+def _fresh_version(dist: str) -> str:
+  """Ask a brand-new interpreter for the package version just installed."""
+  try:
+    out = subprocess.check_output(
+      [sys.executable, "-c",
+       f"import importlib.metadata, sys; "
+       f"print(importlib.metadata.version('{dist}'))"],
+      text=True, stderr=subprocess.DEVNULL
+    )
+    return out.strip()
+  except Exception as exc:
+    return "unknown"
+
+
 def update_package(args) -> None:
   """
   Update the package in-place using pip.
@@ -18,9 +39,11 @@ def update_package(args) -> None:
   r1ctl update
   ```
   """
-  log_with_color(f"Updating package: {_dist_name()}")
+  pkg_name = _dist_name()
+  initial_version = _local_version(pkg_name)
+  log_with_color(f"Attempting to update package: {pkg_name}(local version: {initial_version})")
   quiet = args.quiet
-  cmd = [sys.executable, "-m", "pip", "install", "--upgrade", _dist_name()]
+  cmd = [sys.executable, "-m", "pip", "install", "--upgrade", pkg_name]
 
   # Inherit or suppress output based on `quiet`
   stdout = subprocess.DEVNULL if quiet else None
@@ -29,9 +52,13 @@ def update_package(args) -> None:
   exit_code = subprocess.call(cmd, stdout=stdout, stderr=stderr)
 
   if exit_code != 0:
-    log_with_color(f"Package update failed with exit code {exit_code}.", color='r')
+    log_with_color(f"Package {pkg_name} update failed with exit code {exit_code}.", color='r')
   else:
-    log_with_color("Package updated successfully.", color='g')
+    updated_version = _fresh_version(pkg_name)
+    if updated_version != initial_version:
+      log_with_color(f"Package {pkg_name} updated successfully from {initial_version} to {updated_version}.", color='g')
+    else:
+      log_with_color(f"Package {pkg_name} is already up-to-date at version {initial_version}.", color='g')
   # endif exit_code
   return
 
@@ -40,7 +67,7 @@ if __name__ == "__main__":
   import argparse
 
   parser = argparse.ArgumentParser(description="Update the package in-place.")
-  parser.add_argument('--quiet', action='store_false', help="Suppress pip's output.")
+  parser.add_argument('--quiet', default=False)
   args = parser.parse_args()
 
   update_package(args)
