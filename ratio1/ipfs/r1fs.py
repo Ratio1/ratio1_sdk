@@ -1302,19 +1302,19 @@ class R1FSEngine:
       msg += f"\n  Repo:     {self.ipfs_home}"
       self.P(msg, color='d')
       
+      # Write the swarm key at every start.
+      try:
+        decoded_key = base64.b64decode(base64_swarm_key)
+        with open(swarm_key_path, "wb") as f:
+          f.write(decoded_key)
+        os.chmod(swarm_key_path, 0o600)
+        self.P("Swarm key written successfully.", color='g')
+      except Exception as e:
+        self.P(f"Error writing swarm.key: {e}", color='r')
+        return False
 
       if not os.path.isfile(config_path):
-        # Repository is not initialized; write the swarm key and init.
-        try:
-          decoded_key = base64.b64decode(base64_swarm_key)
-          with open(swarm_key_path, "wb") as f:
-            f.write(decoded_key)
-          os.chmod(swarm_key_path, 0o600)
-          self.P("Swarm key written successfully.", color='g')
-        except Exception as e:
-          self.P(f"Error writing swarm.key: {e}", color='r')
-          return False
-
+        # Repository is not initialized; init.
         try:
           self.P("Initializing IPFS repository...")
           self.__run_command(["ipfs", "init"])

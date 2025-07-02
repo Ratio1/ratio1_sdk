@@ -741,6 +741,22 @@ class _EVMMixin:
 
       """
       return self.eth_sign_message(types, values)
+    
+    def web3_to_checksum_address(self, address: str) -> str:
+      """
+      Converts an Ethereum address to its checksum format.
+
+      Parameters
+      ----------
+      address : str
+          The Ethereum address to convert.
+
+      Returns
+      -------
+      str
+          The checksum address.
+      """
+      return to_checksum_address(address)
           
     def web3_is_node_licensed(self, address : str, network=None, debug=False) -> bool:
       """

@@ -51,7 +51,7 @@ def loop_processing(plugin):
   return result
 
 
-def reply(plugin: CustomPluginTemplate, message: str, user: str):
+def reply(plugin: CustomPluginTemplate, message: str, user: str, **kwargs):
   """
   This function is used to reply to a message. The given parameters are mandatory
   """
