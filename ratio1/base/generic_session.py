@@ -3144,6 +3144,129 @@ class GenericSession(BaseDecentrAIObject):
         **kwargs
     ):
       """
+      Deploy a simple Telegram bot on the Ratio1 Edge Protocol network using the Deeploy API.
+      
+      This method deploys a custom Telegram bot with user-defined message handling logic to specified edge nodes 
+      through the Deeploy service. It processes Python functions, converts them to deployable format, and handles 
+      authentication, network validation, payload signing, and API communication.
+
+      Parameters
+      ----------
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the deployment request
+          
+      logger : Logger
+          Logger instance for recording deployment activities and errors
+          
+      target_nodes : list, optional
+          List of specific node addresses to deploy the Telegram bot to.
+          If empty, uses target_nodes_count instead. Defaults to []
+          
+      target_nodes_count : int, optional
+          Number of nodes to deploy to when target_nodes is not specified. Defaults to 0
+          
+      signer_private_key_password : str, optional
+          Password for the private key file if it's encrypted. Defaults to ''
+          
+      name : str, optional
+          Application alias/name for identification. Defaults to "deeploy_simple_tg_bot"
+          
+      signature : str, optional
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.TELEGRAM_BASIC_BOT_01
+          
+      message_handler : callable
+          Python function that handles incoming Telegram messages. Must accept exactly 2 arguments: (plugin, message, user)
+          This function will be serialized and deployed to the edge nodes
+          
+      processing_handler : callable, optional
+          Python function that runs in a processing loop within the Telegram bot plugin.
+          Runs in parallel with the message handler. Defaults to None
+          
+      telegram_bot_token : str, optional
+          The Telegram bot token obtained from @BotFather. If None, will be retrieved from environment variable.
+          Defaults to None
+          
+      telegram_bot_token_env_key : str, optional
+          Environment variable key that holds the Telegram bot token. 
+          Defaults to ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY
+          
+      telegram_bot_name : str, optional
+          The Telegram bot name/username. If None, will be retrieved from environment variable or use the app name.
+          Defaults to None
+          
+      telegram_bot_name_env_key : str, optional
+          Environment variable key that holds the Telegram bot name.
+          Defaults to ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY
+          
+      **kwargs : dict
+          Additional parameters passed to the deployment request
+
+      Returns
+      -------
+      dict
+          JSON response from the Deeploy API containing deployment status and details
+
+      Raises
+      ------
+      ValueError
+          - If neither target_nodes nor target_nodes_count is specified
+          - If the private key file path is invalid or doesn't exist
+          - If no oracles are found for the wallet on the current network
+          - If message_handler is not provided or not callable
+          - If message_handler doesn't have exactly 2 arguments
+          - If Telegram bot token is not provided via parameter or environment variable
+          
+      Exception
+          If there's an error during the deployment process (network, API, signing, etc.)
+
+      Notes
+      -----
+      - The method automatically validates network configuration and oracle availability
+      - The deployment request is cryptographically signed using the provided private key
+      - The message_handler function is serialized to base64 and deployed to edge nodes
+      - The processing_handler (if provided) runs in parallel with message handling
+      - The function creates a temporary blockchain engine instance for this operation
+      - Telegram bot token is obfuscated in logs for security
+      - Both message_handler and processing_handler are validated and processed using BaseCodeChecker
+
+      Examples
+      --------
+      Deploy a simple echo bot:
+      
+      >>> def my_message_handler(plugin, message):
+      ...     # Echo back the received message
+      ...     return f"You said: {message}"
+      ...
+      >>> response = session.deeploy_simple_telegram_bot(
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     logger=my_logger,
+      ...     target_nodes_count=2,
+      ...     name="echo_bot",
+      ...     message_handler=my_message_handler,
+      ...     telegram_bot_token="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+      ... )
+      
+      Deploy a bot with processing loop to specific nodes:
+      
+      >>> def handle_message(plugin, message):
+      ...     # Custom message handling logic
+      ...     if message.lower() == "status":
+      ...         return "Bot is running!"
+      ...     return "Hello from the edge!"
+      ...
+      >>> def background_processor(plugin):
+      ...     # Background processing task
+      ...     plugin.log("Processing task executed")
+      ...
+      >>> response = session.deeploy_simple_telegram_bot(
+      ...     signer_private_key_path="/path/to/key.pem",
+      ...     logger=my_logger,
+      ...     target_nodes=["node1_address", "node2_address"],
+      ...     name="smart_bot",
+      ...     message_handler=handle_message,
+      ...     processing_handler=background_processor,
+      ...     telegram_bot_name="MySmartBot"
+      ... )
 
       """
 
