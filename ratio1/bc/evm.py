@@ -1243,3 +1243,52 @@ class _EVMMixin:
       # Unpack the tuple into a dictionary for readability.
       
       return result
+    
+    def web3_get_addresses_balances(
+      self, 
+      addresses: list, 
+      network: str = None,
+    ):
+      """
+      Retrieve the ETH and R1 balances of multiple addresses in a single call.
+
+      Parameters
+      ----------
+      addresses : list of str
+          The list of Ethereum addresses to check.
+          
+      network : str, optional
+          The network to use. If None, defaults to self.evm_network.
+
+      Returns
+      -------
+      dict
+          A dictionary mapping each address to its balances.
+      """
+      assert isinstance(addresses, list), "Addresses must be a list"
+      assert all(self.is_valid_eth_address(addr) for addr in addresses), "All addresses must be valid Ethereum addresses"
+
+      # Retrieve the necessary Web3 variables (pattern consistent with web3_send_r1).
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+
+      # Create the contract instance for the proxy contract.
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.proxy_contract_address,
+        abi=EVM_ABI_DATA.GET_ADDRESSES_BALANCES
+      )
+
+      self.P(f"`getAddressesBalances` on {network} via {w3vars.rpc_url}", verbosity=2)
+      result = contract.functions.getAddressesBalances(addresses).call()
+      
+      balances = {}
+      for item in result:
+        addr = item[0]
+        eth_balance = item[1] / (10 ** 18)
+        r1_balance = item[2] / (10 ** 18)
+        balances[addr] = {
+          "ethBalance": float(eth_balance),
+          "r1Balance": float(r1_balance),
+        }
+
+      return balances
