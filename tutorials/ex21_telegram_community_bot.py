@@ -144,7 +144,7 @@ def loop_processing(plugin: CustomPluginTemplate):
   message += f"🪪 Total Licenses: {total_licenses}\n"
   message += f"🔄 Circulating R1 Supply: {circulating_supply:,.0f} R1\n"
   message += f"💎 Total R1 Supply: {total_supply:,.0f} R1\n"
-  message += f"🎁 Last Epoch PoA Rewards: {(last_epoch_nd_mining):,.2f} R1\n"
+  message += f"🎁 Last Epoch PoA Mining: {(last_epoch_nd_mining):,.2f} R1\n"
   message += f"🔥 Last Epoch Burn: {(burned_last_epoch):,.2f} R1\n"
   message += f"🔥 Total Burn: {(current_burn):,.2f} R1\n"
   plugin.send_message_to_user(user_id=plugin.cfg_chat_id, text=message)
