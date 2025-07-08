@@ -48,3 +48,12 @@ if __name__ == '__main__' :
     l.P(f"ETH Balance of {address} is {eth_balance:.4f} ETH")
     r1_balance = eng.web3_get_balance_r1(address)
     l.P(f"$R1 Balance of {address} is {r1_balance:.4f} R1")
+
+  
+  l.P(f"Check #5 - multiple addresses", color='b')
+  addresses_balances = eng.web3_get_addresses_balances(addresses)
+  for address, balances in addresses_balances.items():
+    eth_balance = balances.get("ethBalance")
+    r1_balance = balances.get("r1Balance")
+    l.P(f"ETH Balance of {address} is {eth_balance:.4f} ETH")
+    l.P(f"$R1 Balance of {address} is {r1_balance:.4f} R1")
