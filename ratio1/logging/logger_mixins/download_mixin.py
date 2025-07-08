@@ -1,7 +1,81 @@
 import os
+import re
 import sys
 import zipfile
 from time import time
+from urllib.parse import urlsplit, parse_qs, unquote
+
+
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+
+
+def extract_presigned_parts(
+    url: str,
+):
+  """
+  Parse a MinIO/AWS S3 presigned URL (even if expired) and
+  return endpoint, bucket, key (object path), access-key and secret-key.
+
+  Returns None when endpoint, bucket or access-key cannot be identified.
+  """
+  try:
+    parsed = urlsplit(url)
+  except Exception:
+    return None
+
+  endpoint = parsed.netloc or None
+  if not endpoint:
+    return None
+
+  # ---------- bucket detection ----------
+  bucket = None
+  path_parts = [p for p in parsed.path.split("/") if p]
+
+  # 1. path-style  →  https://host/bucket/key
+  if path_parts:
+    candidate = path_parts[0]
+    if _BUCKET_RE.fullmatch(candidate):
+      bucket = candidate
+  # endif path_parts
+
+  # 2. virtual-hosted → https://bucket.host/key
+  if bucket is None:
+    host_labels = endpoint.split(".")
+    candidate = host_labels[0] if host_labels else ""
+    if _BUCKET_RE.fullmatch(candidate):
+      bucket = candidate
+      # canonicalise endpoint to region host: drop "<bucket>."
+      endpoint = ".".join(host_labels[1:])
+  # endif bucket extracted
+
+  if bucket is None:
+    return None
+
+  # ---------- access-key detection ----------
+  qs = parse_qs(parsed.query, keep_blank_values=True)
+  credential_param = (
+      qs.get("X-Amz-Credential") or qs.get("x-amz-credential") or []
+  )
+  if not credential_param:
+    return None
+  access_key = unquote(credential_param[0]).split("/", 1)[0]
+  if not access_key:
+    return None
+
+  # ---------- key (object path) ----------
+  if path_parts:
+    # path-style: drop leading bucket seg, else whole virtual path
+    key_parts = path_parts[1:] if path_parts[0] == bucket else path_parts
+    object_path = "/".join(key_parts)
+  else:
+    object_path = ""  # root object like "/" (rare but valid)
+
+  return {
+    "endpoint": endpoint,
+    "bucket": bucket,
+    "object_name": object_path,
+    "access_key": access_key,
+  }
 
 
 class _DownloadMixin(object):
@@ -18,13 +92,78 @@ class _DownloadMixin(object):
     super(_DownloadMixin, self).__init__()
     return
 
-  def maybe_download_model(self,
-                           url,
-                           model_file,
-                           force_download=False,
-                           url_model_cfg=None,
-                           **kwargs,
-                           ):
+  def maybe_reattempt_download(
+      self,
+      urls: list,
+      fns: list,
+      **kwargs,
+  ):
+    """
+    Utility method for reattempting download of files from given URLs.
+    This is made specific for the the failed downloads from presigned
+    S3 or MinIO URLs that are expired or invalid.
+    Parameters
+    ----------
+    urls : list
+      list of URLs to download from.
+    fns : list
+      list of filenames to save the downloaded files as.
+    kwargs : dict
+      additional arguments to pass to the download method.
+
+    Returns
+    -------
+    res - tuple of (saved_files, msgs)
+      saved_files - list of saved files(or None if download not completed).
+      msgs - list of messages.
+    """
+    # 1. Attempt to extract presigned parts from the URLs
+    download_objects = [
+      (idx, extract_presigned_parts(_url), _fn)
+      for idx, (_url, _fn) in enumerate(zip(urls, fns))
+    ]
+    saved_files, msgs = [], []
+    # 2. Iterate over the download objects
+    for idx, download_obj, fn in download_objects:
+      # 2.1 Check if the download object is valid
+      if download_obj is None or None in download_obj.values():
+        saved_files.append(None)
+        msgs.append(f"Invalid download object for URL: {urls[idx]}")
+        continue
+      # endif download_obj is None
+      # 2.2 If the download object is valid, proceed with the download
+      minio_object_name = download_obj.get("object_name")
+      if minio_object_name is None:
+        saved_files.append(None)
+        msgs.append(f"Invalid object name for URL: {urls[idx]}")
+        continue
+      # 2.3 Construct the aggregated kwargs
+      minio_url = f"minio:{minio_object_name}"
+      download_obj.pop("object_name")
+      all_kwargs = {
+        **kwargs,
+        **download_obj
+      }
+      # 2.4 Call the maybe_download method with the constructed URL and filename
+      saved_files, msgs = self.maybe_download(
+        url=minio_url,
+        fn=fn,
+        **all_kwargs,
+      )
+      saved_files.append(saved_files[0])
+      msgs.append(msgs[0])
+    # endfor download_objects
+    # 3. Return the saved files and messages
+    return saved_files, msgs
+
+  def maybe_download_model(
+      self,
+      url,
+      model_file,
+      force_download=False,
+      url_model_cfg=None,
+      **kwargs,
+  ):
     """
     url11 = 'https://www.dropbox.com/s/t6qfxiopcr8yvlq/60_xomv_employee01_002_e142_acc0.985.pb?dl=1'
     url12 = 'https://www.dropbox.com/s/akzyk9vcuqluzup/60_xomv_employee01_002_e142_acc0.985.pb.txt?dl=1'
@@ -39,13 +178,44 @@ class _DownloadMixin(object):
       urls += [url_model_cfg]
       fn += [model_file + '.txt']
 
-    return self.maybe_download(
+    saved_files, msgs = self.maybe_download(
       url=urls,
       fn=fn,
       force_download=force_download,
       target='models',
       **kwargs,
     )
+
+    if None in saved_files:
+      download_objects = [
+        (_url, _fn, _saved_file, _msg)
+        for _url, _fn, _saved_file, _msg in
+        zip(urls, fn, saved_files, msgs)
+      ]
+      # Retrieve the URLs that failed to download
+      remaining_objs = [
+        (idx, obj)
+        for idx, obj in enumerate(download_objects)
+        if obj[2] is None
+      ]
+      remaining_urls = [obj[0] for obj in remaining_objs]
+      remaining_fns = [obj[1] for obj in remaining_objs]
+      remaining_saved_files, remaining_msgs = self.maybe_reattempt_download(
+        urls=remaining_urls,
+        fns=remaining_fns,
+        force_download=force_download,
+        target='models',
+        **kwargs,
+      )
+      # Update the saved files and messages with the reattempted downloads
+      for idx, (saved_file, msg) in enumerate(zip(remaining_saved_files, remaining_msgs)):
+        if saved_file is not None:
+          saved_files[remaining_objs[idx][0]] = saved_file
+          msgs[remaining_objs[idx][0]] = msg
+        # endif update needed
+      # endfor remaining_objs
+    # endif at least one download failed
+    return saved_files, msgs
 
   def maybe_download(self,
                      url,
