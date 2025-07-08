@@ -398,7 +398,7 @@ class MQTTWrapper(BaseCommWrapper):
       # endwhile
 
       if current_topic_connection:
-        msg = "MQTT (Paho) subscribed to topic '{}'".format(topic)
+        msg = "MQTT (Paho) subscribed to topic '{}' (QoS={})".format(topic, self.cfg_qos)
         msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_NORMAL
       else:
         msg = "MQTT (Paho) subscribe to '{}' FAILED after {} retries (reason:{})".format(topic, max_retries, exception)
@@ -430,7 +430,7 @@ class MQTTWrapper(BaseCommWrapper):
     )
 
     ####
-    self.D("Sent message '{}'".format(message))
+    self.D("Sent message (QoS {})'{}'".format(self.cfg_qos, message))
     ####
 
     if result.rc == mqtt.MQTT_ERR_QUEUE_SIZE:
