@@ -208,7 +208,7 @@ if True:
     return
 
 
-  def oracle_rollout():
+  def oracle_rollout(args):
     """
     This function performs an oracle rollout by restarting seed nodes, oracle nodes, and edge nodes in sequence.
     It first restarts the seed nodes, waits for a specified time, then restarts all oracle nodes except the seed nodes,
@@ -220,7 +220,7 @@ if True:
     current_network = session.bc_engine.current_evm_network
     session.close()
     log_with_color(f"ATTENTION! Current network: {current_network}", color='y')
-    log_with_color(f"Are you sure you want to restart all nodes on the network {current_network}?", color='b')
+    log_with_color(f"Are you sure you want to restart ALL nodes on the network {current_network}?", color='b')
     user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...")
 
     if user_confirmation != f"RESTART ALL on {current_network}":
