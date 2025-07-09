@@ -3390,6 +3390,98 @@ class GenericSession(BaseDecentrAIObject):
         logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
         raise e
 
+    def deeploy_custom_code(self,
+                            signer_private_key_path: str,
+                            logger,
+                            custom_code=None,
+                            target_nodes=[],
+                            target_nodes_count=0,
+                            signer_private_key_password='',
+                            name="deeploy_custom_code",
+                            signature=PLUGIN_SIGNATURES.CUSTOM_EXEC_01,
+                            config={},
+                            ):
+      """
+      Deploy custom Python code on the Ratio1 Edge Protocol network using the Deeploy API.
+      Parameters
+      ----------
+      signer_private_key_path
+      logger
+      custom_code
+      target_nodes
+      target_nodes_count
+      signer_private_key_password
+      name
+      signature
+      config
+
+      Returns
+      -------
+
+      """
+      if target_nodes_count == 0 and len(target_nodes) == 0:
+        raise ValueError("You must specify at least one target node to deploy the container app.")
+
+      # Check if PK exists
+      if not os.path.isfile(signer_private_key_path):
+        raise ValueError("Private key path is not valid.")
+
+      # Create a block engine instance with the private key
+      block_engine = DefaultBlockEngine(
+        log=logger,
+        name="deeploy_custom_code",
+        config={
+          BCct.K_PEM_FILE: signer_private_key_path,
+          BCct.K_PASSWORD: signer_private_key_password,
+        }
+      )
+
+      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
+      #####################################################
+
+      assert callable(custom_code), "The `custom_code` method parameter must be provided."
+
+      base_code_checker_inst = BaseCodeChecker()
+
+      plain_code = base_code_checker_inst.get_function_source_code(custom_code)
+      custom_code_base64, error_messages = base_code_checker_inst.code_to_base64(plain_code, return_errors=True)
+      if error_messages:
+        raise ValueError(f"Custom code has errors: {error_messages}")
+      #####################################################
+      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
+        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: signature,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
+
+      }}
+
+      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = {
+        'CODE': custom_code_base64,
+        **config
+      }
+
+      try:
+        # Set the nonce for the request
+        nonce = f"0x{int(time.time() * 1000):x}"
+        request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
+
+        # Sign the payload using eth_sign_payload
+        block_engine.eth_sign_payload(
+          payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
+          indent=1,
+          no_hash=True,
+          message_prefix="Please sign this message for Deeploy: "
+        )
+
+        # Send request
+        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
+        return response.json()
+      except Exception as e:
+        logger.P(f"Error during deeploy_custom_code: {e}", color='r', show=True)
+        raise e
+
+
     def deeploy_close(self, logger,
                       signer_private_key_path: str,
                       app_id: str,
