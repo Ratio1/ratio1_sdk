@@ -11,6 +11,7 @@ from eth_utils import keccak, to_checksum_address
 from eth_account.messages import encode_defunct
 
 from ..const.base import EE_VPN_IMPL_ENV_KEY, dAuth, BCctbase, ETHVarTypes, EVM_ABI_DATA
+from ..const.evm_net import EVM_NET_DATA, EvmNetData
 
 EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
   'true', '1', 'yes', 'y', 't', 'on'
@@ -1292,3 +1293,18 @@ class _EVMMixin:
         }
 
       return balances
+
+
+  def get_deeploy_url(self):
+    """
+    Returns the deeploy URL from the environment or the network data
+
+    Returns
+    -------
+    str
+      the deeploy URL.
+
+    """
+    current_network = self.current_evm_network
+    deeploy_api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
+    return deeploy_api_base_url

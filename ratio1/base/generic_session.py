@@ -27,7 +27,6 @@ from ..const import (
   BLOCKCHAIN_CONFIG, SESSION_CT, NET_CONFIG
 )
 from ..const import comms as comm_ct
-from ..const.evm_net import EVM_NET_DATA, EvmNetData
 from ..const import DEEPLOY_CT
 from ..io_formatter import IOFormatterWrapper
 from ..logging import Logger
@@ -1548,7 +1547,7 @@ class GenericSession(BaseDecentrAIObject):
           If no oracles are found for the wallet on the current network
       """
       current_network = block_engine.current_evm_network
-      api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
+      api_base_url = block_engine.get_deeploy_url()
 
       wallet_nodes = block_engine.web3_get_wallet_nodes(block_engine.eth_address)
       oracles_on_the_network = block_engine.web3_get_oracles(current_network)
