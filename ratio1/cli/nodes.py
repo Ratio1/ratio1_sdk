@@ -346,26 +346,28 @@ def _display_node_stats_for_hb(node_hb, wide=False):
   wide: bool
       If True, display all plugins.
   """
-  
+  from ratio1 import HEARTBEAT_DATA
+  from ratio1.utils.config import log_with_color
+
   # Extract basic node info
-  ee_id = node_hb.get('EE_ID', 'Unknown')
-  node_addr = node_hb.get('EE_ADDR', 'Unknown')
-  eth_addr = node_hb.get('EE_ETH_SENDER', 'Unknown')
-  ee_version = node_hb.get('EE_VERSION', 'Unknown')
-  uptime = node_hb.get('UPTIME', 0)
+  ee_id = node_hb.get(HEARTBEAT_DATA.EE_ID, 'Unknown')
+  node_addr = node_hb.get(HEARTBEAT_DATA.EE_ADDR, 'Unknown')
+  eth_addr = node_hb.get(HEARTBEAT_DATA.EE_ETH_SENDER, 'Unknown')
+  ee_version = node_hb.get(HEARTBEAT_DATA.EE_VERSION, 'Unknown')
+  uptime = node_hb.get(HEARTBEAT_DATA.UPTIME, 0)
   
   # Display node header
   log_with_color(f"\n=== Node Information ===", color='b')
   log_with_color(f"Node alias: {ee_id}", color='g')
   log_with_color(f"Address: {node_addr}", color='g')
-  log_with_color(f"EHT Address: {eth_addr}", color='g')
+  log_with_color(f"ETH Address: {eth_addr}", color='g')
   log_with_color(f"Edge Node Version: {ee_version}", color='g')
   log_with_color(f"Uptime: {uptime:.1f} seconds ({uptime/3600:.1f} hours)", color='g')
   
   # CPU Information
-  cpu_info = node_hb.get('CPU', 'Unknown')
-  cpu_cores = node_hb.get('CPU_NR_CORES', 0)
-  cpu_used = node_hb.get('CPU_USED', 0)
+  cpu_info = node_hb.get(HEARTBEAT_DATA.CPU, 'Unknown')
+  cpu_cores = node_hb.get(HEARTBEAT_DATA.CPU_NR_CORES, 0)
+  cpu_used = node_hb.get(HEARTBEAT_DATA.CPU_USED, 0)
   
   log_with_color(f"\n=== CPU Information ===", color='b')
   log_with_color(f"Processor: {cpu_info}", color='y')
@@ -373,10 +375,10 @@ def _display_node_stats_for_hb(node_hb, wide=False):
   log_with_color(f"Usage: {cpu_used:.1f}%", color='y')
   
   # Memory Information
-  total_memory = node_hb.get('MACHINE_MEMORY', 0)
-  available_memory = node_hb.get('AVAILABLE_MEMORY', 0)
-  process_memory = node_hb.get('PROCESS_MEMORY', 0)
-  is_alert_ram = node_hb.get('IS_ALERT_RAM', False)
+  total_memory = node_hb.get(HEARTBEAT_DATA.MACHINE_MEMORY, 0)
+  available_memory = node_hb.get(HEARTBEAT_DATA.AVAILABLE_MEMORY, 0)
+  process_memory = node_hb.get(HEARTBEAT_DATA.PROCESS_MEMORY, 0)
+  is_alert_ram = node_hb.get(HEARTBEAT_DATA.IS_ALERT_RAM, False)
   
   used_memory = total_memory - available_memory if total_memory and available_memory else 0
   memory_usage_pct = (used_memory / total_memory * 100) if total_memory > 0 else 0
@@ -390,8 +392,8 @@ def _display_node_stats_for_hb(node_hb, wide=False):
     log_with_color(f"RAM Alert: True", color='r')
   
   # Disk Information
-  total_disk = node_hb.get('TOTAL_DISK', 0)
-  available_disk = node_hb.get('AVAILABLE_DISK', 0)
+  total_disk = node_hb.get(HEARTBEAT_DATA.TOTAL_DISK, 0)
+  available_disk = node_hb.get(HEARTBEAT_DATA.AVAILABLE_DISK, 0)
   
   used_disk = total_disk - available_disk if total_disk and available_disk else 0
   disk_usage_pct = (used_disk / total_disk * 100) if total_disk > 0 else 0
@@ -400,19 +402,19 @@ def _display_node_stats_for_hb(node_hb, wide=False):
   log_with_color(f"Total Disk: {total_disk:.2f} GB", color='y')
   log_with_color(f"Available Disk: {available_disk:.2f} GB", color='y')
   log_with_color(f"Used Disk: {used_disk:.2f} GB ({disk_usage_pct:.1f}%)", color='y')
-
+  
   # Active Plugins
-  active_plugins = node_hb.get('ACTIVE_PLUGINS', [])
+  active_plugins = node_hb.get(HEARTBEAT_DATA.ACTIVE_PLUGINS, [])
   log_with_color(f"\n=== Active Plugins ===", color='b')
   log_with_color(f"Number of Active Plugins: {len(active_plugins)}", color='y')
   
   if active_plugins:
     plugins_to_display = 99999 if wide else 5
     for i, plugin in enumerate(active_plugins[:plugins_to_display]):  # Show first 5 plugins
-      stream_id = plugin.get('STREAM_ID', 'Unknown')
-      signature = plugin.get('SIGNATURE', 'Unknown')
-      instance_id = plugin.get('INSTANCE_ID', 'Unknown')
-      total_payload = plugin.get('TOTAL_PAYLOAD_COUNT', 0)
+      stream_id = plugin.get(HEARTBEAT_DATA.ACTIVE_PLUGINS_INFO.STREAM_ID, 'Unknown')
+      signature = plugin.get(HEARTBEAT_DATA.ACTIVE_PLUGINS_INFO.SIGNATURE, 'Unknown')
+      instance_id = plugin.get(HEARTBEAT_DATA.ACTIVE_PLUGINS_INFO.INSTANCE_ID, 'Unknown')
+      total_payload = plugin.get(HEARTBEAT_DATA.ACTIVE_PLUGINS_INFO.TOTAL_PAYLOAD_COUNT, 0)
       log_with_color(f"  {i+1}. {stream_id} {signature} ({instance_id}) - {total_payload} payloads", color='w')
     
     if len(active_plugins) > plugins_to_display:
