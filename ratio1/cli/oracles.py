@@ -188,11 +188,12 @@ if True:
     return all_online_nodes
 
 
-  def _send_restart_command(nodes, timeout_min=0, timeout_max=0, verbose=True):
+  def _send_restart_command(session, nodes, timeout_min=0, timeout_max=0, verbose=True):
     """
     Send a restart command to the specified nodes.
 
     Parameters:
+      session (Session): Session object.
       nodes (list): List of node addresses to send the restart command to.
       timeout_min (int): Minimum timeout in seconds for the command to complete.
       timeout_max (int): Maximum timeout in seconds for the command to complete.
@@ -200,8 +201,7 @@ if True:
     """
     for node in nodes:
       # Create an args object that restart_node expects
-      args = Namespace(node=node, verbose=verbose)
-      restart_node(args)
+      session._send_command_restart_node(node)
       timeout = randint(timeout_min, timeout_max)
       log_with_color(f"Waiting {timeout} seconds before next restart...", color='y')
       sleep(timeout)
@@ -218,7 +218,6 @@ if True:
     """
     session = Session()
     current_network = session.bc_engine.current_evm_network
-    session.close()
     log_with_color(f"ATTENTION! Current network: {current_network}", color='y')
     log_with_color(f"Are you sure you want to restart ALL nodes on the network {current_network}?", color='b')
     user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...")
@@ -238,7 +237,7 @@ if True:
 
     # 1. Send restart command to Seed Nodes.
     log_with_color(f"Sending restart commands to seed nodes: {seed_nodes_addresses}", color='b')
-    _send_restart_command(seed_nodes_addresses)
+    _send_restart_command(session=session, nodes=seed_nodes_addresses)
 
     # Remove seed node addresses from all_nodes_addresses
     log_with_color(
@@ -254,7 +253,7 @@ if True:
       if node['oracle'] == True
     ]
 
-    _send_restart_command(nodes=oracle_nodes_addresses)
+    _send_restart_command(session=session, nodes=oracle_nodes_addresses)
 
     # Remove oracle node addresses from all_nodes_addresses
     remaining_nodes_addresses = [
@@ -271,10 +270,11 @@ if True:
     # 3. Send restart command to all remaining edge nodes.
     log_with_color(f"Sending restart commands to all remaining edge nodes: {remaining_nodes_addresses}", color='b')
 
-    _send_restart_command(nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
+    _send_restart_command(session=session, nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
 
     log_with_color(f"All nodes restarted successfully.", color='g')
 
+    session.close()
     return
 
 
