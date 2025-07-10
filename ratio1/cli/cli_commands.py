@@ -37,7 +37,6 @@ CLI_COMMANDS = {
                 "--alias" : "Use a specific node alias filter",
                 "--eth" : "Use a specific node (flag)",
                 "--wide" : "Display all available information (flag)",
-                "--verbose" : "Make the output more verbose (flag)",
             }
         },
         "supervisors": {
@@ -121,7 +120,6 @@ CLI_COMMANDS = {
         "params": {
             "node": "The node to restart",
             "--ignore-peering": "Ignore peering when running the command.",
-            "--verbose": "Make the output more verbose (flag)",
         }
     },
     "shutdown": {
@@ -130,7 +128,6 @@ CLI_COMMANDS = {
         "params": {
             "node": "The node to shutdown",
             "--ignore-peering": "Ignore peering when running the command.",
-            "--verbose": "Make the output more verbose (flag)",
         }
     },
     "update": {
@@ -142,18 +139,14 @@ CLI_COMMANDS = {
     },
     "oracle-rollout": {
         "func": oracle_rollout,
-        "description": "Rollout update on all nodes in the network. The rollout order is seed nodes -> oracle nodes -> all other edge nodes. This command is needed when defining new environment variables in seed nodes, in order to make it available to all nodes in the network.",
-        "params": {
-            "--verbose": "Make the output more verbose (flag)",
-        }
+        "description": "Rollout update on all nodes in the network. The rollout order is seed nodes -> oracle nodes -> all other edge nodes. This command is needed when defining new environment variables in seed nodes, in order to make it available to all nodes in the network."
     },
     "inspect": {
         "func": inspect_node,
         "description": "Inspect a node by address or alias.",
         "params": {
             "node": "The node address or alias to inspect",
-            "--wide": "Display all available information (flag)",
-            "--verbose" : "Make the output more verbose (flag)",
+            "--wide": "Display all available information (flag)"
         }
     },
 }
