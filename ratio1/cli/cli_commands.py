@@ -143,6 +143,9 @@ CLI_COMMANDS = {
     "oracle-rollout": {
         "func": oracle_rollout,
         "description": "Rollout update on all nodes in the network. The rollout order is seed nodes -> oracle nodes -> all other edge nodes. This command is needed when defining new environment variables in seed nodes, in order to make it available to all nodes in the network.",
+        "params": {
+            "--verbose": "Make the output more verbose (flag)",
+        }
     },
     "inspect": {
         "func": inspect_node,

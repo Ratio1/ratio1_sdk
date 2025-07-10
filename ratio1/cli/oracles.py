@@ -203,7 +203,9 @@ if True:
       # Create an args object that restart_node expects
       session._send_command_restart_node(node)
       timeout = randint(timeout_min, timeout_max)
-      log_with_color(f"Waiting {timeout} seconds before next restart...", color='y')
+      log_with_color("".join([f"Restarting {node} | ",
+                              f"Waiting {timeout} seconds before next restart..."]),
+                     color='y')
       sleep(timeout)
     return
 
@@ -216,15 +218,24 @@ if True:
 
     This function is needed in order to ensure that all nodes in the network receive the new configuration defined on the seed nodes.
     """
-    session = Session()
+    silent = not args.verbose
+    session = Session(
+      silent=True
+    )
     current_network = session.bc_engine.current_evm_network
+    session.close()
+
     log_with_color(f"ATTENTION! Current network: {current_network}", color='y')
     log_with_color(f"Are you sure you want to restart ALL nodes on the network {current_network}?", color='b')
-    user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...")
+    user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...\n >")
 
     if user_confirmation != f"RESTART ALL on {current_network}":
       log_with_color("Aborted by user...", color='y')
       return
+
+    session = Session(
+      silent=silent
+    )
 
     seed_nodes_addresses = _get_seed_nodes(current_network)
 
