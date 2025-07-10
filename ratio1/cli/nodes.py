@@ -266,6 +266,24 @@ def restart_node(args):
       Arguments passed to the function.
   """
   node = args.node
+  ignore_peering = args.ignore_peering
+  verbose = args.verbose
+
+  if not ignore_peering:
+    # Checking if the node is peered
+    df, _, _, _, _, session = _get_netstats(
+      silent=not verbose, online_only=True, return_session=True, all_info=True,
+      wait_for_node=node
+    )
+    peered = df.Peered.values[0]
+    sdk_address = session.client_address
+    if not peered:
+      log_with_color("".join([
+        f"Node <{node}> is not peered with your SDK <{sdk_address}>.",
+        "Please, whitelist your SDK before running the command."]),
+        color='r')
+      return
+
   log_with_color(f"Attempting to restart node <{node}>", color='b')
   _send_command_to_node(args, COMMANDS.RESTART, ignore_not_found=True)
   return
@@ -281,6 +299,24 @@ def shutdown_node(args):
       Arguments passed to the function.
   """
   node = args.node
+  ignore_peering = args.ignore_peering
+  verbose = args.verbose
+
+  if not ignore_peering:
+    # Checking if the node is peered
+    df, _, _, _, _, session = _get_netstats(
+      silent=not verbose, online_only=True, return_session=True, all_info=True,
+      wait_for_node=node
+    )
+    peered = df.Peered.values[0]
+    sdk_address = session.client_address
+    if not peered:
+      log_with_color("".join([
+        f"Node <{node}> is not peered with your SDK <{sdk_address}>.",
+        "Please, whitelist your SDK before running the command."]),
+        color='r')
+      return
+
   log_with_color(f"Attempting to shutdown node <{node}>", color='b')
   _send_command_to_node(args, COMMANDS.STOP, ignore_not_found=True)
   return

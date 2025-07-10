@@ -119,14 +119,18 @@ CLI_COMMANDS = {
         "func": restart_node,
         "description": "Restart a node",
         "params": {
-            "node": "The node to restart"
+            "node": "The node to restart",
+            "--ignore-peering": "Ignore peering when running the command.",
+            "--verbose": "Make the output more verbose (flag)",
         }
     },
     "shutdown": {
         "func": shutdown_node,
         "description": "Shutdown a node",
         "params": {
-            "node": "The node to shutdown"
+            "node": "The node to shutdown",
+            "--ignore-peering": "Ignore peering when running the command.",
+            "--verbose": "Make the output more verbose (flag)",
         }
     },
     "update": {
