@@ -2316,6 +2316,19 @@ class GenericSession(BaseDecentrAIObject):
 
       return active_supervisors
 
+    def get_last_hb(self):
+      """
+      Get the last heartbeat of all nodes.
+
+      Returns
+      -------
+      dict
+          A dictionary with the last heartbeat of all nodes.
+          Where the key is the node address and the value is the last heartbeat.
+      """
+      return self._dct_online_nodes_last_heartbeat
+
+
     def attach_to_pipeline(self, *,
                            node,
                            name,

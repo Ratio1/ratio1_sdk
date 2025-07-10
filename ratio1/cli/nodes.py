@@ -285,3 +285,139 @@ def shutdown_node(args):
   _send_command_to_node(args, COMMANDS.STOP, ignore_not_found=True)
   return
 
+
+def inspect_node(args):
+  """
+  This function is used to inspect the node info.
+
+  Parameters
+  ----------
+  args : argparse.Namespace
+      Arguments passed to the function.
+  """
+  node = args.node
+  wide = args.wide
+  silent = not args.verbose
+
+  if not silent:
+    log_with_color(f"Inspecting node <{node}>", color='b')
+
+  from ratio1 import Session
+  session = Session(
+    silent=silent
+  )
+  try:
+    last_hb = session.get_last_hb()
+    node_last_hb = last_hb.get(node)
+    if not node_last_hb:
+      # Check by ETH Address.
+      address = session.get_addr_by_eth_address(node)
+      node_last_hb = last_hb.get(address)
+
+    if not node_last_hb:
+      # Check by EE_ID (alias).
+      for _, node_hb in last_hb.items():
+        if node_hb.get("EE_ID") == node:
+          node_last_hb = node_hb
+          break
+
+    if not node_last_hb:
+      # No last HB was found for specified Address, ETH Address or alias.
+      raise ValueError("Could not find a node by provided address/alias.")
+
+    # Display node stats from HB:
+    _display_node_stats_for_hb(node_last_hb, wide)
+
+  except Exception as e:
+    log_with_color(f"An error occurred while trying to get node info: {e}", color='r')
+  finally:
+    session.close()
+  return
+
+
+def _display_node_stats_for_hb(node_hb, wide=False):
+  """
+  Display main system information from node heartbeat data.
+  
+  Parameters
+  ----------
+  node_hb : dict
+      Node heartbeat data containing system information
+  wide: bool
+      If True, display all plugins.
+  """
+  
+  # Extract basic node info
+  ee_id = node_hb.get('EE_ID', 'Unknown')
+  node_addr = node_hb.get('EE_ADDR', 'Unknown')
+  eth_addr = node_hb.get('EE_ETH_SENDER', 'Unknown')
+  ee_version = node_hb.get('EE_VERSION', 'Unknown')
+  uptime = node_hb.get('UPTIME', 0)
+  
+  # Display node header
+  log_with_color(f"\n=== Node Information ===", color='b')
+  log_with_color(f"Node alias: {ee_id}", color='g')
+  log_with_color(f"Address: {node_addr}", color='g')
+  log_with_color(f"EHT Address: {eth_addr}", color='g')
+  log_with_color(f"Edge Node Version: {ee_version}", color='g')
+  log_with_color(f"Uptime: {uptime:.1f} seconds ({uptime/3600:.1f} hours)", color='g')
+  
+  # CPU Information
+  cpu_info = node_hb.get('CPU', 'Unknown')
+  cpu_cores = node_hb.get('CPU_NR_CORES', 0)
+  cpu_used = node_hb.get('CPU_USED', 0)
+  
+  log_with_color(f"\n=== CPU Information ===", color='b')
+  log_with_color(f"Processor: {cpu_info}", color='y')
+  log_with_color(f"Cores: {cpu_cores}", color='y')
+  log_with_color(f"Usage: {cpu_used:.1f}%", color='y')
+  
+  # Memory Information
+  total_memory = node_hb.get('MACHINE_MEMORY', 0)
+  available_memory = node_hb.get('AVAILABLE_MEMORY', 0)
+  process_memory = node_hb.get('PROCESS_MEMORY', 0)
+  is_alert_ram = node_hb.get('IS_ALERT_RAM', False)
+  
+  used_memory = total_memory - available_memory if total_memory and available_memory else 0
+  memory_usage_pct = (used_memory / total_memory * 100) if total_memory > 0 else 0
+  
+  log_with_color(f"\n=== Memory Information ===", color='b')
+  log_with_color(f"Total Memory: {total_memory:.2f} GB", color='y')
+  log_with_color(f"Available Memory: {available_memory:.2f} GB", color='y')
+  log_with_color(f"Used Memory: {used_memory:.2f} GB ({memory_usage_pct:.1f}%)", color='y')
+  log_with_color(f"Process Memory: {process_memory:.2f} GB", color='y')
+  if is_alert_ram:
+    log_with_color(f"RAM Alert: True", color='r')
+  
+  # Disk Information
+  total_disk = node_hb.get('TOTAL_DISK', 0)
+  available_disk = node_hb.get('AVAILABLE_DISK', 0)
+  
+  used_disk = total_disk - available_disk if total_disk and available_disk else 0
+  disk_usage_pct = (used_disk / total_disk * 100) if total_disk > 0 else 0
+  
+  log_with_color(f"\n=== Disk Information ===", color='b')
+  log_with_color(f"Total Disk: {total_disk:.2f} GB", color='y')
+  log_with_color(f"Available Disk: {available_disk:.2f} GB", color='y')
+  log_with_color(f"Used Disk: {used_disk:.2f} GB ({disk_usage_pct:.1f}%)", color='y')
+
+  # Active Plugins
+  active_plugins = node_hb.get('ACTIVE_PLUGINS', [])
+  log_with_color(f"\n=== Active Plugins ===", color='b')
+  log_with_color(f"Number of Active Plugins: {len(active_plugins)}", color='y')
+  
+  if active_plugins:
+    plugins_to_display = 99999 if wide else 5
+    for i, plugin in enumerate(active_plugins[:plugins_to_display]):  # Show first 5 plugins
+      stream_id = plugin.get('STREAM_ID', 'Unknown')
+      signature = plugin.get('SIGNATURE', 'Unknown')
+      instance_id = plugin.get('INSTANCE_ID', 'Unknown')
+      total_payload = plugin.get('TOTAL_PAYLOAD_COUNT', 0)
+      log_with_color(f"  {i+1}. {stream_id} {signature} ({instance_id}) - {total_payload} payloads", color='w')
+    
+    if len(active_plugins) > plugins_to_display:
+      log_with_color(f"  ... and {len(active_plugins) - plugins_to_display} more plugins", color='w')
+  
+  log_with_color(f"\n", color='w')  # Add final newline for spacing
+
+  return
