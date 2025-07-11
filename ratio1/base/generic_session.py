@@ -3551,45 +3551,30 @@ class GenericSession(BaseDecentrAIObject):
       --------
       deeploy_launch_container_app : Deploy a new containerized application
       """
-      # Create a block engine instance with the private key
-      block_engine = DefaultBlockEngine(
-        log=logger,
-        name="deeploy_close",
-        config={
-          BCct.K_PEM_FILE: signer_private_key_path,
-          BCct.K_PASSWORD: signer_private_key_password,
+
+
+      api_base_url, request_body = self.__generate_deeploy_request(
+        logger=logger,
+        signer_private_key_path=signer_private_key_path,
+        signer_private_key_password=signer_private_key_password,
+        request_params={
+          DEEPLOY_CT.DEEPLOY_KEYS.APP_ID: app_id,
+          DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
         }
       )
 
-      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
-
       endpoint = DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE
-      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {}}
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_ID] = app_id
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES] = target_nodes
-
-      nonce = f"0x{int(time.time() * 1000):x}"
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
-
-      # Sign the payload using eth_sign_payload
-      block_engine.eth_sign_payload(
-        payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
-        indent=1,
-        no_hash=True,
-        message_prefix="Please sign this message for Deeploy: "
-      )
-
-      response = requests.post(f"{api_base_url}/{endpoint}", json=request_data)
+      response = requests.post(f"{api_base_url}/{endpoint}", json=request_body)
       return response.json()
 
     def __generate_deeploy_request(self,
                                    logger,
-                                   signer_private_key_path: str,
-                                   signer_private_key_password: str,
-                                   app_alias: str,
-                                   signature,
-                                   target_nodes,
-                                   target_nodes_count,
+                                   signer_private_key_path,
+                                   signer_private_key_password,
+                                   app_alias=None,
+                                   signature=None,
+                                   target_nodes=None,
+                                   target_nodes_count=0,
                                    app_params={},
                                    request_params={}):
       """
@@ -3610,20 +3595,27 @@ class GenericSession(BaseDecentrAIObject):
       signer_private_key_password : str
           Password for the private key file if it's encrypted
           
-      app_alias : str
-          Application alias/name for identification in the Deeploy system
+      app_alias : str, optional
+          Application alias/name for identification in the Deeploy system.
+          Required for creation requests, not needed for deletion or query operations.
+          Defaults to None
           
-      signature : str
+      signature : str, optional
           The plugin signature that identifies the type of application to deploy
-          (e.g., CONTAINER_APP_RUNNER, TELEGRAM_BASIC_BOT_01, CUSTOM_EXEC_01)
+          (e.g., CONTAINER_APP_RUNNER, TELEGRAM_BASIC_BOT_01, CUSTOM_EXEC_01).
+          Required for creation requests, not needed for deletion or query operations.
+          Defaults to None
           
-      target_nodes : list
+      target_nodes : list, optional
           List of specific node addresses to deploy the application to.
-          If empty, uses target_nodes_count instead
+          If empty, uses target_nodes_count instead.
+          Required for creation requests, optional for other operations.
+          Defaults to None
           
-      target_nodes_count : int
+      target_nodes_count : int, optional
           Number of nodes to deploy to when target_nodes is not specified.
-          Used when you want Deeploy to automatically select nodes
+          Used when you want Deeploy to automatically select nodes.
+          Defaults to 0
           
       app_params : dict, optional
           Application-specific parameters that will be passed to the deployed application.
@@ -3656,16 +3648,32 @@ class GenericSession(BaseDecentrAIObject):
       ...     target_nodes_count=0,
       ...     app_params={"image": "nginx:latest", "port": 80}
       ... )
+      
+      Generate a request for deleting an application (no signature/app_alias needed):
+      
+      >>> api_url, request = session.__generate_deeploy_request(
+      ...     logger=my_logger,
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     signer_private_key_password="",
+      ...     request_params={"app_id": "my_app_12345", "target_nodes": ["node1_address"]}
+      ... )
       """
 
       request_body = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
-        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: app_alias,
-        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: signature,
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
-        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS: app_params,
         **request_params
       }}
+      
+      # Add creation-specific fields only if provided
+      if app_alias is not None:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS] = app_alias
+      if signature is not None:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE] = signature
+      if target_nodes is not None:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES] = target_nodes
+      if target_nodes_count > 0:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT] = target_nodes_count
+      if app_params:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = app_params
 
       # Check if PK exists
       if not os.path.isfile(signer_private_key_path):
