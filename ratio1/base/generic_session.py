@@ -3319,21 +3319,6 @@ class GenericSession(BaseDecentrAIObject):
       if target_nodes_count == 0 and len(target_nodes) == 0:
         raise ValueError("You must specify at least one target node to deploy the container app.")
 
-      # Check if PK exists
-      if not os.path.isfile(signer_private_key_path):
-        raise ValueError("Private key path is not valid.")
-
-      # Create a block engine instance with the private key
-      block_engine = DefaultBlockEngine(
-        log=logger,
-        name="deeploy_launch_container_app",
-        config={
-          BCct.K_PEM_FILE: signer_private_key_path,
-          BCct.K_PASSWORD: signer_private_key_password,
-        }
-      )
-
-      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
       #####################################################
 
       assert callable(message_handler), "The `message_handler` method parameter must be provided."
@@ -3366,41 +3351,34 @@ class GenericSession(BaseDecentrAIObject):
 
 
       #####################################################
-      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
-        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
-        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: signature,
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
-      }}
-
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = {
-        'TELEGRAM_BOT_TOKEN': telegram_bot_token,
-        'TELEGRAM_BOT_NAME': telegram_bot_name,
-        'MESSAGE_HANDLER': func_base64_code,
-        'MESSAGE_HANDLER_ARGS': func_args,  # mandatory message and user
-        'MESSAGE_HANDLER_NAME': func_name,  # not mandatory
-        'PROCESSING_HANDLER': proc_func_base64_code,  # not mandatory
-        'PROCESSING_HANDLER_ARGS': proc_func_args,  # not mandatory
+      app_params = {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_TELEGRAM_BOT_TOKEN: telegram_bot_token,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_TELEGRAM_BOT_NAME: telegram_bot_name,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_MESSAGE_HANDLER: func_base64_code,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_MESSAGE_HANDLER_ARGS: func_args,  # mandatory message and user
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_MESSAGE_HANDLER_NAME: func_name,  # not mandatory
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_PROCESSING_HANDLER: proc_func_base64_code,  # not mandatory
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_PROCESSING_HANDLER_ARGS: proc_func_args,  # not mandatory
       }
 
+      api_base_url, request_body = self.__generate_deeploy_request(
+        logger=logger,
+        signer_private_key_path=signer_private_key_path,
+        signer_private_key_password=signer_private_key_password,
+        app_alias=name,
+        signature=signature,
+        target_nodes=target_nodes,
+        target_nodes_count=target_nodes_count,
+        app_params=app_params
+      )
+
+
       try:
-        # Set the nonce for the request
-        nonce = f"0x{int(time.time() * 1000):x}"
-        request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
-
-        # Sign the payload using eth_sign_payload
-        signature = block_engine.eth_sign_payload(
-          payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
-          indent=1,
-          no_hash=True,
-          message_prefix="Please sign this message for Deeploy: "
-        )
-
         # Send request
         response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
         return response.json()
       except Exception as e:
-        logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
+        logger.P(f"Error during deeploy_simple_telegram_bot: {e}", color='r', show=True)
         raise e
 
     def deeploy_custom_code(self,
@@ -3418,18 +3396,40 @@ class GenericSession(BaseDecentrAIObject):
       Deploy custom Python code on the Ratio1 Edge Protocol network using the Deeploy API.
       Parameters
       ----------
-      signer_private_key_path
-      logger
-      custom_code
-      target_nodes
-      target_nodes_count
-      signer_private_key_password
-      name
-      signature
-      config
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the deployment request
+          
+      logger : Logger
+          Logger instance for recording deployment activities and errors
+          
+      custom_code : callable
+          Python function to deploy. Must be a callable function that will be serialized and deployed to edge nodes.
+          The function will be validated for syntax errors before deployment.
+          
+      target_nodes : list, optional
+          List of specific node addresses to deploy the custom code to.
+          If empty, uses target_nodes_count instead. Defaults to []
+          
+      target_nodes_count : int, optional
+          Number of nodes to deploy to when target_nodes is not specified. Defaults to 0
+          
+      signer_private_key_password : str, optional
+          Password for the private key file if it's encrypted. Defaults to ''
+          
+      name : str, optional
+          Application alias/name for identification. Defaults to "deeploy_custom_code"
+          
+      signature : str, optional
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_EXEC_01
+          
+      config : dict, optional
+          Additional configuration parameters to pass to the deployed custom code.
+          These parameters will be available to the custom code at runtime. Defaults to {}
 
       Returns
       -------
+      dict
+          JSON response from the Deeploy API containing deployment status and details
 
       """
       if target_nodes_count == 0 and len(target_nodes) == 0:
@@ -3447,7 +3447,7 @@ class GenericSession(BaseDecentrAIObject):
         raise ValueError(f"Custom code has errors: {error_messages}")
       #####################################################
       app_params = {
-        'CODE': custom_code_base64,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CODE: custom_code_base64,
         **config
       }
 
