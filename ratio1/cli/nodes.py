@@ -115,10 +115,15 @@ def get_supervisors(args):
     online_only=True,
     supervisors_only=True,
     return_session=True,
+    eth=args.eth,
+    all_info=args.wide,    
   )
   df, supervisor, super_alias, nr_supers, elapsed, sess = res
   FILTERED = ['Oracle', 'State']
   df = df[[c for c in df.columns if c not in FILTERED]]
+
+  import pandas as pd
+  pd.set_option('display.float_format', '{:.4f}'.format)
   
   if supervisor == "ERROR":
     log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')

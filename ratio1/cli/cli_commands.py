@@ -42,6 +42,10 @@ CLI_COMMANDS = {
         "supervisors": {
             "func": get_supervisors, # DONE
             "description": "Get the list of available supervisor oracles",
+            "params": {
+                "--eth" : "Use a specific node (flag)",
+                "--wide" : "Display all available information (flag)",
+            }
         },
         "eth" : {
             "func": get_eth_addr,
