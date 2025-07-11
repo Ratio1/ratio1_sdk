@@ -3375,7 +3375,7 @@ class GenericSession(BaseDecentrAIObject):
 
       try:
         # Send request
-        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
+        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_body)
         return response.json()
       except Exception as e:
         logger.P(f"Error during deeploy_simple_telegram_bot: {e}", color='r', show=True)
@@ -3660,9 +3660,10 @@ class GenericSession(BaseDecentrAIObject):
       """
 
       request_body = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
         **request_params
       }}
-      
+
       # Add creation-specific fields only if provided
       if app_alias is not None:
         request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS] = app_alias
@@ -3670,8 +3671,6 @@ class GenericSession(BaseDecentrAIObject):
         request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE] = signature
       if target_nodes is not None:
         request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES] = target_nodes
-      if target_nodes_count > 0:
-        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT] = target_nodes_count
       if app_params:
         request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = app_params
 

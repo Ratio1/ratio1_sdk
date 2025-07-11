@@ -55,9 +55,9 @@ if __name__ == '__main__':
 
   launch_result = session.deeploy_custom_code(
     name="r1_deeploy_custom_code",
-    singer_private_key_path=private_key_path,
+    signer_private_key_path=private_key_path,
     target_nodes=target_nodes,
-    # target_nodes_count=0,  # if you want to deploy to all nodes, set this to 0
+    # target_nodes_count=0,  # if you are specifying target nodes addresses, set this to 0
     logger=logger,
     custom_code=plugin_custom_code,
     config={
