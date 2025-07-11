@@ -384,12 +384,14 @@ def _display_node_stats_for_hb(node_hb, wide=False):
   """
   from ratio1 import HEARTBEAT_DATA
   from ratio1.utils.config import log_with_color
+  from ratio1.const.base import BCctbase
+  from ratio1 import PAYLOAD_DATA
 
   # Extract basic node info
   ee_id = node_hb.get(HEARTBEAT_DATA.EE_ID, 'Unknown')
   node_addr = node_hb.get(HEARTBEAT_DATA.EE_ADDR, 'Unknown')
-  eth_addr = node_hb.get(HEARTBEAT_DATA.EE_ETH_SENDER, 'Unknown')
-  ee_version = node_hb.get(HEARTBEAT_DATA.EE_VERSION, 'Unknown')
+  eth_addr = node_hb.get(BCctbase.ETH_SENDER, 'Unknown')
+  ee_version = node_hb.get(PAYLOAD_DATA.EE_VERSION, 'Unknown')
   uptime = node_hb.get(HEARTBEAT_DATA.UPTIME, 0)
   
   # Display node header
