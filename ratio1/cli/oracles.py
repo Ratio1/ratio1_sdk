@@ -247,7 +247,7 @@ if True:
     ]
 
     # 1. Send restart command to Seed Nodes.
-    log_with_color(f"Sending restart commands to seed nodes: {seed_nodes_addresses}", color='b')
+    log_with_color(f"Sending restart commands to {len(seed_nodes_addresses)} seed nodes: {seed_nodes_addresses}", color='b')
     _send_restart_command(session=session, nodes=seed_nodes_addresses)
 
     # Remove seed node addresses from all_nodes_addresses
@@ -257,12 +257,13 @@ if True:
     sleep(30)
 
     # 2. Send restart commands to all Oracle nodes, except seed nodes.
-    log_with_color(f"Sending restart commands to all Oracle nodes, except seed nodes: {remaining_nodes}", color='b')
     oracle_nodes_addresses = [
       node['address']
       for node in remaining_nodes
       if node['oracle'] == True
     ]
+
+    log_with_color(f"Sending restart commands to {len(oracle_nodes_addresses)} Non-Seed Oracle nodes, except seed nodes: {remaining_nodes}", color='b')
 
     _send_restart_command(session=session, nodes=oracle_nodes_addresses)
 
@@ -279,11 +280,20 @@ if True:
     sleep(30)
 
     # 3. Send restart command to all remaining edge nodes.
-    log_with_color(f"Sending restart commands to all remaining edge nodes: {remaining_nodes_addresses}", color='b')
+    log_with_color(f"Sending restart commands to {len(remaining_nodes_addresses)} remaining edge nodes: {remaining_nodes_addresses}", color='b')
 
     _send_restart_command(session=session, nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
 
+    restarted_seed_nodes_count = len(seed_nodes_addresses)
+    restarted_oracle_nodes_count = len(oracle_nodes_addresses)
+    restarted_edge_nodes_count = len(remaining_nodes_addresses)
+    total_restarted_nodes_count = restarted_seed_nodes_count + restarted_oracle_nodes_count + restarted_edge_nodes_count
     log_with_color(f"All nodes restarted successfully.", color='g')
+    log_with_color("======================================================", color='b')
+    log_with_color(f"Total restarted {total_restarted_nodes_count} Nodes", color='b')
+    log_with_color(f"Restarted {restarted_seed_nodes_count} Seed Oracle Nodes", color='b')
+    log_with_color(f"Restarted {restarted_oracle_nodes_count} Non-Seed Oracle Nodes", color='b')
+    log_with_color(f"Restarted {restarted_edge_nodes_count} Edge Nodes", color='b')
 
     session.close()
     return
