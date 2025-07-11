@@ -188,11 +188,12 @@ if True:
     return all_online_nodes
 
 
-  def _send_restart_command(nodes, timeout_min=0, timeout_max=0, verbose=True):
+  def _send_restart_command(session, nodes, timeout_min=0, timeout_max=0, verbose=True):
     """
     Send a restart command to the specified nodes.
 
     Parameters:
+      session (Session): Session object.
       nodes (list): List of node addresses to send the restart command to.
       timeout_min (int): Minimum timeout in seconds for the command to complete.
       timeout_max (int): Maximum timeout in seconds for the command to complete.
@@ -200,15 +201,16 @@ if True:
     """
     for node in nodes:
       # Create an args object that restart_node expects
-      args = Namespace(node=node, verbose=verbose)
-      restart_node(args)
+      session._send_command_restart_node(node)
       timeout = randint(timeout_min, timeout_max)
-      log_with_color(f"Waiting {timeout} seconds before next restart...", color='y')
+      log_with_color("".join([f"Restarting {node} | ",
+                              f"Waiting {timeout} seconds before next restart..."]),
+                     color='y')
       sleep(timeout)
     return
 
 
-  def oracle_rollout():
+  def oracle_rollout(args):
     """
     This function performs an oracle rollout by restarting seed nodes, oracle nodes, and edge nodes in sequence.
     It first restarts the seed nodes, waits for a specified time, then restarts all oracle nodes except the seed nodes,
@@ -216,16 +218,24 @@ if True:
 
     This function is needed in order to ensure that all nodes in the network receive the new configuration defined on the seed nodes.
     """
-    session = Session()
+    silent = not args.verbose
+    session = Session(
+      silent=True
+    )
     current_network = session.bc_engine.current_evm_network
     session.close()
+
     log_with_color(f"ATTENTION! Current network: {current_network}", color='y')
-    log_with_color(f"Are you sure you want to restart all nodes on the network {current_network}?", color='b')
-    user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...")
+    log_with_color(f"Are you sure you want to restart ALL nodes on the network {current_network}?", color='b')
+    user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...\n >")
 
     if user_confirmation != f"RESTART ALL on {current_network}":
       log_with_color("Aborted by user...", color='y')
       return
+
+    session = Session(
+      silent=silent
+    )
 
     seed_nodes_addresses = _get_seed_nodes(current_network)
 
@@ -237,8 +247,8 @@ if True:
     ]
 
     # 1. Send restart command to Seed Nodes.
-    log_with_color(f"Sending restart commands to seed nodes: {seed_nodes_addresses}", color='b')
-    _send_restart_command(seed_nodes_addresses)
+    log_with_color(f"Sending restart commands to {len(seed_nodes_addresses)} seed nodes: {seed_nodes_addresses}", color='b')
+    _send_restart_command(session=session, nodes=seed_nodes_addresses)
 
     # Remove seed node addresses from all_nodes_addresses
     log_with_color(
@@ -247,14 +257,15 @@ if True:
     sleep(30)
 
     # 2. Send restart commands to all Oracle nodes, except seed nodes.
-    log_with_color(f"Sending restart commands to all Oracle nodes, except seed nodes: {remaining_nodes}", color='b')
     oracle_nodes_addresses = [
       node['address']
       for node in remaining_nodes
       if node['oracle'] == True
     ]
 
-    _send_restart_command(nodes=oracle_nodes_addresses)
+    log_with_color(f"Sending restart commands to {len(oracle_nodes_addresses)} Non-Seed Oracle nodes, except seed nodes: {remaining_nodes}", color='b')
+
+    _send_restart_command(session=session, nodes=oracle_nodes_addresses)
 
     # Remove oracle node addresses from all_nodes_addresses
     remaining_nodes_addresses = [
@@ -269,12 +280,22 @@ if True:
     sleep(30)
 
     # 3. Send restart command to all remaining edge nodes.
-    log_with_color(f"Sending restart commands to all remaining edge nodes: {remaining_nodes_addresses}", color='b')
+    log_with_color(f"Sending restart commands to {len(remaining_nodes_addresses)} remaining edge nodes: {remaining_nodes_addresses}", color='b')
 
-    _send_restart_command(nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
+    _send_restart_command(session=session, nodes=remaining_nodes_addresses, timeout_min=5, timeout_max=25)
 
+    restarted_seed_nodes_count = len(seed_nodes_addresses)
+    restarted_oracle_nodes_count = len(oracle_nodes_addresses)
+    restarted_edge_nodes_count = len(remaining_nodes_addresses)
+    total_restarted_nodes_count = restarted_seed_nodes_count + restarted_oracle_nodes_count + restarted_edge_nodes_count
     log_with_color(f"All nodes restarted successfully.", color='g')
+    log_with_color("======================================================", color='b')
+    log_with_color(f"Total restarted {total_restarted_nodes_count} Nodes", color='b')
+    log_with_color(f"Restarted {restarted_seed_nodes_count} Seed Oracle Nodes", color='b')
+    log_with_color(f"Restarted {restarted_oracle_nodes_count} Non-Seed Oracle Nodes", color='b')
+    log_with_color(f"Restarted {restarted_edge_nodes_count} Edge Nodes", color='b')
 
+    session.close()
     return
 
 

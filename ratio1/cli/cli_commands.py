@@ -10,9 +10,9 @@ and it is used by cli.py
 """
 
 from ratio1.cli.nodes import (
-  get_nodes, get_supervisors, 
+  get_nodes, get_supervisors,
   restart_node, shutdown_node,
-  get_apps
+  get_apps, inspect_node
 )
 from ratio1.cli.oracles import get_availability, oracle_rollout
 from ratio1.utils.config import (
@@ -122,14 +122,16 @@ CLI_COMMANDS = {
         "func": restart_node,
         "description": "Restart a node",
         "params": {
-            "node": "The node to restart"
+            "node": "The node to restart",
+            "--ignore-peering": "Ignore peering when running the command (flag)",
         }
     },
     "shutdown": {
         "func": shutdown_node,
         "description": "Shutdown a node",
         "params": {
-            "node": "The node to shutdown"
+            "node": "The node to shutdown",
+            "--ignore-peering": "Ignore peering when running the command (flag)",
         }
     },
     "update": {
@@ -141,6 +143,14 @@ CLI_COMMANDS = {
     },
     "oracle-rollout": {
         "func": oracle_rollout,
-        "description": "Rollout update on all nodes in the network. The rollout order is seed nodes -> oracle nodes -> all other edge nodes. This command is needed when defining new environment variables in seed nodes, in order to make it available to all nodes in the network.",
-    }
+        "description": "Rollout update on all nodes in the network. The rollout order is seed nodes -> oracle nodes -> all other edge nodes. This command is needed when defining new environment variables in seed nodes, in order to make it available to all nodes in the network."
+    },
+    "inspect": {
+        "func": inspect_node,
+        "description": "Inspect a node by address or alias.",
+        "params": {
+            "node": "The node address or alias to inspect",
+            "--wide": "Display all available information (flag)"
+        }
+    },
 }
