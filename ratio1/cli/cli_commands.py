@@ -119,7 +119,7 @@ CLI_COMMANDS = {
         "description": "Restart a node",
         "params": {
             "node": "The node to restart",
-            "--ignore-peering": "Ignore peering when running the command.",
+            "--ignore-peering": "Ignore peering when running the command (flag)",
         }
     },
     "shutdown": {
@@ -127,7 +127,7 @@ CLI_COMMANDS = {
         "description": "Shutdown a node",
         "params": {
             "node": "The node to shutdown",
-            "--ignore-peering": "Ignore peering when running the command.",
+            "--ignore-peering": "Ignore peering when running the command (flag)",
         }
     },
     "update": {

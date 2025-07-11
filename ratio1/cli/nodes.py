@@ -206,8 +206,8 @@ def get_apps(args):
 def _send_command_to_node(args, command, ignore_not_found=False):
   node = args.node
   silent = not args.verbose   
+  ignore_peering = args.ignore_peering
 
-  
   t1 = time()
   df, _, _, _, _, sess = _get_netstats(
     silent=silent, online_only=True, return_session=True, all_info=True,
@@ -228,17 +228,21 @@ def _send_command_to_node(args, command, ignore_not_found=False):
     node_addr = df_found.Address.values[0]   
     log_with_color(f"{df_found}")
   else:
-    log_with_color("Node '{}' <{}> not found in network (toal {} nodes, {} peered).".format(
+    log_with_color("Node '{}' <{}> not found in network (total {} nodes, {} peered).".format(
       node, node_addr, df.shape[0], df.Peered.sum()), color='r'
     )
     node_addr = node
-    
+
+  if not peered and not ignore_peering:
+    log_with_color(f"Node '{node}' <{node_addr}> not peered, exiting...", color='r')
+    return
+
   if not peered:
     if found:
       log_with_color(f"Node '{node}' <{node_addr}> is not peered.", color='r')
     else:
       log_with_color(f"Node '{node}' <{node_addr}> may not accept this command.", color='r')
-    
+
   # TODO: currently this is based on node alias, but we should be based on node address
   #       and maybe even node alias
   if (found and peered) or ignore_not_found:
@@ -266,23 +270,6 @@ def restart_node(args):
       Arguments passed to the function.
   """
   node = args.node
-  ignore_peering = args.ignore_peering
-  verbose = args.verbose
-
-  if not ignore_peering:
-    # Checking if the node is peered
-    df, _, _, _, _, session = _get_netstats(
-      silent=not verbose, online_only=True, return_session=True, all_info=True,
-      wait_for_node=node
-    )
-    peered = df.Peered.values[0]
-    sdk_address = session.client_address
-    if not peered:
-      log_with_color("".join([
-        f"Node <{node}> is not peered with your SDK <{sdk_address}>.",
-        "Please, whitelist your SDK before running the command."]),
-        color='r')
-      return
 
   log_with_color(f"Attempting to restart node <{node}>", color='b')
   _send_command_to_node(args, COMMANDS.RESTART, ignore_not_found=True)
@@ -299,23 +286,6 @@ def shutdown_node(args):
       Arguments passed to the function.
   """
   node = args.node
-  ignore_peering = args.ignore_peering
-  verbose = args.verbose
-
-  if not ignore_peering:
-    # Checking if the node is peered
-    df, _, _, _, _, session = _get_netstats(
-      silent=not verbose, online_only=True, return_session=True, all_info=True,
-      wait_for_node=node
-    )
-    peered = df.Peered.values[0]
-    sdk_address = session.client_address
-    if not peered:
-      log_with_color("".join([
-        f"Node <{node}> is not peered with your SDK <{sdk_address}>.",
-        "Please, whitelist your SDK before running the command."]),
-        color='r')
-      return
 
   log_with_color(f"Attempting to shutdown node <{node}>", color='b')
   _send_command_to_node(args, COMMANDS.STOP, ignore_not_found=True)
