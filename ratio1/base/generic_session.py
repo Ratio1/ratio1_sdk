@@ -27,7 +27,6 @@ from ..const import (
   BLOCKCHAIN_CONFIG, SESSION_CT, NET_CONFIG
 )
 from ..const import comms as comm_ct
-from ..const.evm_net import EVM_NET_DATA, EvmNetData
 from ..const import DEEPLOY_CT
 from ..io_formatter import IOFormatterWrapper
 from ..logging import Logger
@@ -1548,7 +1547,7 @@ class GenericSession(BaseDecentrAIObject):
           If no oracles are found for the wallet on the current network
       """
       current_network = block_engine.current_evm_network
-      api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
+      api_base_url = block_engine.get_deeploy_url()
 
       wallet_nodes = block_engine.web3_get_wallet_nodes(block_engine.eth_address)
       oracles_on_the_network = block_engine.web3_get_oracles(current_network)
@@ -1749,6 +1748,13 @@ class GenericSession(BaseDecentrAIObject):
       """
       dct_aliases = {v: k for k, v in self.__dct_node_address_to_alias.items()}
       return dct_aliases
+
+    def get_node_address(self, node):
+      """
+      A public wrapper for __get_node_address.
+      """
+      return self.__get_node_address(node)
+
 
     def __get_node_address(self, node):
       """
@@ -2316,6 +2322,19 @@ class GenericSession(BaseDecentrAIObject):
           active_supervisors.append(node)
 
       return active_supervisors
+
+    def get_last_hb(self):
+      """
+      Get the last heartbeat of all nodes.
+
+      Returns
+      -------
+      dict
+          A dictionary with the last heartbeat of all nodes.
+          Where the key is the node address and the value is the last heartbeat.
+      """
+      return self._dct_online_nodes_last_heartbeat
+
 
     def attach_to_pipeline(self, *,
                            node,
@@ -3307,21 +3326,6 @@ class GenericSession(BaseDecentrAIObject):
       if target_nodes_count == 0 and len(target_nodes) == 0:
         raise ValueError("You must specify at least one target node to deploy the container app.")
 
-      # Check if PK exists
-      if not os.path.isfile(signer_private_key_path):
-        raise ValueError("Private key path is not valid.")
-
-      # Create a block engine instance with the private key
-      block_engine = DefaultBlockEngine(
-        log=logger,
-        name="deeploy_launch_container_app",
-        config={
-          BCct.K_PEM_FILE: signer_private_key_path,
-          BCct.K_PASSWORD: signer_private_key_password,
-        }
-      )
-
-      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
       #####################################################
 
       assert callable(message_handler), "The `message_handler` method parameter must be provided."
@@ -3354,42 +3358,125 @@ class GenericSession(BaseDecentrAIObject):
 
 
       #####################################################
-      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
-        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
-        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: signature,
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
-      }}
-
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = {
-        'TELEGRAM_BOT_TOKEN': telegram_bot_token,
-        'TELEGRAM_BOT_NAME': telegram_bot_name,
-        'MESSAGE_HANDLER': func_base64_code,
-        'MESSAGE_HANDLER_ARGS': func_args,  # mandatory message and user
-        'MESSAGE_HANDLER_NAME': func_name,  # not mandatory
-        'PROCESSING_HANDLER': proc_func_base64_code,  # not mandatory
-        'PROCESSING_HANDLER_ARGS': proc_func_args,  # not mandatory
+      app_params = {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_TELEGRAM_BOT_TOKEN: telegram_bot_token,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_TELEGRAM_BOT_NAME: telegram_bot_name,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_MESSAGE_HANDLER: func_base64_code,
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_MESSAGE_HANDLER_ARGS: func_args,  # mandatory message and user
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_MESSAGE_HANDLER_NAME: func_name,  # not mandatory
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_PROCESSING_HANDLER: proc_func_base64_code,  # not mandatory
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_PROCESSING_HANDLER_ARGS: proc_func_args,  # not mandatory
       }
 
+      api_base_url, request_body = self.__generate_deeploy_request(
+        logger=logger,
+        signer_private_key_path=signer_private_key_path,
+        signer_private_key_password=signer_private_key_password,
+        app_alias=name,
+        signature=signature,
+        target_nodes=target_nodes,
+        target_nodes_count=target_nodes_count,
+        app_params=app_params
+      )
+
+
       try:
-        # Set the nonce for the request
-        nonce = f"0x{int(time.time() * 1000):x}"
-        request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
-
-        # Sign the payload using eth_sign_payload
-        signature = block_engine.eth_sign_payload(
-          payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
-          indent=1,
-          no_hash=True,
-          message_prefix="Please sign this message for Deeploy: "
-        )
-
         # Send request
-        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
+        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_body)
         return response.json()
       except Exception as e:
-        logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
+        logger.P(f"Error during deeploy_simple_telegram_bot: {e}", color='r', show=True)
         raise e
+
+    def deeploy_custom_code(self,
+                            signer_private_key_path: str,
+                            logger,
+                            custom_code=None,
+                            target_nodes=[],
+                            target_nodes_count=0,
+                            signer_private_key_password='',
+                            name="deeploy_custom_code",
+                            signature=PLUGIN_SIGNATURES.CUSTOM_EXEC_01,
+                            config={},
+                            ):
+      """
+      Deploy custom Python code on the Ratio1 Edge Protocol network using the Deeploy API.
+      Parameters
+      ----------
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the deployment request
+          
+      logger : Logger
+          Logger instance for recording deployment activities and errors
+          
+      custom_code : callable
+          Python function to deploy. Must be a callable function that will be serialized and deployed to edge nodes.
+          The function will be validated for syntax errors before deployment.
+          
+      target_nodes : list, optional
+          List of specific node addresses to deploy the custom code to.
+          If empty, uses target_nodes_count instead. Defaults to []
+          
+      target_nodes_count : int, optional
+          Number of nodes to deploy to when target_nodes is not specified. Defaults to 0
+          
+      signer_private_key_password : str, optional
+          Password for the private key file if it's encrypted. Defaults to ''
+          
+      name : str, optional
+          Application alias/name for identification. Defaults to "deeploy_custom_code"
+          
+      signature : str, optional
+          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_EXEC_01
+          
+      config : dict, optional
+          Additional configuration parameters to pass to the deployed custom code.
+          These parameters will be available to the custom code at runtime. Defaults to {}
+
+      Returns
+      -------
+      dict
+          JSON response from the Deeploy API containing deployment status and details
+
+      """
+      if target_nodes_count == 0 and len(target_nodes) == 0:
+        raise ValueError("You must specify at least one target node to deploy the container app.")
+
+      #####################################################
+
+      assert callable(custom_code), "The `custom_code` method parameter must be provided."
+
+      base_code_checker_inst = BaseCodeChecker()
+
+      plain_code = base_code_checker_inst.get_function_source_code(custom_code)
+      custom_code_base64, error_messages = base_code_checker_inst.code_to_base64(plain_code, return_errors=True)
+      if error_messages:
+        raise ValueError(f"Custom code has errors: {error_messages}")
+      #####################################################
+      app_params = {
+        DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CODE: custom_code_base64,
+        **config
+      }
+
+      api_base_url, request_body = self.__generate_deeploy_request(
+        logger=logger,
+        signer_private_key_path=signer_private_key_path,
+        signer_private_key_password=signer_private_key_password,
+        app_alias=name,
+        signature=signature,
+        target_nodes=target_nodes,
+        target_nodes_count=target_nodes_count,
+        app_params=app_params
+      )
+
+      try:
+        # Send request
+        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_body)
+        return response.json()
+      except Exception as e:
+        logger.P(f"Error during deeploy_custom_code: {e}", color='r', show=True)
+        raise e
+
 
     def deeploy_close(self, logger,
                       signer_private_key_path: str,
@@ -3471,37 +3558,157 @@ class GenericSession(BaseDecentrAIObject):
       --------
       deeploy_launch_container_app : Deploy a new containerized application
       """
+
+
+      api_base_url, request_body = self.__generate_deeploy_request(
+        logger=logger,
+        signer_private_key_path=signer_private_key_path,
+        signer_private_key_password=signer_private_key_password,
+        request_params={
+          DEEPLOY_CT.DEEPLOY_KEYS.APP_ID: app_id,
+          DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
+        }
+      )
+
+      endpoint = DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE
+      response = requests.post(f"{api_base_url}/{endpoint}", json=request_body)
+      return response.json()
+
+    def __generate_deeploy_request(self,
+                                   logger,
+                                   signer_private_key_path,
+                                   signer_private_key_password,
+                                   app_alias=None,
+                                   signature=None,
+                                   target_nodes=None,
+                                   target_nodes_count=0,
+                                   app_params={},
+                                   request_params={}):
+      """
+      Generate a signed Deeploy API request for deploying applications to edge nodes.
+      
+      This method creates a properly formatted and cryptographically signed request
+      that can be sent to the Deeploy API for deploying various types of applications
+      (containers, custom code, Telegram bots, etc.) to the Ratio1 Edge Protocol network.
+
+      Parameters
+      ----------
+      logger : Logger
+          Logger instance for recording request generation activities and errors
+          
+      signer_private_key_path : str
+          Path to the PEM file containing the private key used for signing the request
+          
+      signer_private_key_password : str
+          Password for the private key file if it's encrypted
+          
+      app_alias : str, optional
+          Application alias/name for identification in the Deeploy system.
+          Required for creation requests, not needed for deletion or query operations.
+          Defaults to None
+          
+      signature : str, optional
+          The plugin signature that identifies the type of application to deploy
+          (e.g., CONTAINER_APP_RUNNER, TELEGRAM_BASIC_BOT_01, CUSTOM_EXEC_01).
+          Required for creation requests, not needed for deletion or query operations.
+          Defaults to None
+          
+      target_nodes : list, optional
+          List of specific node addresses to deploy the application to.
+          If empty, uses target_nodes_count instead.
+          Required for creation requests, optional for other operations.
+          Defaults to None
+          
+      target_nodes_count : int, optional
+          Number of nodes to deploy to when target_nodes is not specified.
+          Used when you want Deeploy to automatically select nodes.
+          Defaults to 0
+          
+      app_params : dict, optional
+          Application-specific parameters that will be passed to the deployed application.
+          These parameters vary depending on the application type and signature.
+          Defaults to {}
+          
+      request_params : dict, optional
+          Additional parameters to include in the request payload.
+          These are typically metadata or configuration options for the deployment process.
+          Defaults to {}
+
+      Returns
+      -------
+      tuple
+          A tuple containing (api_base_url, request_body) where:
+          - api_base_url (str): The base URL for the Deeploy API endpoint
+          - request_body (dict): The complete signed request payload ready for HTTP transmission
+
+      Examples
+      --------
+      Generate a request for deploying a container application:
+      
+      >>> api_url, request = session.__generate_deeploy_request(
+      ...     logger=my_logger,
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     signer_private_key_password="",
+      ...     app_alias="my_web_app",
+      ...     signature="CONTAINER_APP_RUNNER",
+      ...     target_nodes=["node1_address", "node2_address"],
+      ...     target_nodes_count=0,
+      ...     app_params={"image": "nginx:latest", "port": 80}
+      ... )
+      
+      Generate a request for deleting an application (no signature/app_alias needed):
+      
+      >>> api_url, request = session.__generate_deeploy_request(
+      ...     logger=my_logger,
+      ...     signer_private_key_path="/path/to/private_key.pem",
+      ...     signer_private_key_password="",
+      ...     request_params={"app_id": "my_app_12345", "target_nodes": ["node1_address"]}
+      ... )
+      """
+
+      request_body = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
+        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
+        **request_params
+      }}
+
+      # Add creation-specific fields only if provided
+      if app_alias is not None:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS] = app_alias
+      if signature is not None:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE] = signature
+      if target_nodes is not None:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES] = target_nodes
+      if app_params:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = app_params
+
+      # Check if PK exists
+      if not os.path.isfile(signer_private_key_path):
+        raise ValueError("Private key path is not valid.")
+
       # Create a block engine instance with the private key
       block_engine = DefaultBlockEngine(
         log=logger,
-        name="deeploy_close",
+        name="deeploy_request_block_engine",
         config={
           BCct.K_PEM_FILE: signer_private_key_path,
           BCct.K_PASSWORD: signer_private_key_password,
         }
       )
 
-      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
-
-      endpoint = DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE
-      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {}}
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_ID] = app_id
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES] = target_nodes
-
+      # Set the nonce for the request
       nonce = f"0x{int(time.time() * 1000):x}"
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
+      request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
 
       # Sign the payload using eth_sign_payload
       block_engine.eth_sign_payload(
-        payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
+        payload=request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
         indent=1,
         no_hash=True,
         message_prefix="Please sign this message for Deeploy: "
       )
 
-      response = requests.post(f"{api_base_url}/{endpoint}", json=request_data)
-      return response.json()
-
+      _, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
+      return api_base_url, request_body
 
     def __is_assets_valid(self, assets, mandatory=True, raise_exception=True, default_field_values=None):
       if assets is None:
