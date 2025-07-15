@@ -313,19 +313,9 @@ def inspect_node(args):
     silent=silent
   )
   try:
+    node_address = session.get_node_address(node)
     last_hb = session.get_last_hb()
-    node_last_hb = last_hb.get(node)
-    if not node_last_hb:
-      # Check by ETH Address.
-      address = session.get_addr_by_eth_address(node)
-      node_last_hb = last_hb.get(address)
-
-    if not node_last_hb:
-      # Check by EE_ID (alias).
-      for _, node_hb in last_hb.items():
-        if node_hb.get("EE_ID") == node:
-          node_last_hb = node_hb
-          break
+    node_last_hb = last_hb.get(node_address)
 
     if not node_last_hb:
       # No last HB was found for specified Address, ETH Address or alias.

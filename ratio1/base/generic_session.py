@@ -1749,6 +1749,13 @@ class GenericSession(BaseDecentrAIObject):
       dct_aliases = {v: k for k, v in self.__dct_node_address_to_alias.items()}
       return dct_aliases
 
+    def get_node_address(self, node):
+      """
+      A public wrapper for __get_node_address.
+      """
+      return self.__get_node_address(node)
+
+
     def __get_node_address(self, node):
       """
       Get the address of a node. If node is an address, return it. Else, return the address of the node.
