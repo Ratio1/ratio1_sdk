@@ -337,7 +337,6 @@ EVM_NET_CONSTANTS = {
     EvmNetConstants.SEED_NODES_ADDRESSES_KEY: [
       "0xai_AhIQz47-2dpbncDTODXcP7_cByr0_CI9VEB1dCXnbbG7",  # dr1s-01
       "0xai_AgnygSlY8BwnmaCj6mItg36JHlG_Lh3UqqFaTPbuNzy0",  # dr1s-02
-      "0xai_A74xZKZJa4LekjvJ6oJz29qxOOs5nLClXAZEhYv59t3Z",  # dr1s-db-1
     ],
   },
 }
