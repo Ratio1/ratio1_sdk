@@ -2789,15 +2789,58 @@ class GenericSession(BaseDecentrAIObject):
 
       return pipeline, instance
 
+    def maybe_clean_kwargs(
+      self, _kwargs: dict,
+      caller_method_name: str,
+      solver_method_name: str,
+      parameters_to_remove: list[str]
+    ):
+      """
+      This method is used to clean the kwargs dictionary before passing it to a solver method.
+      It can also print warnings
+      Parameters
+      ----------
+      _kwargs : dict
+          The kwargs dictionary to clean.
+      caller_method_name : str
+          The name of the method that is calling this method.
+      solver_method_name : str
+          The name of the solver method that will receive the cleaned kwargs.
+      parameters_to_remove : list[str]
+          A list of parameters to remove from the kwargs dictionary.
+
+      Returns
+      -------
+      res : dict
+          The cleaned kwargs dictionary.
+      """
+
+      for _key in parameters_to_remove:
+        if not isinstance(_key, str):
+          continue
+        # endif param_name not str
+        if _key in _kwargs:
+          _kwargs.pop(_key)
+          warn_msg = f"WARNING! The '{caller_method_name}' passes its own `{_key}`, so the parameter is not used."
+          warn_msg += f" Use '{solver_method_name}' instead if you want to use the `{_key}` parameter."
+          self.log.P(warn_msg, color='y', show=True)
+        # endif _key in _kwargs
+      # endfor parameters to remove
+
+      return _kwargs
+
     def create_web_app(
       self,
       *,
       node,
       name="Ratio1 Web App",
       signature=PLUGIN_SIGNATURES.GENERIC_WEB_APP,
+      tunnel_engine="ngrok",
+      tunnel_engine_enabled=True,
+      cloudflare_token=None,
       ngrok_edge_label=None,
+      ngrok_use_api=True,
       endpoints=None,
-      use_ngrok=True,
       extra_debug=False,
       summary="Ratio1 WebApp created via SDK",
       description=None,
@@ -2805,6 +2848,9 @@ class GenericSession(BaseDecentrAIObject):
     ):
       """
       Create a new generic web app on a node.
+      If this uses tunnelling, the app will be exposed using either
+      a cloudflare token, an ngrok edge label or an automatically generated URL.
+      The URL can be automatically generated only in case of ngrok usage(which will also be discontinued).
       
       Parameters
       ----------
@@ -2817,17 +2863,48 @@ class GenericSession(BaseDecentrAIObject):
           
       signature : str, optional
           The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01.
-          
+
+      tunnel_engine : str, optional
+          The tunnel engine to use for exposing the web app. Defaults to "ngrok".
+          It can also be "cloudflare" for Cloudflare Tunnel.
+
+      tunnel_engine_enabled : bool, optional
+          If True, will use the specified tunnel engine to expose the web app. Defaults to True.
+
+      ngrok_edge_label : str, optional
+          The label of the edge node that will be used to expose the HTTP server. Defaults to None.
+
+      cloudflare_token : str, optional
+          The Cloudflare token to use for exposing the web app. Defaults to None.
+
       endpoints : list[dict], optional
           A list of dictionaries defining the endpoint configuration. Defaults to None.
-          
-      use_ngrok : bool, optional
-          If True, will use ngrok to expose the web app. Defaults to True.
-          
-      
       """
+      ngrok_kwargs = {}
+      cloudflare_kwargs = {}
 
-      ngrok_use_api = True
+      if tunnel_engine_enabled:
+        if tunnel_engine == "ngrok":
+          if not isinstance(ngrok_edge_label, str):
+            ngrok_edge_label = None
+            warn_msg = f"WARNING! Without a pre-defined `ngrok_edge_label`, the URL will be generated automatically, "
+            warn_msg += "but it will not be persistent across restarts."
+            self.P(warn_msg, color='y', show=True)
+            # raise ValueError(f"`ngrok_edge_label` must be a string when using ngrok tunnel engine. {type(ngrok_edge_label)} provided")
+          # endif ngrok edge label not valid
+          ngrok_kwargs = {
+            "ngrok_edge_label": ngrok_edge_label,
+            "ngrok_use_api": ngrok_use_api,
+          }
+        elif tunnel_engine == "cloudflare":
+          if not isinstance(cloudflare_token, str):
+            raise ValueError(f"`cloudflare` must be a string when using cloudflare tunnel engine. {type(cloudflare_token)} provided.")
+          cloudflare_kwargs = {
+            "cloudflare_token": cloudflare_token,
+          }
+        else:
+          raise ValueError("Unsupported tunnel engine: {}".format(tunnel_engine))
+      # endif tunnel engine enabled
       
       pipeline_name = name.replace(" ", "_").lower()
 
@@ -2842,12 +2919,13 @@ class GenericSession(BaseDecentrAIObject):
       instance = pipeline.create_plugin_instance(
         signature=signature,
         instance_id=self.log.get_unique_id(),
-        use_ngrok=use_ngrok,
-        ngrok_edge_label=ngrok_edge_label,
-        ngrok_use_api=ngrok_use_api,
+        tunnel_engine_enabled=tunnel_engine_enabled,
+        tunnel_engine=tunnel_engine,
         api_title=name,
         api_summary=summary,
         api_description=description,
+        **ngrok_kwargs,
+        **cloudflare_kwargs,
         **kwargs
       )
       
@@ -2865,16 +2943,20 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name="Ratio1 Custom Web API",
+      tunnel_engine="ngrok",
+      tunnel_engine_enabled=True,
       ngrok_edge_label=None,
+      cloudflare_token=None,
       endpoints=None,
-      use_ngrok=True,
       extra_debug=False,
       summary="Ratio1 Web API created via SDK",
       description=None,
       **kwargs):
       """
-      Creates a custom Web API with endpoints on a node using custom code and either a pre-defined edge label or generates the URL automatically.
-      
+      Creates a custom Web API with endpoints on a node using custom code.
+      If this uses tunnelling, the app will be exposed using either
+      a cloudflare token, an ngrok edge label or an automatically generated URL.
+      The URL can be automatically generated only in case of ngrok usage(which will also be discontinued).
 
       Parameters
       ----------
@@ -2885,18 +2967,21 @@ class GenericSession(BaseDecentrAIObject):
       name : str
           Name of the web app.
 
+      tunnel_engine : str, optional
+          The tunnel engine to use for exposing the web app. Defaults to "ngrok".
+          It can also be "cloudflare" for Cloudflare Tunnel.
+
+      tunnel_engine_enabled : bool, optional
+          If True, will use the specified tunnel engine to expose the web app. Defaults to True.
+
       ngrok_edge_label : str, optional
           The label of the edge node that will be used to expose the HTTP server. Defaults to None.
 
-      signature : str, optional
-          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01.
+      cloudflare_token : str, optional
+          The Cloudflare token to use for exposing the web app. Defaults to None.
 
       endpoints : list[dict], optional
           A list of dictionaries defining the endpoint configuration. Defaults to None.
-
-      use_ngrok : bool, optional
-          If True, will use ngrok to expose the web app. Defaults to True.
-          
           
       Returns
       -------
@@ -2911,7 +2996,8 @@ class GenericSession(BaseDecentrAIObject):
       pipeline, instance = session.create_custom_webapi(
         node="node_name",
         name="My Custom Web API",
-        ngrok_edge_label=None, # no edge specified, will generate url automatically and return it at deploy
+        tunnel_engine='cloudflare',
+        cloudflare_token="<cloudflare_token>",
         endpoints=[
           {
             "path": "/my_endpoint",
@@ -2919,7 +3005,6 @@ class GenericSession(BaseDecentrAIObject):
             "handler": my_handler_function,
           },
         ],
-        use_ngrok=True,
         extra_debug=True,
         summary="My Custom Web API",
         description="This is a custom web API created via the SDK.",
@@ -2930,13 +3015,21 @@ class GenericSession(BaseDecentrAIObject):
       
 
       """
+      kwargs = self.maybe_clean_kwargs(
+        _kwargs=kwargs,
+        caller_method_name="create_custom_webapi",
+        solver_method_name="create_web_app",
+        parameters_to_remove=["signature"]
+      )
       return self.create_web_app(
         node=node,
         name=name,
         signature=PLUGIN_SIGNATURES.CUSTOM_WEBAPI_01,
+        tunnel_engine=tunnel_engine,
+        tunnel_engine_enabled=tunnel_engine_enabled,
+        cloudflare_token=cloudflare_token,
         ngrok_edge_label=ngrok_edge_label,
         endpoints=endpoints,
-        use_ngrok=use_ngrok,
         extra_debug=extra_debug,
         summary=summary,
         description=description,
@@ -2948,8 +3041,10 @@ class GenericSession(BaseDecentrAIObject):
       *,
       node,
       name="Ratio1 Container Web App",
-      signature=PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER,
-      use_ngrok=True,
+      tunnel_engine_enabled=True,
+      tunnel_engine="ngrok",
+      cloudflare_token=None,
+      ngrok_edge_label=None,
       extra_debug=False,
       summary="Ratio1 Container WebApp created via SDK",
       description=None,
@@ -2967,38 +3062,39 @@ class GenericSession(BaseDecentrAIObject):
       name : str
           Name of the container web app.
 
-      signature : str, optional
-          The signature of the plugin that will be used. Defaults to PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER.
+      tunnel_engine : str, optional
+          The tunnel engine to use for exposing the web app. Defaults to "ngrok".
+          It can also be "cloudflare" for Cloudflare Tunnel.
 
-      use_ngrok : bool, optional
-          If True, will use ngrok to expose the web app. Defaults to True.
+      tunnel_engine_enabled : bool, optional
+          If True, will use the specified tunnel engine to expose the web app. Defaults to True.
+
+      ngrok_edge_label : str, optional
+          The label of the edge node that will be used to expose the HTTP server. Defaults to None.
+
+      cloudflare_token : str, optional
+          The Cloudflare token to use for exposing the web app. Defaults to None.
+
       """
-
-      ngrok_use_api = True
-
-      pipeline_name = name.replace(" ", "_").lower()
-
-      pipeline: WebappPipeline = self.create_pipeline(
-        node=node,
-        name=pipeline_name,
-        pipeline_type=WebappPipeline,
-        extra_debug=extra_debug,
-        # default TYPE is "Void"
+      kwargs = self.maybe_clean_kwargs(
+        _kwargs=kwargs,
+        caller_method_name="create_container_web_app",
+        solver_method_name="create_web_app",
+        parameters_to_remove=["signature"]
       )
-
-      instance = pipeline.create_plugin_instance(
-        signature=signature,
-        instance_id=self.log.get_unique_id(),
-        use_ngrok=use_ngrok,
-        ngrok_use_api=ngrok_use_api,
-        api_title=name,
-        api_summary=summary,
-        api_description=description,
+      return self.create_web_app(
+        node=node,
+        name=name,
+        signature=PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER,
+        tunnel_engine=tunnel_engine,
+        tunnel_engine_enabled=tunnel_engine_enabled,
+        cloudflare_token=cloudflare_token,
+        ngrok_edge_label=ngrok_edge_label,
+        extra_debug=extra_debug,
+        summary=summary,
+        description=description,
         **kwargs
       )
-
-      return pipeline, instance
-
 
     def deeploy_launch_container_app(
         self,
@@ -3798,7 +3894,10 @@ class GenericSession(BaseDecentrAIObject):
         *,
         node,
         name="Ratio1 HTTP Server",
+        tunnel_engine="ngrok",
+        tunnel_engine_enabled=True,
         ngrok_edge_label=None,
+        cloudflare_token=None,
         endpoints=None,
         extra_debug=False,
         summary="Ratio1 HTTP Server created via SDK",
@@ -3814,14 +3913,25 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
 
+
       node : str
-          Address or Name of the ratio1 Edge Protocol edge node that will handle this HTTP server.
+          Address or Name of the ratio1 Edge Protocol edge node that will handle this web app.
 
       name : str
-          Name of the HTTP server.
+          Name of the web app.
+
+      tunnel_engine : str, optional
+          The tunnel engine to use for exposing the web app. Defaults to "ngrok".
+          It can also be "cloudflare" for Cloudflare Tunnel.
+
+      tunnel_engine_enabled : bool, optional
+          If True, will use the specified tunnel engine to expose the web app. Defaults to True.
 
       ngrok_edge_label : str, optional
           The label of the edge node that will be used to expose the HTTP server. Defaults to None.
+
+      cloudflare_token : str, optional
+          The Cloudflare token to use for exposing the web app. Defaults to None.
 
       endpoints : list[dict], optional
           A list of dictionaries defining the endpoint configuration. Defaults to None.
@@ -3844,10 +3954,19 @@ class GenericSession(BaseDecentrAIObject):
       static_directory = static_directory or '.'
       self.__is_static_directory_valid(static_directory, raise_exception=True)
       endpoints = self.__maybe_add_root_endpoint(endpoints)
+      kwargs = self.maybe_clean_kwargs(
+        _kwargs=kwargs,
+        caller_method_name="create_http_server",
+        solver_method_name="create_web_app",
+        parameters_to_remove=["signature"]
+      )
       return self.create_web_app(
         node=node,
         name=name,
         signature=PLUGIN_SIGNATURES.GENERIC_HTTP_SERVER,
+        tunnel_engine=tunnel_engine,
+        tunnel_engine_enabled=tunnel_engine_enabled,
+        cloudflare_token=cloudflare_token,
         ngrok_edge_label=ngrok_edge_label,
         endpoints=endpoints,
         extra_debug=extra_debug,
@@ -3865,7 +3984,9 @@ class GenericSession(BaseDecentrAIObject):
       *,
       nodes,
       name,
-      ngrok_edge_label,
+      ngrok_edge_label=None,
+      cloudflare_token=None,
+      tunnel_engine="ngrok",
       signature=PLUGIN_SIGNATURES.GENERIC_WEB_APP,
       endpoints=None,
       extra_debug=False,
@@ -3894,6 +4015,13 @@ class GenericSession(BaseDecentrAIObject):
           The label of the edge node that will be used to expose the web app. This is mandatory due to the fact
           that the web app will be exposed using ngrok from multiple nodes that all will share the same edge label.
 
+      cloudflare_token : str, optional
+          The Cloudflare token to use for exposing the web app. Defaults to None.
+
+      tunnel_engine : str, optional
+          The tunnel engine to use for exposing the web app. Defaults to "ngrok".
+          It can also be "cloudflare" for Cloudflare Tunnel.
+
       endpoints : list[dict], optional
           A list of dictionaries defining the endpoint configuration. Defaults to None.
 
@@ -3902,40 +4030,40 @@ class GenericSession(BaseDecentrAIObject):
       """
 
       ngrok_use_api = kwargs.pop('ngrok_use_api', True)
-      use_ngrok = True
-      kwargs.pop('use_ngrok', None)
 
-      if ngrok_edge_label is None:
-        raise ValueError("The `ngrok_edge_label` parameter is mandatory when creating a balanced web app, in order for all instances to respond to the same URL.")
+      if tunnel_engine == "ngrok" and ngrok_edge_label is None:
+        err_msg = f"The `ngrok_edge_label` parameter is mandatory when creating a balanced web app tunneled with ngrok."
+        err_msg += "This is needed in order for all instances to respond to the same URL."
+        raise ValueError(err_msg)
+      # endif ngrok used and ngrok_edge_label is None
+
+      kwargs = self.maybe_clean_kwargs(
+        _kwargs=kwargs,
+        caller_method_name="create_and_deploy_balanced_web_app",
+        solver_method_name="create_web_app",
+        parameters_to_remove=[
+          "tunnel_engine_enabled"
+        ]
+      )
 
       pipelines, instances = [], []
 
       for node in nodes:
         self.P("Creating web app on node {}...".format(node), color='b')
-        pipeline: WebappPipeline = self.create_pipeline(
+
+        pipeline, instance = self.create_web_app(
           node=node,
           name=name,
-          pipeline_type=WebappPipeline,
-          extra_debug=extra_debug,
-          # default TYPE is "Void"
-        )
-
-        instance = pipeline.create_plugin_instance(
           signature=signature,
-          instance_id=self.log.get_unique_id(),
-          use_ngrok=use_ngrok,
+          tunnel_engine=tunnel_engine,
+          tunnel_engine_enabled=True,
+          cloudflare_token=cloudflare_token,
           ngrok_edge_label=ngrok_edge_label,
           ngrok_use_api=ngrok_use_api,
+          endpoints=endpoints,
+          extra_debug=extra_debug,
           **kwargs
         )
-
-        if endpoints is not None:
-          for endpoint in endpoints:
-            assert isinstance(endpoint, dict), "Each endpoint must be a dictionary defining the endpoint configuration."
-            instance.add_new_endpoint(**endpoint)
-          # end for
-        # end if we have endpoints defined in the call
-
         pipeline.deploy()
         pipelines.append(pipeline)
         instances.append(instance)
@@ -3981,6 +4109,8 @@ class GenericSession(BaseDecentrAIObject):
         nodes,
         name="Ratio1 HTTP Server",
         ngrok_edge_label=None,
+        cloudflare_token=None,
+        tunnel_engine="ngrok",
         endpoints=None,
         extra_debug=False,
         summary="Ratio1 HTTP Server created via SDK",
@@ -3996,7 +4126,7 @@ class GenericSession(BaseDecentrAIObject):
       Parameters
       ----------
 
-      nodes : str
+      nodes : list
           List of addresses or Names of the ratio1 Edge Protocol edge nodes that will handle this HTTP server.
 
       name : str
@@ -4030,6 +4160,8 @@ class GenericSession(BaseDecentrAIObject):
         nodes=nodes,
         name=name,
         signature=PLUGIN_SIGNATURES.GENERIC_HTTP_SERVER,
+        tunnel_engine=tunnel_engine,
+        cloudflare_token=cloudflare_token,
         ngrok_edge_label=ngrok_edge_label,
         endpoints=endpoints,
         extra_debug=extra_debug,
