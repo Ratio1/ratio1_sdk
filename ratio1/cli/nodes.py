@@ -227,6 +227,10 @@ def _send_command_to_node(args, command, ignore_not_found=False):
 
   # Display peering status.
   if not peered:
+    if not ignore_peering:
+      log_with_color(f"Node <{node_addr}> is not peered. Exiting...", color='r')
+      return
+
     if found:
       log_with_color(f"Node '{node}' <{node_addr}> is not peered.", color='r')
     else:
