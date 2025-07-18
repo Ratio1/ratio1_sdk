@@ -254,7 +254,7 @@ def _send_command_to_node(args, command, ignore_not_found=False):
   log_with_color(f"Command successfully sent.")
   elapsed = time() - t1
   if not silent:
-    log_with_color(f"Command '{command}' execution took {elapsed}s.", color='b')
+    log_with_color(f"Command '{command}' seinging took {elapsed}s.", color='b')
   return  
 
 def restart_node(args):
