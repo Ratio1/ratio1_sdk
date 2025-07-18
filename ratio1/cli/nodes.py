@@ -209,52 +209,39 @@ def get_apps(args):
   return
 
 def _send_command_to_node(args, command, ignore_not_found=False):
+  from ratio1 import Session
+
   node = args.node
   silent = not args.verbose   
   ignore_peering = args.ignore_peering
 
   t1 = time()
-  df, _, _, _, _, sess = _get_netstats(
-    silent=silent, online_only=True, return_session=True, all_info=True,
-    wait_for_node=node
-  )
-  
-  peered = None
-  selection = (df.Alias == node) | (df.Address == node)
-  if 'ETH Address' in df.columns:
-    selection = selection | (df['ETH Address'] == node)
-  found = selection.any()
-  node_addr = None
-  alias = None
-  df_found =  df[selection]
-  if found:
-    alias = df_found.Alias.values[0]
-    peered = df_found.Peered.values[0]
-    node_addr = df_found.Address.values[0]   
-    log_with_color(f"{df_found}")
-  else:
-    log_with_color("Node '{}' <{}> not found in network (total {} nodes, {} peered).".format(
-      node, node_addr, df.shape[0], df.Peered.sum()), color='r'
-    )
-    node_addr = node
+  sess = Session(silent=silent)
 
-  if not peered and not ignore_peering:
-    log_with_color(f"Node '{node}' <{node_addr}> not peered, exiting...", color='r')
-    return
+  peered, node_addr = sess.is_peered(node, return_full_address=True)
+  found = False
 
+  if not ignore_peering:
+    found = sess.wait_for_node(node_addr, timeout=30)
+    sess.P(f"Node {node_addr} is online.")
+
+  # Display peering status.
   if not peered:
+    if not ignore_peering:
+      log_with_color(f"Node <{node_addr}> is not peered. Exiting...", color='r')
+      return
+
     if found:
       log_with_color(f"Node '{node}' <{node_addr}> is not peered.", color='r')
     else:
       log_with_color(f"Node '{node}' <{node_addr}> may not accept this command.", color='r')
 
-  # TODO: currently this is based on node alias, but we should be based on node address
-  #       and maybe even node alias
-  if (found and peered) or ignore_not_found:
-    if found and peered:
-      log_with_color(f"Sending '{command}' to node '{alias}' <{node_addr}>", color='b')
-    else:
-      log_with_color(f"Sending blind '{command}' to node '{alias}' <{node_addr}>", color='b')      
+  if found and peered:
+    log_with_color(f"Sending '{command}' to node <{node_addr}>", color='b')
+  else:
+    log_with_color(f"Sending blind '{command}' to node <{node_addr}>", color='b')
+
+  if (found and peered) or ignore_not_found or ignore_peering:
     if command == COMMANDS.RESTART:
       sess._send_command_restart_node(node_addr)
     elif command == COMMANDS.STOP:
@@ -262,7 +249,12 @@ def _send_command_to_node(args, command, ignore_not_found=False):
     else:
       log_with_color(f"Command '{command}' not supported.", color='r')
       return
-  elapsed = time() - t1  
+
+  sess.close()
+  log_with_color(f"Command successfully sent.")
+  elapsed = time() - t1
+  if not silent:
+    log_with_color(f"Command '{command}' seinging took {elapsed}s.", color='b')
   return  
 
 def restart_node(args):

@@ -2696,7 +2696,7 @@ class GenericSession(BaseDecentrAIObject):
       node = self.__get_node_address(node)
       return node in self._dct_online_nodes_pipelines
 
-    def is_peered(self, node):
+    def is_peered(self, node, return_full_address=False):
       """
       Public method for checking if a node is peered with the current session.
       Parameters
@@ -2709,8 +2709,10 @@ class GenericSession(BaseDecentrAIObject):
       bool
           True if the node is peered, False otherwise.
       """
-      node = self.__get_node_address(node)
-      return self._dct_can_send_to_node.get(node, False)
+      node_addr = self.__get_node_address(node)
+      if return_full_address:
+        return self._dct_can_send_to_node.get(node_addr, False), node_addr
+      return self._dct_can_send_to_node.get(node_addr, False)
 
     def get_last_seen_time(self, node, *, default_value=0):
       """
