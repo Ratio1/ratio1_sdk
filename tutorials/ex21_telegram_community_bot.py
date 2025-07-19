@@ -29,13 +29,14 @@ def loop_processing(plugin: CustomPluginTemplate):
   # Define cache keys and file names for storing epoch review data and watched wallets
   epoch_review_cache_key = f"ratio1_epoch_review"
   watched_wallets_cache_key = f"ratio1_watched_wallets"
+  watched_wallets_loops_delay_cache_key = f"ratio1_watched_wallets_loops_delay"
   alert_cache_key = f"ratio1_node_alerts"
   cache_already_read_key = f"ratio1_epoch_review_already_read"
   diskapi_epoch_review_file_name = "ratio1_epoch_review_data.pkl"
   diskapi_watched_wallets_file_name = "ratio1_watched_wallets_data.pkl"
 
   def get_erc721_total_supply(contract_address: str) -> int:
-    return int(plugin.requests.post("https://base.drpc.org", json={
+    return int(plugin.requests.post("https://base-mainnet.public.blastapi.io", json={
       "jsonrpc": "2.0",
       "method": "eth_call",
       "params": [
@@ -83,32 +84,37 @@ def loop_processing(plugin: CustomPluginTemplate):
     plugin.obj_cache[epoch_review_cache_key] = plugin.diskapi_load_pickle_from_data(diskapi_epoch_review_file_name) or {}
     plugin.obj_cache[watched_wallets_cache_key] = plugin.diskapi_load_pickle_from_data(diskapi_watched_wallets_file_name) or {}
     plugin.obj_cache[alert_cache_key] = {}
+    plugin.obj_cache[watched_wallets_loops_delay_cache_key] = 30
     plugin.obj_cache[cache_already_read_key] = True # We use this flag to read the cache only once at the first run
 
   # Check users' watched wallets and notify if any node is offline
-  watched_wallets = plugin.obj_cache.get(watched_wallets_cache_key)
-  if watched_wallets is not None:
-    for user, wallets in watched_wallets.items():
-      for wallet in wallets:
-        wallet_nodes = plugin.bc.get_wallet_nodes(wallet)
-        for node in wallet_nodes:
-          if node == "0x0000000000000000000000000000000000000000":
-            continue
+  if plugin.obj_cache.get(watched_wallets_loops_delay_cache_key) == 30:
+    watched_wallets = plugin.obj_cache.get(watched_wallets_cache_key)
+    if watched_wallets is not None:
+      for user, wallets in watched_wallets.items():
+        for wallet in wallets:
+          wallet_nodes = plugin.bc.get_wallet_nodes(wallet)
+          for node in wallet_nodes:
+            if node == "0x0000000000000000000000000000000000000000":
+              continue
 
-          node_alert_cache_key = f"{user}-{node}"
-          node_internal_addr = plugin.bc.eth_addr_to_internal_addr(node)
-          node_is_online = plugin.netmon.network_node_is_online(node_internal_addr)
-          if node_is_online:
-            if plugin.obj_cache[alert_cache_key].get(node_alert_cache_key) is not None:
-              # Node was previously offline, now it is back online, we notify the user
-              message = f"✅ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({node}) is back online."
+            node_alert_cache_key = f"{user}-{node}"
+            node_internal_addr = plugin.bc.eth_addr_to_internal_addr(node)
+            node_is_online = plugin.netmon.network_node_is_online(node_internal_addr)
+            if node_is_online:
+              if plugin.obj_cache[alert_cache_key].get(node_alert_cache_key) is not None:
+                # Node was previously offline, now it is back online, we notify the user
+                message = f"✅ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({node}) is back online."
+                plugin.send_message_to_user(user_id=user, text=message)
+                plugin.obj_cache[alert_cache_key][node_alert_cache_key] = None
+            elif plugin.obj_cache[alert_cache_key].get(node_alert_cache_key) is None:
+              # Node is offline and we haven't notified the user yet
+              plugin.obj_cache[alert_cache_key][node_alert_cache_key] = True
+              message = f"⚠️ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({node}) is offline. Please check your node status."
               plugin.send_message_to_user(user_id=user, text=message)
-              plugin.obj_cache[alert_cache_key][node_alert_cache_key] = None
-          elif plugin.obj_cache[alert_cache_key].get(node_alert_cache_key) is None:
-            # Node is offline and we haven't notified the user yet
-            plugin.obj_cache[alert_cache_key][node_alert_cache_key] = True
-            message = f"⚠️ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({node}) is offline. Please check your node status."
-            plugin.send_message_to_user(user_id=user, text=message)
+    plugin.obj_cache[watched_wallets_loops_delay_cache_key] = 0
+  else:
+    plugin.obj_cache[watched_wallets_loops_delay_cache_key] += 1
 
   # Check if the epoch review has already been processed for the last epoch
   if plugin.obj_cache.get(epoch_review_cache_key) is not None:
@@ -145,7 +151,8 @@ def loop_processing(plugin: CustomPluginTemplate):
   message += f"🔄 Circulating R1 Supply: {circulating_supply:,.0f} R1\n"
   message += f"💎 Total R1 Supply: {total_supply:,.0f} R1\n"
   message += f"🎁 Last Epoch PoA Mining: {(last_epoch_nd_mining):,.2f} R1\n"
-  message += f"🔥 Last Epoch Burn: {(burned_last_epoch):,.2f} R1\n"
+  if burned_last_epoch > 0:
+    message += f"🔥 Last Epoch Burn: {(burned_last_epoch):,.2f} R1\n"
   message += f"🔥 Total Burn: {(current_burn):,.2f} R1\n"
   plugin.send_message_to_user(user_id=plugin.cfg_chat_id, text=message)
 
@@ -222,6 +229,24 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
       message += f"- {wallet}\n"
     return message
   
+  def handle_nodes():
+    user_watched_wallets = plugin.obj_cache.get(watched_wallets_cache_key).get(chat_id, [])
+    if not user_watched_wallets:
+      return "You are not watching any wallet. Use /watch <wallet_address> to start watching a wallet."
+    message = "You are currently watching the following wallets and their nodes:\n"
+    for wallet in user_watched_wallets:
+      wallet_nodes = plugin.bc.get_wallet_nodes(wallet)
+      message += f"- {wallet}:\n"
+      for node in wallet_nodes:
+        if node == "0x0000000000000000000000000000000000000000":
+          continue
+        node_internal_addr = plugin.bc.eth_addr_to_internal_addr(node)
+        node_alias = plugin.netmon.network_node_eeid(node_internal_addr)
+        node_is_online = plugin.netmon.network_node_is_online(node_internal_addr)
+        short_node = node[:6] + "..." + node[-4:]
+        message += f"  - {'🟢' if node_is_online else '🔴'} {node_alias} ({short_node})\n"
+    return message
+  
   def handle_start():
     return "Welcome to the Ratio1 Bot! Use /watch <wallet_address> to start watching your nodes. You will receive notifications when your nodes are offline."
 
@@ -238,6 +263,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
     return handle_unwatchall()
   if message.startswith("/unwatch"):
     return handle_unwatch()
+  if message.startswith("/nodes"):
+    return handle_nodes()
   if message.startswith("/start"):
     return handle_start()
 
