@@ -2883,10 +2883,14 @@ class GenericSession(BaseDecentrAIObject):
           A list of dictionaries defining the endpoint configuration. Defaults to None.
       """
       ngrok_kwargs = {}
-      cloudflare_kwargs = {}
+      cloudflare_kwargs = {}      
 
       if tunnel_engine_enabled:
         if tunnel_engine == "ngrok":
+          if ngrok_edge_label is None:
+            ngrok_edge_label = os.environ.get("EE_NGROK_EDGE_LABEL", None)
+            if ngrok_edge_label is not None:
+              self.P("Using ngrok edge label from environment variable EE_NGROK_EDGE_LABEL", color='g')
           if not isinstance(ngrok_edge_label, str):
             ngrok_edge_label = None
             warn_msg = f"WARNING! Without a pre-defined `ngrok_edge_label`, the URL will be generated automatically, "
@@ -2899,6 +2903,10 @@ class GenericSession(BaseDecentrAIObject):
             "ngrok_use_api": ngrok_use_api,
           }
         elif tunnel_engine == "cloudflare":
+          if cloudflare_token is None:
+            cloudflare_token = os.environ.get("EE_CLOUDFLARE_TOKEN", None)
+            if cloudflare_token is not None:
+              self.P("Using Cloudflare token from environment variable EE_CLOUDFLARE_TOKEN", color='g')
           if not isinstance(cloudflare_token, str):
             raise ValueError(f"`cloudflare` must be a string when using cloudflare tunnel engine. {type(cloudflare_token)} provided.")
           cloudflare_kwargs = {
