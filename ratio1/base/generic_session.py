@@ -2908,7 +2908,10 @@ class GenericSession(BaseDecentrAIObject):
             if cloudflare_token is not None:
               self.P("Using Cloudflare token from environment variable EE_CLOUDFLARE_TOKEN", color='g')
           if not isinstance(cloudflare_token, str):
-            raise ValueError(f"`cloudflare` must be a string when using cloudflare tunnel engine. {type(cloudflare_token)} provided.")
+            cloudflare_token = None
+            warn_msg = f"WARNING! Without a pre-defined `cloudflare_token`, the URL will be generated automatically, "
+            warn_msg += "but it will not be persistent across restarts."
+            self.P(warn_msg, color='y', show=True)
           cloudflare_kwargs = {
             "cloudflare_token": cloudflare_token,
           }
@@ -4043,6 +4046,10 @@ class GenericSession(BaseDecentrAIObject):
 
       if tunnel_engine == "ngrok" and ngrok_edge_label is None:
         err_msg = f"The `ngrok_edge_label` parameter is mandatory when creating a balanced web app tunneled with ngrok."
+        err_msg += "This is needed in order for all instances to respond to the same URL."
+        raise ValueError(err_msg)
+      elif tunnel_engine == "cloudflare" and cloudflare_token is None:
+        err_msg = f"The `cloudflare_token` parameter is mandatory when creating a balanced web app tunneled with cloudflare."
         err_msg += "This is needed in order for all instances to respond to the same URL."
         raise ValueError(err_msg)
       # endif ngrok used and ngrok_edge_label is None
