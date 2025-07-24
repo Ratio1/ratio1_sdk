@@ -69,8 +69,11 @@ class WebappPipeline(Pipeline):
     """
     if self.__extra_debug:
       self.P(f"Received payload from {plugin_signature} ({plugin_instance})")
+    # TODO: this will be removed
     if "NGROK_URL" in data:
       self.app_url = data["NGROK_URL"]
+    if "APP_URL" in data:
+      self.app_url = data["APP_URL"]
     return
     
   def create_plugin_instance(
