@@ -23,7 +23,7 @@ class WebappPipeline(Pipeline):
   ) -> None:
     """
     This is a special type of pipeline that is used to deploy webapps.
-    It will override the deploy method to return the ngrok URL as well as the on_data method to extract the ngrok URL.
+    It will override the deploy method to return the app URL as well as the on_data method to extract the app URL.
     """
     self.app_url = None
     self.__extra_debug = extra_debug
@@ -47,7 +47,7 @@ class WebappPipeline(Pipeline):
   
   def __check_payloads(self, session, plugin_signature, plugin_instance, data):
     """
-    Check if the payload if from ngrok and extract the ngrok URL.
+    Check if the payload is from webapp and extract the app URL.
     
     Parameters
     ----------
@@ -127,13 +127,13 @@ class WebappPipeline(Pipeline):
         The URL of the webapp.
     """
     res = super().deploy(verbose=verbose, timeout=timeout, **kwargs)
-    # now we wait for the ngrok url to be available
+    # now we wait for the app url to be available
     start = time.time()
     while self.app_url is None:
       elapsed = time.time() - start
       if elapsed > timeout:
-        msg = "Timeout waiting for ngrok url"
+        msg = "Timeout waiting for app url"
         self.P(msg, color="red")
         raise Exception(msg)
-    # return the ngrok url
+    # return the app url
     return self.app_url
