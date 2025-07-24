@@ -884,7 +884,8 @@ class R1FSEngine:
       timeout: int = None,
       pin: bool = True,
       raise_on_error: bool = False,
-      show_logs: bool = True
+      show_logs: bool = True,
+      return_absolute_path: bool = True,
     ) -> str:
       """
       Retrieve an encrypted file from R1FS by CID, decrypt with AES-GCM in streaming mode.
@@ -915,6 +916,9 @@ class R1FSEngine:
 
       show_logs : bool, optional
         If True, logs steps via self.P / self.Pd. Default True.
+
+      return_absolute_path : bool, optional
+        If True, return the absolute path to the restored plaintext file.
 
       Returns
       -------
@@ -1041,6 +1045,8 @@ class R1FSEngine:
           fin.seek(data_start, os.SEEK_SET)
 
           out_path = os.path.join(local_folder, original_filename)
+          if return_absolute_path:
+            out_path = os.path.abspath(out_path)
           chunk_size = 1024 * 1024
 
           with open(out_path, "wb") as fout:
