@@ -201,7 +201,7 @@ class BaseLogger(object):
       lib_ver = __VER__
     ver = "v{}".format(lib_ver) if lib_ver != "" else ""
     self.P(
-      "NSDK {} initialized on [{}][{}].".format(
+      "R1SDK {} initialized on [{}][{}].".format(
         ver, self.MACHINE_NAME, self.get_processor_platform(),
       ),
       color='green',

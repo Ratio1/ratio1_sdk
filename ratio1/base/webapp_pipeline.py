@@ -96,11 +96,10 @@ class WebappPipeline(Pipeline):
       self.app_url = "TUNNEL_ENGINE_DISABLED"
     else:
       if tunnel_engine.lower() == 'cloudflare':
-        if cloudflare_token is None:
-          raise ValueError("Cloudflare token must be provided when using Cloudflare as tunnel engine.")
         self.P("Using Cloudflare as tunnel engine", color="green")
-        self.app_url = "URL_DEFINED_IN_CLOUDFLARE_TOKEN"
-        tunnel_kwargs['cloudflare_token'] = cloudflare_token
+        if cloudflare_token is not None:
+          self.app_url = "URL_DEFINED_IN_CLOUDFLARE_TOKEN"
+          tunnel_kwargs['cloudflare_token'] = cloudflare_token
       else:
         self.P("Using ngrok as tunnel engine", color="green")
         if ngrok_edge_label is not None:
