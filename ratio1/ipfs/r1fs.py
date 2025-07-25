@@ -300,6 +300,7 @@ class R1FSEngine:
       return
 
     def _hash_secret(self, secret: str) -> bytes:
+      secret = str(secret) # to be sure that the passed secret is of string type.
       # Convert text to bytes, then hash with SHA-256 => 32-byte key
       return hashlib.sha256(secret.encode("utf-8")).digest()
 
@@ -657,7 +658,7 @@ class R1FSEngine:
       tempfile=False, 
       show_logs=True,
       raise_on_error=False,
-    ) -> bool:
+    ) -> str:
       """
       Add a YAML object to IPFS.
       """
