@@ -511,6 +511,25 @@ class R1FSEngine:
       )
       return result
 
+    # PUBLIC COMMAND
+    def get_ipfs_id(self) -> dict:
+      """
+      Get the IPFS peer ID via 'ipfs id' (JSON output).
+      Returns the ipfs ID object.
+      """
+      data = {}
+      output = self.__run_command(["ipfs", "id"])  # this will raise an exception if the command fails
+      try:
+        data = json.loads(output)
+      except json.JSONDecodeError:
+        raise Exception("Failed to parse JSON from 'ipfs id' output.")
+      except Exception as e:
+        msg = f"Error getting IPFS ID: {e}. `ipfs id`:\n{data}"
+        self.P(msg, color='r')
+        raise Exception(f"Error getting IPFS ID: {e}") from e
+      return data
+
+    # END PUBLIC COMMANS
 
     def __run_command(
       self, 
@@ -576,24 +595,15 @@ class R1FSEngine:
       Get the IPFS peer ID via 'ipfs id' (JSON output).
       Returns the 'ID' field as a string.
       """
-      self.__ipfs_address = None
-      output = self.__run_command(["ipfs", "id"]) # this will raise an exception if the command fails
-      try:
-        data = json.loads(output)
-        self.__ipfs_id_result = data
-        self.__ipfs_id = data.get("ID", ERROR_TAG)
-        self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
-        addrs = data.get("Addresses", [])
-        if not addrs:
-          self.__ipfs_address = None
-        else:
-          self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
-      except json.JSONDecodeError:
-        raise Exception("Failed to parse JSON from 'ipfs id' output.")
-      except Exception as e:
-        msg = f"Error getting IPFS ID: {e}. `ipfs id`:\n{data}"
-        self.P(msg, color='r')
-        raise Exception(f"Error getting IPFS ID: {e}") from e
+      data = self.get_ipfs_id()
+      self.__ipfs_id_result = data
+      self.__ipfs_id = data.get("ID", ERROR_TAG)
+      self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
+      addrs = data.get("Addresses", [])
+      if not addrs:
+        self.__ipfs_address = None
+      else:
+        self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
       return self.__ipfs_id
     
 
