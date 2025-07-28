@@ -300,6 +300,7 @@ class R1FSEngine:
       return
 
     def _hash_secret(self, secret: str) -> bytes:
+      secret = str(secret) # to be sure that the passed secret is of string type.
       # Convert text to bytes, then hash with SHA-256 => 32-byte key
       return hashlib.sha256(secret.encode("utf-8")).digest()
 
@@ -510,6 +511,25 @@ class R1FSEngine:
       )
       return result
 
+    # PUBLIC COMMAND
+    def get_ipfs_id_data(self) -> dict:
+      """
+      Get the IPFS peer ID via 'ipfs id' (JSON output).
+      Returns the ipfs ID object.
+      """
+      data = {}
+      output = self.__run_command(["ipfs", "id"])  # this will raise an exception if the command fails
+      try:
+        data = json.loads(output)
+      except json.JSONDecodeError:
+        raise Exception("Failed to parse JSON from 'ipfs id' output.")
+      except Exception as e:
+        msg = f"Error getting IPFS ID: {e}. `ipfs id`:\n{data}"
+        self.P(msg, color='r')
+        raise Exception(f"Error getting IPFS ID: {e}") from e
+      return data
+
+    # END PUBLIC COMMANS
 
     def __run_command(
       self, 
@@ -575,24 +595,15 @@ class R1FSEngine:
       Get the IPFS peer ID via 'ipfs id' (JSON output).
       Returns the 'ID' field as a string.
       """
-      self.__ipfs_address = None
-      output = self.__run_command(["ipfs", "id"]) # this will raise an exception if the command fails
-      try:
-        data = json.loads(output)
-        self.__ipfs_id_result = data
-        self.__ipfs_id = data.get("ID", ERROR_TAG)
-        self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
-        addrs = data.get("Addresses", [])
-        if not addrs:
-          self.__ipfs_address = None
-        else:
-          self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
-      except json.JSONDecodeError:
-        raise Exception("Failed to parse JSON from 'ipfs id' output.")
-      except Exception as e:
-        msg = f"Error getting IPFS ID: {e}. `ipfs id`:\n{data}"
-        self.P(msg, color='r')
-        raise Exception(f"Error getting IPFS ID: {e}") from e
+      data = self.get_ipfs_id_data()
+      self.__ipfs_id_result = data
+      self.__ipfs_id = data.get("ID", ERROR_TAG)
+      self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
+      addrs = data.get("Addresses", [])
+      if not addrs:
+        self.__ipfs_address = None
+      else:
+        self.__ipfs_address = addrs[1] if len(addrs) > 1 else addrs[0] if len(addrs) else ERROR_TAG
       return self.__ipfs_id
     
 
@@ -657,7 +668,7 @@ class R1FSEngine:
       tempfile=False, 
       show_logs=True,
       raise_on_error=False,
-    ) -> bool:
+    ) -> str:
       """
       Add a YAML object to IPFS.
       """
@@ -884,7 +895,8 @@ class R1FSEngine:
       timeout: int = None,
       pin: bool = True,
       raise_on_error: bool = False,
-      show_logs: bool = True
+      show_logs: bool = True,
+      return_absolute_path: bool = True,
     ) -> str:
       """
       Retrieve an encrypted file from R1FS by CID, decrypt with AES-GCM in streaming mode.
@@ -915,6 +927,9 @@ class R1FSEngine:
 
       show_logs : bool, optional
         If True, logs steps via self.P / self.Pd. Default True.
+
+      return_absolute_path : bool, optional
+        If True, return the absolute path to the restored plaintext file.
 
       Returns
       -------
@@ -1041,6 +1056,8 @@ class R1FSEngine:
           fin.seek(data_start, os.SEEK_SET)
 
           out_path = os.path.join(local_folder, original_filename)
+          if return_absolute_path:
+            out_path = os.path.abspath(out_path)
           chunk_size = 1024 * 1024
 
           with open(out_path, "wb") as fout:
