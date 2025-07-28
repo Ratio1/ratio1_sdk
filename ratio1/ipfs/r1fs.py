@@ -512,7 +512,7 @@ class R1FSEngine:
       return result
 
     # PUBLIC COMMAND
-    def get_ipfs_id(self) -> dict:
+    def get_ipfs_id_data(self) -> dict:
       """
       Get the IPFS peer ID via 'ipfs id' (JSON output).
       Returns the ipfs ID object.
@@ -595,7 +595,7 @@ class R1FSEngine:
       Get the IPFS peer ID via 'ipfs id' (JSON output).
       Returns the 'ID' field as a string.
       """
-      data = self.get_ipfs_id()
+      data = self.get_ipfs_id_data()
       self.__ipfs_id_result = data
       self.__ipfs_id = data.get("ID", ERROR_TAG)
       self.__ipfs_agent = data.get("AgentVersion", ERROR_TAG)
