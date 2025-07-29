@@ -9,6 +9,7 @@ class EvmNetData:
   DAUTH_R1_ADDR_KEY = 'EE_DAUTH_R1_ADDR'
   DAUTH_MND_ADDR_KEY = 'EE_DAUTH_MND_ADDR'
   DAUTH_PROXYAPI_ADDR_KEY = 'EE_DAUTH_PROXYAPI_ADDR'
+  DAUTH_POAI_MANAGER_KEY = 'EE_DAUTH_POAI_MANAGER'
   
   DAUTH_CONTROLLER_ADDR_KEY = 'EE_DAUTH_CONTROLLER_ADDR'  
   DAUTH_GET_ORACLES_ABI = 'EE_DAUTH_GET_ORACLES_ABI'
@@ -219,6 +220,85 @@ _GET_ADDRESSES_BALANCES = [
   }
 ]
 
+_GET_JOB_DETAILS_ABI = [
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "jobId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getJobDetails",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "requestTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "startTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastNodesChangeTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "jobType",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "pricePerEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastExecutionEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "numberOfNodesRequested",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "balance",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastAllocatedEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address[]",
+            "name": "activeNodes",
+            "type": "address[]"
+          }
+        ],
+        "internalType": "struct JobDetails",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
+
 # A minimal ERC20 ABI for balanceOf, transfer, and decimals functions.
 _ERC20_ABI = [
   {
@@ -263,6 +343,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_R1_ADDR_KEY                : "0x6444C6c2D527D85EA97032da9A7504d6d1448ecF",
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0x0C431e546371C87354714Fcc1a13365391A549E2",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xa2fDD4c7E93790Ff68a01f01AA789D619F12c6AC",
+    EvmNetData.DAUTH_POAI_MANAGER_KEY           : "0xTODO",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-mainnet.public.blastapi.io",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
@@ -280,6 +361,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_R1_ADDR_KEY                : "0xCC96f389F45Fc08b4fa8e2bC4C7DA9920292ec64",
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0xa8d7FFCE91a888872A9f5431B4Dd6c0c135055c1",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xd1c7Dca934B37FAA402EB2EC64F6644d6957bE3b",
+    EvmNetData.DAUTH_POAI_MANAGER_KEY           : "0xTODO",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",      
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
@@ -298,6 +380,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_R1_ADDR_KEY                : "0x277CbD0Cf25F4789Bc04035eCd03d811FAf73691",
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0x17B8934dc5833CdBa1eF42D13D65D677C4727748",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xFcF04c9A67330431Af75a546615E4881BD8bdC78",
+    EvmNetData.DAUTH_POAI_MANAGER_KEY           : "0x9A41f43494fCD592577228fE8E4014f2D75d2aa3",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-06-30 07:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 1,
@@ -346,5 +429,6 @@ class EVM_ABI_DATA:
   GET_WALLET_NODES = _GET_WALLET_NODES
   GET_ADDRESSES_BALANCES = _GET_ADDRESSES_BALANCES
   IS_NODE_ACTIVE = _DAUTH_ABI_IS_NODE_ACTIVE
+  GET_JOB_DETAILS = _GET_JOB_DETAILS_ABI
   ERC20_ABI = _ERC20_ABI
   

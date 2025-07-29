@@ -28,6 +28,7 @@ Web3Vars = namedtuple(
     "r1_contract_address", 
     "proxy_contract_address",  
     "controller_contract_address",
+    "poai_manager_address",
     "get_oracles_abi",
   ]
 )
@@ -236,6 +237,7 @@ class _EVMMixin:
       proxy_contract_address = network_data[dAuth.EvmNetData.DAUTH_PROXYAPI_ADDR_KEY]
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
+      poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_KEY]
       get_oracles_abi = network_data[dAuth.EvmNetData.DAUTH_GET_ORACLES_ABI]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
@@ -258,6 +260,7 @@ class _EVMMixin:
         r1_contract_address=r1_contract_address, 
         proxy_contract_address=proxy_contract_address, 
         controller_contract_address=controller_contract_address,
+        poai_manager_address=poai_manager_address,
         get_oracles_abi=get_oracles_abi,
       )
       return result
@@ -1294,6 +1297,62 @@ class _EVMMixin:
 
       return balances
 
+    def web3_get_job_details(
+      self,
+      job_id: int,
+      network: str = None
+    ):      
+      """
+      Retrieve license details for the specified node using getNodeLicenseDetails().
+
+      Parameters
+      ----------
+      job_id : int
+          The job ID to retrieve details for.
+
+      network : str, optional
+          The network to use. If None, defaults to self.evm_network.
+
+
+      Returns
+      -------
+      dict
+          A dictionary containing all job details returned by getJobDetails.
+      """
+      # Validate the job ID.
+      assert isinstance(job_id, int), "Invalid job ID"
+
+      # Retrieve the necessary Web3 variables (pattern consistent with web3_send_r1).
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address,
+        abi=EVM_ABI_DATA.GET_JOB_DETAILS
+      )
+
+      self.P(f"`getJobDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
+
+      # Call the contract function to get details.
+      result_tuple = contract.functions.getJobDetails(job_id).call()
+
+      # Unpack the tuple into a dictionary for readability.
+      details = {
+        "network": network,
+        "jobId": result_tuple[0],
+        "requestTimestamp": result_tuple[1],
+        "startTimestamp": result_tuple[2],
+        "lastNodesChangeTimestamp": result_tuple[3],
+        "jobType": result_tuple[4],
+        "pricePerEpoch": result_tuple[5],
+        "lastExecutionEpoch": result_tuple[6],
+        "numberOfNodesRequested": result_tuple[7],
+        "balance": result_tuple[8],
+        "lastAllocatedEpoch": result_tuple[9],
+        "activeNodes": result_tuple[10],
+      }
+      self.P(f"Job Details:\n{json.dumps(details, indent=2)}", verbosity=2)
+
+      return details
 
   def get_deeploy_url(self):
     """
