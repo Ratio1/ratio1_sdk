@@ -287,9 +287,19 @@ _GET_JOB_DETAILS_ABI = [
             "internalType": "address[]",
             "name": "activeNodes",
             "type": "address[]"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowOwner",
+            "type": "address"
           }
         ],
-        "internalType": "struct JobDetails",
+        "internalType": "struct JobWithAllDetails",
         "name": "",
         "type": "tuple"
       }
