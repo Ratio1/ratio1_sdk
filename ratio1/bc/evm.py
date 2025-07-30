@@ -1349,6 +1349,8 @@ class _EVMMixin:
         "balance": result_tuple[8],
         "lastAllocatedEpoch": result_tuple[9],
         "activeNodes": result_tuple[10],
+        "escrowAddress": result_tuple[11],
+        "escrowOwner": result_tuple[12],
       }
       self.P(f"Job Details:\n{json.dumps(details, indent=2)}", verbosity=2)
 
