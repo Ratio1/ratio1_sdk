@@ -5,10 +5,10 @@
   "runArgs": [
     //"--gpus=all",
     "--hostname",
-    "sdk_dev",
+    "r1sdk_dev",
     
     "--name",
-    "r1_sdk_devenv"
+    "r1r1_sdk"
   ],
 
   "customizations": {
