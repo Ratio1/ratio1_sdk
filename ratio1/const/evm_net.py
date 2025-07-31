@@ -220,7 +220,41 @@ _GET_ADDRESSES_BALANCES = [
   }
 ]
 
-_GET_JOB_DETAILS_ABI = [
+# A minimal ERC20 ABI for balanceOf, transfer, and decimals functions.
+_ERC20_ABI = [
+  {
+      "constant": True,
+      "inputs": [{"name": "_owner", "type": "address"}],
+      "name": "balanceOf",
+      "outputs": [{"name": "balance", "type": "uint256"}],
+      "payable": False,
+      "stateMutability": "view",
+      "type": "function"
+  },
+  {
+      "constant": False,
+      "inputs": [
+          {"name": "_to", "type": "address"},
+          {"name": "_value", "type": "uint256"}
+      ],
+      "name": "transfer",
+      "outputs": [{"name": "success", "type": "bool"}],
+      "payable": False,
+      "stateMutability": "nonpayable",
+      "type": "function"
+  },
+  {
+      "constant": True,
+      "inputs": [],
+      "name": "decimals",
+      "outputs": [{"name": "", "type": "uint8"}],
+      "payable": False,
+      "stateMutability": "view",
+      "type": "function"
+  }
+]
+
+_POAI_MANAGER_ABI = [
   {
     "inputs": [
       {
@@ -306,43 +340,59 @@ _GET_JOB_DETAILS_ABI = [
     ],
     "stateMutability": "view",
     "type": "function"
-  }
-]
-
-# A minimal ERC20 ABI for balanceOf, transfer, and decimals functions.
-_ERC20_ABI = [
-  {
-      "constant": True,
-      "inputs": [{"name": "_owner", "type": "address"}],
-      "name": "balanceOf",
-      "outputs": [{"name": "balance", "type": "uint256"}],
-      "payable": False,
-      "stateMutability": "view",
-      "type": "function"
   },
   {
-      "constant": False,
-      "inputs": [
-          {"name": "_to", "type": "address"},
-          {"name": "_value", "type": "uint256"}
-      ],
-      "name": "transfer",
-      "outputs": [{"name": "success", "type": "bool"}],
-      "payable": False,
-      "stateMutability": "nonpayable",
-      "type": "function"
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "jobId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address[]",
+        "name": "newActiveNodes",
+        "type": "address[]"
+      }
+    ],
+    "name": "submitNodeUpdate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-      "constant": True,
-      "inputs": [],
-      "name": "decimals",
-      "outputs": [{"name": "", "type": "uint8"}],
-      "payable": False,
-      "stateMutability": "view",
-      "type": "function"
+    "inputs": [],
+    "name": "allocateRewardsAcrossAllEscrows",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getUnvalidatedJobIds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getIsLastEpochAllocated",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]
-
 
 # Here are all the constants used for blockchain interaction for each network.
 EVM_NET_DATA = {
@@ -390,7 +440,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_R1_ADDR_KEY                : "0x277CbD0Cf25F4789Bc04035eCd03d811FAf73691",
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0x17B8934dc5833CdBa1eF42D13D65D677C4727748",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xFcF04c9A67330431Af75a546615E4881BD8bdC78",
-    EvmNetData.DAUTH_POAI_MANAGER_KEY           : "0x9A41f43494fCD592577228fE8E4014f2D75d2aa3",
+    EvmNetData.DAUTH_POAI_MANAGER_KEY           : "0x9EC8f75f30b0cc7d69dfF35b2A42D671Cfa9d31a",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-06-30 07:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 1,
@@ -439,6 +489,6 @@ class EVM_ABI_DATA:
   GET_WALLET_NODES = _GET_WALLET_NODES
   GET_ADDRESSES_BALANCES = _GET_ADDRESSES_BALANCES
   IS_NODE_ACTIVE = _DAUTH_ABI_IS_NODE_ACTIVE
-  GET_JOB_DETAILS = _GET_JOB_DETAILS_ABI
   ERC20_ABI = _ERC20_ABI
+  POAI_MANAGER_ABI = _POAI_MANAGER_ABI
   
