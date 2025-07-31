@@ -1327,7 +1327,7 @@ class _EVMMixin:
       network = w3vars.network
       contract = w3vars.w3.eth.contract(
         address=w3vars.poai_manager_address,
-        abi=EVM_ABI_DATA.GET_JOB_DETAILS
+        abi=EVM_ABI_DATA.POAI_MANAGER_ABI
       )
 
       self.P(f"`getJobDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
@@ -1355,6 +1355,242 @@ class _EVMMixin:
       self.P(f"Job Details:\n{json.dumps(details, indent=2)}", verbosity=2)
 
       return details
+
+    def web3_submit_node_update(
+      self,
+      job_id: int,
+      nodes: list,
+      wait_for_tx: bool = False,
+      timeout: int = 120,
+      network: str = None,
+      return_receipt=False,
+    ):
+      """
+      Submit nodes update for a given job.
+
+      Parameters
+      ----------
+      job_id : int
+          The job ID to update.
+          
+      nodes : list
+          The list of new nodes running the job.
+          
+      network : str, optional
+          The network to use. If None, uses the default self.evm_network.
+
+      Returns
+      -------
+          The transaction hash.
+      """
+      # Validate the input parameters.
+      assert isinstance(job_id, int), "Invalid job ID"
+      assert isinstance(nodes, list), "Nodes must be a list"
+      
+      # Retrieve the Web3 instance, RPC URL, and the R1 contract address.
+      # Note: This follows the same pattern as web3_get_balance_r1.
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      
+      # Create the token contract instance.
+      poai_manager_contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address, abi=EVM_ABI_DATA.POAI_MANAGER_ABI
+      )
+      
+      # Estimate gas fees for the token transfer.
+      gas_price = w3vars.w3.eth.gas_price  # This fetches the current suggested gas price from the network.
+      estimated_gas = poai_manager_contract.functions.submitNodeUpdate(job_id, nodes).estimate_gas(
+        {'from': self.eth_address}
+      )
+      gas_cost = estimated_gas * gas_price
+      
+      # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
+      eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
+      if eth_balance < gas_cost:
+        raise Exception("Insufficient ETH balance to cover gas fees.")
+      
+      # Get the transaction count for the nonce.
+      nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
+      
+      # Programmatically determine the chainId.
+      chain_id = w3vars.w3.eth.chain_id
+
+      # Build the transaction for the ERC20 transfer.
+      tx = poai_manager_contract.functions.submitNodeUpdate(job_id, nodes).build_transaction({
+        'from': self.eth_address,
+        'nonce': nonce,
+        'gas': estimated_gas,
+        'gasPrice': gas_price,
+        'chainId': chain_id,
+      })
+      
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
+      
+      # Sign the transaction using the internal account (via _get_eth_account).
+      eth_account = self._get_eth_account()
+      signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
+      
+      # Broadcast the transaction.
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+      
+      if wait_for_tx:
+        # Wait for the transaction receipt if required.
+        tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        tx_hash_hex = tx_receipt.transactionHash.hex()
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        if return_receipt:          
+          return tx_receipt
+        else:
+          return tx_hash_hex
+      else:
+        return tx_hash.hex()
+
+    def web3_allocate_rewards_across_all_escrows(
+      self,
+      network: str = None,
+      wait_for_tx=True,
+      timeout=120,
+      return_receipt=False,
+    ):
+      """
+      Allocate rewards across all escrows.
+
+      Parameters
+      ----------
+      network : str, optional
+          The network to use. If None, uses the default self.evm_network.
+
+      Returns
+      -------
+          The transaction hash.
+      """
+      # Retrieve the Web3 instance, RPC URL, and the R1 contract address.
+      # Note: This follows the same pattern as web3_get_balance_r1.
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      
+      # Create the token contract instance.
+      poai_manager_contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address, abi=EVM_ABI_DATA.POAI_MANAGER_ABI
+      )
+      
+      # Estimate gas fees for the token transfer.
+      gas_price = w3vars.w3.eth.gas_price  # This fetches the current suggested gas price from the network.
+      estimated_gas = poai_manager_contract.functions.allocateRewardsAcrossAllEscrows().estimate_gas(
+        {'from': self.eth_address}
+      )
+      gas_cost = estimated_gas * gas_price
+      
+      # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
+      eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
+      if eth_balance < gas_cost:
+        raise Exception("Insufficient ETH balance to cover gas fees.")
+      
+      # Get the transaction count for the nonce.
+      nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
+      
+      # Programmatically determine the chainId.
+      chain_id = w3vars.w3.eth.chain_id
+
+      # Build the transaction for the ERC20 transfer.
+      tx = poai_manager_contract.functions.allocateRewardsAcrossAllEscrows().build_transaction({
+        'from': self.eth_address,
+        'nonce': nonce,
+        'gas': estimated_gas,
+        'gasPrice': gas_price,
+        'chainId': chain_id,
+      })
+      
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
+      
+      # Sign the transaction using the internal account (via _get_eth_account).
+      eth_account = self._get_eth_account()
+      signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
+      
+      # Broadcast the transaction.
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+      
+      if wait_for_tx:
+        # Wait for the transaction receipt if required.
+        tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        tx_hash_hex = tx_receipt.transactionHash.hex()
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        if return_receipt:          
+          return tx_receipt
+        else:
+          return tx_hash_hex
+      else:
+        return tx_hash.hex()
+
+    def web3_get_unvalidated_job_ids(
+      self,
+      network: str = None
+    ):
+      """
+      Retrieve unvalidated job IDs using getUnvalidatedJobIds().
+
+      Parameters
+      ----------
+      network : str, optional
+          The network to use. If None, defaults to self.evm_network.
+
+      Returns
+      -------
+      list
+          A list of unvalidated job IDs.
+      """
+      # Retrieve the necessary Web3 variables (pattern consistent with web3_get_job_details).
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address,
+        abi=EVM_ABI_DATA.POAI_MANAGER_ABI
+      )
+
+      self.P(f"`getUnvalidatedJobIds` on {network} via {w3vars.rpc_url}", verbosity=2)
+
+      # Call the contract function to get unvalidated job IDs.
+      result = contract.functions.getUnvalidatedJobIds().call()
+      
+      self.P(f"Unvalidated Job IDs: {result}", verbosity=2)
+
+      return result
+
+    def web3_get_is_last_epoch_allocated(
+      self,
+      network: str = None
+    ):
+      """
+      Check if the last epoch has been allocated using getIsLastEpochAllocated().
+
+      Parameters
+      ----------
+      network : str, optional
+          The network to use. If None, defaults to self.evm_network.
+
+      Returns
+      -------
+      bool
+          True if the last epoch has been allocated, False otherwise.
+      """
+      # Retrieve the necessary Web3 variables (pattern consistent with web3_get_unvalidated_job_ids).
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address,
+        abi=EVM_ABI_DATA.POAI_MANAGER_ABI
+      )
+
+      self.P(f"`getIsLastEpochAllocated` on {network} via {w3vars.rpc_url}", verbosity=2)
+
+      # Call the contract function to check if last epoch is allocated.
+      result = contract.functions.getIsLastEpochAllocated().call()
+      
+      self.P(f"Last epoch allocated: {result}", verbosity=2)
+
+      return result
 
   def get_deeploy_url(self):
     """
