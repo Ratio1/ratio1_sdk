@@ -237,7 +237,7 @@ class _EVMMixin:
       proxy_contract_address = network_data[dAuth.EvmNetData.DAUTH_PROXYAPI_ADDR_KEY]
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
-      poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_KEY]
+      poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
       get_oracles_abi = network_data[dAuth.EvmNetData.DAUTH_GET_ORACLES_ABI]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
