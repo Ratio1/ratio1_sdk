@@ -945,7 +945,7 @@ class _EVMMixin:
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, self.eth_account.key)
       
       # Broadcast the signed transaction.
-      tx_hash = w3vars.w3.eth.send_raw_transaction(self.get_raw_transaction(signed_tx))
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
       
       if wait_for_tx:
         # Wait for the transaction receipt with the specified timeout.
@@ -1109,7 +1109,7 @@ class _EVMMixin:
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
       
       # Broadcast the transaction.
-      tx_hash = w3vars.w3.eth.send_raw_transaction(self.get_raw_transaction(signed_tx))
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
       
       if wait_for_tx:
         # Wait for the transaction receipt if required.
@@ -1432,7 +1432,7 @@ class _EVMMixin:
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
       
       # Broadcast the transaction.
-      tx_hash = w3vars.w3.eth.send_raw_transaction(self.get_raw_transaction(signed_tx))
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
       
       if wait_for_tx:
         # Wait for the transaction receipt if required.
@@ -1509,7 +1509,7 @@ class _EVMMixin:
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
       
       # Broadcast the transaction.
-      tx_hash = w3vars.w3.eth.send_raw_transaction(self.get_raw_transaction(signed_tx))
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
       
       if wait_for_tx:
         # Wait for the transaction receipt if required.
@@ -1606,12 +1606,3 @@ class _EVMMixin:
     current_network = self.current_evm_network
     deeploy_api_base_url = EVM_NET_DATA[current_network][EvmNetData.EE_DEEPLOY_API_URL_KEY]
     return deeploy_api_base_url
-
-  def get_raw_transaction(self, signed_tx):
-    """
-    Web3 7.x changed the name of the raw_transaction attribute from rawTransaction to raw_transaction
-    """
-    if hasattr(signed_tx, 'rawTransaction'):
-      return signed_tx.rawTransaction
-    else:
-      return signed_tx.raw_transaction
