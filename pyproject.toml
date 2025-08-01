@@ -27,7 +27,7 @@ dependencies = [
   "cryptography>=39.0.0",
   "python-dateutil",
   "pyaml",
-  "web3"
+  "web3>=7.0.0"
 ]
 
 [project.urls]
