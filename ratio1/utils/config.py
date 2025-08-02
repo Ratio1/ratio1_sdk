@@ -139,6 +139,9 @@ def get_networks(args):
 
 def get_set_network(args):
   net = args.new or args.set
+  if net not in ['mainnet', 'testnet', 'devnet']:
+    log_with_color(f"Invalid network: {net}. Use 'mainnet', 'testnet', or 'devnet'.", color='r')
+    return
   env_network = get_network()
   if net is None:
     log_with_color(f"Client v{version} on network: {env_network}", color='b')
