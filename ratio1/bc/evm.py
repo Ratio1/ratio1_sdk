@@ -1525,13 +1525,18 @@ class _EVMMixin:
 
     def web3_get_unvalidated_job_ids(
       self,
+      oracle_address: str,
       network: str = None
     ):
       """
-      Retrieve unvalidated job IDs using getUnvalidatedJobIds().
+      Retrieve all the jobs that are pending validation and
+      have not been validated by the given oracle.
 
       Parameters
       ----------
+      oracle_address : str
+          The oracle address to check for.
+          
       network : str, optional
           The network to use. If None, defaults to self.evm_network.
 
@@ -1552,7 +1557,7 @@ class _EVMMixin:
       self.P(f"`getUnvalidatedJobIds` on {network} via {w3vars.rpc_url}", verbosity=2)
 
       # Call the contract function to get unvalidated job IDs.
-      result = contract.functions.getUnvalidatedJobIds().call()
+      result = contract.functions.getUnvalidatedJobIds(oracle_address).call()
       
       self.P(f"Unvalidated Job IDs: {result}", verbosity=2)
 
