@@ -372,7 +372,13 @@ _POAI_MANAGER_ABI = [
     "type": "function"
   },
   {
-    "inputs": [],
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "oracle",
+        "type": "address"
+      }
+    ],
     "name": "getUnvalidatedJobIds",
     "outputs": [
       {
