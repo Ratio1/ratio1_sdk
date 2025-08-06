@@ -308,9 +308,12 @@ if True:
       timeout_min = 5
       timeout_max = 25
     _send_restart_command(session=session, nodes=remaining_nodes_addresses, timeout_min=timeout_min, timeout_max=timeout_max)
-
-    restarted_seed_nodes_count = len(seed_nodes_addresses)
-    restarted_oracle_nodes_count = len(oracle_nodes_addresses)
+    restarted_seed_nodes_count = 0
+    restarted_oracle_nodes_count = 0
+    if not (skip_seeds or skip_oracles):
+        restarted_seed_nodes_count = len(seed_nodes_addresses)
+    if not skip_oracles:
+      restarted_oracle_nodes_count = len(oracle_nodes_addresses)
     restarted_edge_nodes_count = len(remaining_nodes_addresses)
     total_restarted_nodes_count = restarted_seed_nodes_count + restarted_oracle_nodes_count + restarted_edge_nodes_count
     log_with_color(f"All nodes restarted successfully.", color='g')
