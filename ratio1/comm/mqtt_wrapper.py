@@ -131,7 +131,7 @@ class MQTTWrapper(BaseCommWrapper):
         cert_file = impresources.files(certs).joinpath(cert_file_name)
 
         if cert_file.exists():
-          self.P("Using certificate file: {}".format(cert_file_name))
+          self.P("Using certificate file: {}".format(cert_file))
           mqttc.tls_set(cert_file)
         else:
           self.P("No certificate provided, using default TLS")
@@ -139,7 +139,7 @@ class MQTTWrapper(BaseCommWrapper):
       # end if certificate not provided
       else:
         if os.path.exists(cert_path):
-          self.P("Using certificate file: {}".format(cert_path))
+          self.P("Using certificate file path: {}".format(cert_path))
           mqttc.tls_set(cert_path)
         else:
           self.P("Certificate file not found: {}".format(cert_path), color='r', verbosity=1)

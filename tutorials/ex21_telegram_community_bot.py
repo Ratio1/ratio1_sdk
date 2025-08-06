@@ -289,6 +289,8 @@ if __name__ == "__main__":
   telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
   if chat_id is None or telegram_bot_token is None:
     raise ValueError("Please set the TELEGRAM_CHAT_ID and TELEGRAM_BOT_TOKEN environment variables.")
+  else:
+    session.P("Using environment variables for chat_id and telegram_bot_token.")
 
   session.P(f"Connecting to node: {node}")
   session.wait_for_node(node)
