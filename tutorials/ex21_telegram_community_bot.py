@@ -229,6 +229,13 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
       message += f"- {wallet}\n"
     return message
   
+  def handle_network_status():
+    nodes = plugin.netmon.available_nodes_prefixed
+    if not nodes:
+      return "No nodes are currently online."
+    message = f"Total {len(nodes)} online  Ratio1 nodes reported by `{plugin.ee_id}`"
+    return message
+  
   def handle_nodes():
     user_watched_wallets = plugin.obj_cache.get(watched_wallets_cache_key).get(chat_id, [])
     if not user_watched_wallets:
@@ -265,25 +272,41 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
     return handle_unwatch()
   if message.startswith("/nodes"):
     return handle_nodes()
-  if message.startswith("/start"):
+  if message.startswith("/network_status"):
+    return handle_network_status()
+  if message.startswith("/start"):    
     return handle_start()
 
   return "Please use the /watch command followed by your Ethereum Wallet address to start watching the nodes on your wallet."
 
 if __name__ == "__main__":   
+  PIPELINE_NAME = "ratio1_telegram_bot"
+
   session = Session() 
-  
+
   node = os.getenv("RATIO1_NODE")
-  print(f"Connecting to node: {node}")
+  chat_id = os.getenv("TELEGRAM_CHAT_ID")
+  telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+  if chat_id is None or telegram_bot_token is None:
+    raise ValueError("Please set the TELEGRAM_CHAT_ID and TELEGRAM_BOT_TOKEN environment variables.")
+
+  session.P(f"Connecting to node: {node}")
   session.wait_for_node(node)
   
-  pipeline, _ = session.create_telegram_simple_bot(
-    node=node,
-    name="ratio1_telegram_bot",
-    telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN"),
-    chat_id=os.getenv("TELEGRAM_CHAT_ID"),
-    message_handler=reply,
-    processing_handler=loop_processing,
-  )
-
-  pipeline.deploy()
+  COMMAND = "STOP" # "START" or "STOP"
+  
+  if COMMAND == "START":
+    pipeline, _ = session.create_telegram_simple_bot(
+      node=node,
+      name=PIPELINE_NAME,
+      telegram_bot_token=telegram_bot_token,
+      chat_id=chat_id,
+      message_handler=reply,
+      processing_handler=loop_processing,
+    )
+    pipeline.deploy()
+  elif COMMAND == "STOP":
+    session.P("Stopping the bot from target node...")
+    session.close_pipeline(node_addr=node, pipeline_name=PIPELINE_NAME)
+  
+  session.wait(seconds=10, close_session_on_timeout=True)
