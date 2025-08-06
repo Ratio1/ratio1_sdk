@@ -420,7 +420,7 @@ EVM_NET_DATA = {
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
-    EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.8,
+    EvmNetData.EE_SUPERVISOR_MIN_AVAIL_PRC_KEY  : 0.7,
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://oracle.ratio1.ai",
     EvmNetData.EE_DEEPLOY_API_URL_KEY           : "https://deeploy-api.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
