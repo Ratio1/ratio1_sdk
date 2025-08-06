@@ -117,7 +117,8 @@ class GenericSession(BaseDecentrAIObject):
               use_home_folder=True,
               eth_enabled=True,
               auto_configuration=True,
-              debug_env=False,              
+              debug_env=False,     
+              evm_network=None,         
               **kwargs
             ) -> None:
     """
@@ -270,6 +271,7 @@ class GenericSession(BaseDecentrAIObject):
     self._dct_node_last_seen_time = {} # key is node address
     self.__dct_node_address_to_alias = {}
     self.__dct_node_eth_addr_to_node_addr = {}
+    self.__selected_evm_network = evm_network
 
     self._dct_netconfig_pipelines_requests = {}
     
@@ -1200,6 +1202,8 @@ class GenericSession(BaseDecentrAIObject):
           user_config=user_config,
           eth_enabled=eth_enabled, 
         )
+        if self.__selected_evm_network is not None:
+          self.bc_engine.reset_network(self.__selected_evm_network)
       except:
         raise ValueError("Failure in private blockchain setup:\n{}".format(traceback.format_exc()))
       
