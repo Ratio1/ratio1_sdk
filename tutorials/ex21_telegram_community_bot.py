@@ -287,28 +287,40 @@ if __name__ == "__main__":
   node = os.getenv("RATIO1_NODE")
   chat_id = os.getenv("TELEGRAM_CHAT_ID")
   telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-  if chat_id is None or telegram_bot_token is None:
-    raise ValueError("Please set the TELEGRAM_CHAT_ID and TELEGRAM_BOT_TOKEN environment variables.")
-  else:
-    session.P("Using environment variables for chat_id and telegram_bot_token.")
+  finished_with_error = False
+  try:
+    if chat_id is None or telegram_bot_token is None:
+      raise ValueError("Please set the TELEGRAM_CHAT_ID and TELEGRAM_BOT_TOKEN environment variables.")
+    else:
+      session.P("Using environment variables for chat_id and telegram_bot_token.")
 
-  session.P(f"Connecting to node: {node}")
-  session.wait_for_node(node)
-  
-  COMMAND = "STOP" # "START" or "STOP"
-  
-  if COMMAND == "START":
-    pipeline, _ = session.create_telegram_simple_bot(
-      node=node,
-      name=PIPELINE_NAME,
-      telegram_bot_token=telegram_bot_token,
-      chat_id=chat_id,
-      message_handler=reply,
-      processing_handler=loop_processing,
-    )
-    pipeline.deploy()
-  elif COMMAND == "STOP":
-    session.P("Stopping the bot from target node...")
-    session.close_pipeline(node_addr=node, pipeline_name=PIPELINE_NAME)
-  
-  session.wait(seconds=10, close_session_on_timeout=True)
+    session.P(f"Connecting to node: {node}")
+    session.wait_for_node(node)
+    
+    COMMAND = "STOP" # "START" or "STOP"
+    
+    if COMMAND == "START":
+      pipeline, _ = session.create_telegram_simple_bot(
+        node=node,
+        name=PIPELINE_NAME,
+        telegram_bot_token=telegram_bot_token,
+        chat_id=chat_id,
+        message_handler=reply,
+        processing_handler=loop_processing,
+      )
+      pipeline.deploy()
+    elif COMMAND == "STOP":
+      session.P("Stopping the bot from target node...")
+      session.close_pipeline(node_addr=node, pipeline_name=PIPELINE_NAME)
+    else:
+      session.P("Invalid command. Use 'START' or 'STOP'.")
+  except Exception as e:
+    session.P(f"An error occurred: {e}", color="red")
+    finished_with_error = True
+  if not finished_with_error:
+    session.P("Bot started successfully. Waiting for messages...")
+    # Keep the session alive to process messages
+    session.wait(seconds=10, close_session_on_timeout=True)
+  else:
+    session.P("Bot failed to start. Please check the logs for more details.", color="red")
+    session.close()
