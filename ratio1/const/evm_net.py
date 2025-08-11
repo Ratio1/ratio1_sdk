@@ -495,7 +495,7 @@ EVM_NET_CONSTANTS = {
       "0xai_AhIQz47-2dpbncDTODXcP7_cByr0_CI9VEB1dCXnbbG7",  # dr1s-01
       "0xai_AgnygSlY8BwnmaCj6mItg36JHlG_Lh3UqqFaTPbuNzy0",  # dr1s-02
     ],
-    EvmNetConstants.EE_ORACLE_SYNC_USE_R1FS_KEY: True,  # Use R1FS for oracle sync in devnet.
+    EvmNetConstants.EE_ORACLE_SYNC_USE_R1FS_KEY: False,  # Use R1FS for oracle sync in devnet.
   },
 }
 
