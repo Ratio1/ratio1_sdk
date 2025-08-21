@@ -2848,6 +2848,7 @@ class GenericSession(BaseDecentrAIObject):
       ngrok_use_api=True,
       endpoints=None,
       extra_debug=False,
+      data_source="Void",
       summary="Ratio1 WebApp created via SDK",
       description=None,
       **kwargs
@@ -2930,7 +2931,7 @@ class GenericSession(BaseDecentrAIObject):
         name=pipeline_name,
         pipeline_type=WebappPipeline,
         extra_debug=extra_debug,
-        # default TYPE is "Void"
+        data_source=data_source, # default TYPE is "Void"
       )
 
       instance = pipeline.create_plugin_instance(
