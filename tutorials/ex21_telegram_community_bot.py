@@ -78,6 +78,13 @@ def loop_processing(plugin: CustomPluginTemplate):
     if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch - 1) is None:
       return current_burn
     return current_burn - plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch - 1).get("burned")
+  
+  def get_poai_burned_last_epoch(current_burn: int) -> int:
+    if plugin.obj_cache.get(epoch_review_cache_key) is None:
+      return current_burn
+    if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch - 1) is None:
+      return current_burn
+    return current_burn - plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch - 1).get("poai_burned", 0)
 
   # If it is the first run, we need to initialize the cache from diskapi
   if plugin.obj_cache.get(cache_already_read_key) is None:
@@ -132,12 +139,16 @@ def loop_processing(plugin: CustomPluginTemplate):
   plugin.P(f"Found {nd_count} ND, {mnd_count} MND, {gnd_count} GND. Last epoch mining: {last_epoch_nd_mining}")
 
   # We get token details from the Ratio1 API
-  tokenDetails = plugin.requests.get("https://dapp-api.ratio1.ai/token/supply").json()
-  current_burn = tokenDetails["burned"]
+  tokenDetails = plugin.requests.get("https://dapp-api.ratio1.ai/token/supply?withDecimals=true").json()
+  current_burn = float(tokenDetails["burned"])
+  nd_current_burn = float(tokenDetails["ndContractBurn"])
+  current_poai_burn = current_burn - nd_current_burn
   circulating_supply = tokenDetails["circulatingSupply"]
   total_supply = tokenDetails["totalSupply"]
   burned_last_epoch = get_burned_last_epoch(current_burn)
-  plugin.P(f"Burned last epoch: {burned_last_epoch}, Current burn: {current_burn}, Circulating supply: {circulating_supply}, Total supply: {total_supply}")
+  burned_poai_last_epoch = get_poai_burned_last_epoch(current_poai_burn)
+  burned_nd_last_epoch = burned_last_epoch - burned_poai_last_epoch
+  plugin.P(f"Burned last epoch: {burned_last_epoch}, ND burned last epoch: {burned_nd_last_epoch}, PoAI burned last epoch: {burned_poai_last_epoch}, Current burn: {current_burn}, Circulating supply: {circulating_supply}, Total supply: {total_supply}")
 
   nd_supply = get_erc721_total_supply("0xE658DF6dA3FB5d4FBa562F1D5934bd0F9c6bd423")
   mnd_supply = get_erc721_total_supply("0x0C431e546371C87354714Fcc1a13365391A549E2")
@@ -151,14 +162,17 @@ def loop_processing(plugin: CustomPluginTemplate):
   message += f"🔄 Circulating R1 Supply: {circulating_supply:,.0f} R1\n"
   message += f"💎 Total R1 Supply: {total_supply:,.0f} R1\n"
   message += f"🎁 Last Epoch PoA Mining: {(last_epoch_nd_mining):,.2f} R1\n"
-  if burned_last_epoch > 0:
-    message += f"🔥 Last Epoch Burn: {(burned_last_epoch):,.2f} R1\n"
+  if burned_nd_last_epoch > 0:
+    message += f"🔥 Last Epoch License Sales Burn: {(burned_nd_last_epoch):,.2f} R1\n"
+  if burned_poai_last_epoch > 0:
+    message += f"🔥 Last Epoch PoAI Burn: {(burned_poai_last_epoch):,.2f} R1\n"
   message += f"🔥 Total Burn: {(current_burn):,.2f} R1\n"
   plugin.send_message_to_user(user_id=plugin.cfg_chat_id, text=message)
 
   # Save the epoch review data to the cache and diskapi
   plugin.obj_cache[epoch_review_cache_key][last_epoch] = {
-    "burned": current_burn
+    "burned": current_burn,
+    "poai_burned": current_poai_burn
   }
   plugin.P(f"Saving epoch review data to diskapi file {diskapi_epoch_review_file_name}...")
   plugin.diskapi_save_pickle_to_data(plugin.obj_cache.get(epoch_review_cache_key), diskapi_epoch_review_file_name)
@@ -243,7 +257,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
     message = "You are currently watching the following wallets and their nodes:\n"
     for wallet in user_watched_wallets:
       wallet_nodes = plugin.bc.get_wallet_nodes(wallet)
-      message += f"- {wallet}:\n"
+      message += f"{wallet}\n"
       for node in wallet_nodes:
         if node == "0x0000000000000000000000000000000000000000":
           continue
