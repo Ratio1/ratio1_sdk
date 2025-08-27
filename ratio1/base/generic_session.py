@@ -4701,6 +4701,7 @@ class GenericSession(BaseDecentrAIObject):
             best_super = supervisor
         best_super_alias = None
         # done found best supervisor
+        nodes_for_eth = []
         for _, node_info in best_info.items():
           is_online = node_info.get(PAYLOAD_DATA.NETMON_STATUS_KEY, None) == PAYLOAD_DATA.NETMON_STATUS_ONLINE
           is_supervisor = node_info.get(PAYLOAD_DATA.NETMON_IS_SUPERVISOR, False)
@@ -4745,17 +4746,29 @@ class GenericSession(BaseDecentrAIObject):
                 eth_addr = val
                 add_balance = True
               if add_balance:
-                eth_balance = self.bc_engine.web3_get_balance_eth(eth_addr)
-                r1_balance = self.bc_engine.web3_get_balance_r1(eth_addr)
-                res['ETH'].append(round(eth_balance,4))
-                res['$R1'].append(round(r1_balance,4))
+                nodes_for_eth.append(eth_addr)
+                # eth_balance = self.bc_engine.web3_get_balance_eth(eth_addr)
+                # r1_balance = self.bc_engine.web3_get_balance_r1(eth_addr)
+                # res['ETH'].append(round(eth_balance,4))
+                # res['$R1'].append(round(r1_balance,4))
             elif key == PAYLOAD_DATA.NETMON_WHITELIST:
               val = client_is_allowed
             elif key in [PAYLOAD_DATA.NETMON_STATUS_KEY, PAYLOAD_DATA.NETMON_NODE_VERSION]:
               val = val.split(' ')[0]
             res[column].append(val)                        
         # end for
+        if len(nodes_for_eth) > 0:
+          balances = self.bc_engine.web3_get_addresses_balances(nodes_for_eth)
+          self.P("Executed web3_get_addresses_balances: {}".format(balances))
+          for _addr in nodes_for_eth:
+            eth_balance = balances[_addr]['ethBalance']
+            r1_balance = balances[_addr]['r1Balance']
+            res['ETH'].append(round(eth_balance,4))
+            res['$R1'].append(round(r1_balance,4))
+          # end for
+        # end if
       # end if
+      
       pd.options.display.float_format = '{:.1f}'.format
       df_res = pd.DataFrame(res)
       if alias_filter is not None:
