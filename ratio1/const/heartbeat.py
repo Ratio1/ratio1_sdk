@@ -74,6 +74,9 @@ R1FS_ID = 'R1FS_ID'
 R1FS_ONLINE = 'R1FS_ONLINE'
 R1FS_RELAY = 'R1FS_RELAY'
 
+# Node tags.
+EE_NODETAG_KYB = 'EE_NODETAG_KYB'
+# End node tags.
 
 class COMM_INFO:
   IN_KB = 'IN_KB'
