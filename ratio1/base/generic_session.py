@@ -4931,8 +4931,9 @@ class GenericSession(BaseDecentrAIObject):
 
             lst_plugin_instance_data.append({
               'Node'  : node,
+              'Node Alias'  : self.get_node_alias(node),
               'Owner' : pipeline_owner,
-              'Alias' : pipeline_alias,
+              'Owner Alias' : pipeline_alias,
               'App': pipeline_name,
               'Plugin': instance.signature,
               'Id': instance.instance_id,
