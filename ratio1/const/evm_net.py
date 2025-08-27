@@ -460,6 +460,7 @@ EVM_NET_DATA = {
   
   EvmNetData.DEVNET : {
     EvmNetData.DAUTH_URL_KEY                    : "https://devnet-dauth.ratio1.ai/get_auth_data",
+    # EvmNetData.DAUTH_URL_KEY                    : "https://ab4301f0d48b.ratio1.link/get_auth_data",
     EvmNetData.DAUTH_CONTROLLER_ADDR_KEY        : "0x46fB56B7499925179d81380199E238f7AE75857B",
     EvmNetData.DAUTH_ND_ADDR_KEY                : "0x90025B92240E3070d5CdcB3f44D6411855c55a73",
     EvmNetData.DAUTH_R1_ADDR_KEY                : "0x277CbD0Cf25F4789Bc04035eCd03d811FAf73691",
