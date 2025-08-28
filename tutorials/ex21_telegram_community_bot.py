@@ -35,7 +35,7 @@ def loop_processing(plugin: CustomPluginTemplate):
   diskapi_epoch_review_file_name = "ratio1_epoch_review_data.pkl"
   diskapi_watched_wallets_file_name = "ratio1_watched_wallets_data.pkl"
 
-  FORCE_DISPLAY_LAST_EPOCH = "force_last_epoch_info"
+  need_last_epoch_info = "need_last_epoch_info"
 
   def get_erc721_total_supply(contract_address: str) -> int:
     return int(plugin.requests.post("https://base-mainnet.public.blastapi.io", json={
@@ -127,11 +127,11 @@ def loop_processing(plugin: CustomPluginTemplate):
     plugin.obj_cache[watched_wallets_loops_delay_cache_key] += 1
 
 
-  forced_info = plugin.obj_cache.get(FORCE_DISPLAY_LAST_EPOCH, False)
+  need_info = plugin.obj_cache.get(need_last_epoch_info, False)
 
   # Check if the epoch review has already been processed for the last epoch
   if plugin.obj_cache.get(epoch_review_cache_key) is not None:
-    if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch) is not None and not forced_info:
+    if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch) is not None and not need_info:
       return
     else:
       plugin.P("Epoch review not processed for last epoch, continuing with processing.")
@@ -140,7 +140,7 @@ def loop_processing(plugin: CustomPluginTemplate):
     plugin.obj_cache[epoch_review_cache_key] = {}
     plugin.obj_cache[watched_wallets_cache_key] = {}
     
-  plugin.obj_cache[FORCE_DISPLAY_LAST_EPOCH] = False # set false no matter wwhat as we display the info
+  plugin.obj_cache[need_last_epoch_info] = False # set false no matter wwhat as we display the info
 
   # Get all the required data for the epoch review
   last_epoch_nd_mining, nodes_count, nd_count, mnd_count, gnd_count = get_nodes_details()
@@ -155,13 +155,16 @@ def loop_processing(plugin: CustomPluginTemplate):
   total_supply = float(tokenDetails["totalSupply"])
   burned_last_epoch = get_burned_last_epoch(current_burn)
   burned_poai_last_epoch = get_poai_burned_last_epoch(current_poai_burn)
+  price_url = 'https://api.coingecko.com/api/v3/simple/price?ids=ratio1&vs_currencies=usd'
+  r1_usdc = plugin.requests.get(price_url).json().get("ratio1", {}).get("usd", 0)
+  poai_usdc_last_epoch = burned_poai_last_epoch / 0.15 * r1_usdc
   burned_nd_last_epoch = burned_last_epoch - burned_poai_last_epoch
   plugin.P(f"Burned last epoch: {burned_last_epoch}, ND burned last epoch: {burned_nd_last_epoch}, PoAI burned last epoch: {burned_poai_last_epoch}, Current burn: {current_burn}, Circulating supply: {circulating_supply}, Total supply: {total_supply}")
 
   nd_supply = get_erc721_total_supply("0xE658DF6dA3FB5d4FBa562F1D5934bd0F9c6bd423")
   mnd_supply = get_erc721_total_supply("0x0C431e546371C87354714Fcc1a13365391A549E2")
   total_licenses = nd_supply + mnd_supply
-  plugin.P(f"Total ND supply: {nd_supply}, Total MND supply: {mnd_supply}, Total Licenses: {total_licenses}")
+  plugin.P(f"Total ND supply: {nd_supply}, Total MND supply: {mnd_supply}, Total Licenses: {total_licenses}")  
 
   # Prepare the message to send to the group chat
   message = f"📆 Epoch {last_epoch} Summary\n\n"
@@ -173,6 +176,7 @@ def loop_processing(plugin: CustomPluginTemplate):
   if burned_nd_last_epoch > 0:
     message += f"🔥 Last Epoch License Sales Burn: {(burned_nd_last_epoch):,.2f} R1\n"
   if burned_poai_last_epoch > 0:
+    message += f"🎁 Last Epoch PoAI Rewards: {(poai_usdc_last_epoch):,.2f} USDC\n"
     message += f"🔥 Last Epoch PoAI Burn: {(burned_poai_last_epoch):,.2f} R1\n"
   message += f"🔥 Total Burn: {(current_burn):,.2f} R1\n"
   plugin.send_message_to_user(user_id=plugin.cfg_chat_id, text=message)
@@ -280,12 +284,12 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
     return "Welcome to the Ratio1 Bot! Use /watch <wallet_address> to start watching your nodes. You will receive notifications when your nodes are offline."
   
   def hands_last_epoch_info():
-    FORCE_DISPLAY_LAST_EPOCH = "force_last_epoch_info"
+    need_last_epoch_info = "need_last_epoch_info"
     if user in plugin.cfg_admins:
-      plugin.obj_cache[FORCE_DISPLAY_LAST_EPOCH] = True
-      msg = "Forcing last epoch info display."
+      plugin.obj_cache[need_last_epoch_info] = True
+      msg = f"Hi Master {user}! Forcing last epoch info display."
     else:
-      msg = "You are not authorized to force last epoch info display."
+      msg = f"Sorry {user}, you are not authorized to force last epoch info display."
     return msg
 
   # We do not want to reply to messages in the Ratio1 Community Group
@@ -308,7 +312,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
   if message.startswith("/start"):    
     return handle_start()
   if message.startswith("/last_epoch_info"):    
-    return handle_start()
+    return hands_last_epoch_info()
 
   return "Please use the /watch command followed by your Ethereum Wallet address to start watching the nodes on your wallet."
 
@@ -330,7 +334,7 @@ if __name__ == "__main__":
     session.P(f"Connecting to node: {node}")
     session.wait_for_node(node)
     
-    COMMAND = "STOP" # "START" or "STOP"
+    COMMAND = "START" # "START" or "STOP"
     
     if COMMAND == "START":
       pipeline, _ = session.create_telegram_simple_bot(
@@ -340,6 +344,7 @@ if __name__ == "__main__":
         chat_id=chat_id,
         message_handler=reply,
         processing_handler=loop_processing,
+        admins=['401110073', '683223680'],
       )
       pipeline.deploy()
     elif COMMAND == "STOP":

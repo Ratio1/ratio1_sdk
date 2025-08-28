@@ -229,7 +229,7 @@ class BaseCodeChecker:
     for line in lines:
       rstripped = line.rstrip()
       stripped = line.lstrip()
-      is_loop = stripped.startswith(('while', 'for'))
+      is_loop = stripped.startswith(('while ', 'for '))
       has_loop = has_loop or is_loop
       if is_loop and rstripped[-1] != ':':
         parts = line.split(':')
