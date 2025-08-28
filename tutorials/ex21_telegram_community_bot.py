@@ -143,8 +143,8 @@ def loop_processing(plugin: CustomPluginTemplate):
   current_burn = float(tokenDetails["burned"])
   nd_current_burn = float(tokenDetails["ndContractBurn"])
   current_poai_burn = current_burn - nd_current_burn
-  circulating_supply = tokenDetails["circulatingSupply"]
-  total_supply = tokenDetails["totalSupply"]
+  circulating_supply = float(tokenDetails["circulatingSupply"])
+  total_supply = float(tokenDetails["totalSupply"])
   burned_last_epoch = get_burned_last_epoch(current_burn)
   burned_poai_last_epoch = get_poai_burned_last_epoch(current_poai_burn)
   burned_nd_last_epoch = burned_last_epoch - burned_poai_last_epoch
