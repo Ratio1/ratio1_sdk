@@ -35,6 +35,8 @@ def loop_processing(plugin: CustomPluginTemplate):
   diskapi_epoch_review_file_name = "ratio1_epoch_review_data.pkl"
   diskapi_watched_wallets_file_name = "ratio1_watched_wallets_data.pkl"
 
+  FORCE_DISPLAY_LAST_EPOCH = "force_last_epoch_info"
+
   def get_erc721_total_supply(contract_address: str) -> int:
     return int(plugin.requests.post("https://base-mainnet.public.blastapi.io", json={
       "jsonrpc": "2.0",
@@ -93,6 +95,7 @@ def loop_processing(plugin: CustomPluginTemplate):
     plugin.obj_cache[alert_cache_key] = {}
     plugin.obj_cache[watched_wallets_loops_delay_cache_key] = 30
     plugin.obj_cache[cache_already_read_key] = True # We use this flag to read the cache only once at the first run
+    
 
   # Check users' watched wallets and notify if any node is offline
   if plugin.obj_cache.get(watched_wallets_loops_delay_cache_key) == 30:
@@ -123,9 +126,12 @@ def loop_processing(plugin: CustomPluginTemplate):
   else:
     plugin.obj_cache[watched_wallets_loops_delay_cache_key] += 1
 
+
+  forced_info = plugin.obj_cache.get(FORCE_DISPLAY_LAST_EPOCH, False)
+
   # Check if the epoch review has already been processed for the last epoch
   if plugin.obj_cache.get(epoch_review_cache_key) is not None:
-    if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch) is not None:
+    if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch) is not None and not forced_info:
       return
     else:
       plugin.P("Epoch review not processed for last epoch, continuing with processing.")
@@ -133,6 +139,8 @@ def loop_processing(plugin: CustomPluginTemplate):
     plugin.P("No epoch review data found, initializing cache.")
     plugin.obj_cache[epoch_review_cache_key] = {}
     plugin.obj_cache[watched_wallets_cache_key] = {}
+    
+  plugin.obj_cache[FORCE_DISPLAY_LAST_EPOCH] = False # set false no matter wwhat as we display the info
 
   # Get all the required data for the epoch review
   last_epoch_nd_mining, nodes_count, nd_count, mnd_count, gnd_count = get_nodes_details()
@@ -186,7 +194,7 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
   """
   watched_wallets_cache_key = f"ratio1_watched_wallets"
   diskapi_watched_wallets_file_name = "ratio1_watched_wallets_data.pkl"
-
+  
   def handle_watch():
     user_watched_wallets = plugin.obj_cache.get(watched_wallets_cache_key).get(chat_id, [])
     message_parts = message.split(" ")
@@ -270,6 +278,15 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
   
   def handle_start():
     return "Welcome to the Ratio1 Bot! Use /watch <wallet_address> to start watching your nodes. You will receive notifications when your nodes are offline."
+  
+  def hands_last_epoch_info():
+    FORCE_DISPLAY_LAST_EPOCH = "force_last_epoch_info"
+    if user in plugin.cfg_admins:
+      plugin.obj_cache[FORCE_DISPLAY_LAST_EPOCH] = True
+      msg = "Forcing last epoch info display."
+    else:
+      msg = "You are not authorized to force last epoch info display."
+    return msg
 
   # We do not want to reply to messages in the Ratio1 Community Group
   if str(chat_id) == str(plugin.cfg_chat_id):
@@ -289,6 +306,8 @@ def reply(plugin: CustomPluginTemplate, message: str, user: str, chat_id: str):
   if message.startswith("/network_status"):
     return handle_network_status()
   if message.startswith("/start"):    
+    return handle_start()
+  if message.startswith("/last_epoch_info"):    
     return handle_start()
 
   return "Please use the /watch command followed by your Ethereum Wallet address to start watching the nodes on your wallet."
