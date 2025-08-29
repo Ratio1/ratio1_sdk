@@ -75,6 +75,7 @@ CLI_COMMANDS = {
                 "--owner" : "Get the apps for a particular owner/initiator",
                 "--full": "Include admin apps (flag)",
                 "--json": "Output the entire JSON config of applications (flag)",
+                "--wide": "Display all available information (flag)",
             }
         },
         "networks": {

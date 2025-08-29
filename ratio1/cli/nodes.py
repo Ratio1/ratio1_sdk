@@ -151,6 +151,7 @@ def get_apps(args):
   show_full = args.full
   as_json = args.json
   owner = args.owner
+  wide = args.wide
 
   # 1. Init session
   from ratio1 import Session
@@ -203,6 +204,9 @@ def get_apps(args):
         ), 
         color='b'
       )
+      
+      if not wide:        
+        df_apps = df_apps[['Node Alias', 'Owner Alias', 'App', 'Plugin', 'Id', 'Probe', 'LastError']]
       log_with_color(f"{df_apps}\n")
     #end if as_json
   #end if res is not None
