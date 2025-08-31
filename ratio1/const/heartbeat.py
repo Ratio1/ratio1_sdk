@@ -79,12 +79,6 @@ EE_NODETAG_KYB = 'EE_NODETAG_KYB'
 EE_NODETAG_DATACENTER = 'EE_NODETAG_DATACENTER'
 # End node tags.
 
-# List of all allowed node tags that could be applied to a node.
-ALLOWED_NODE_TAGS = [
-    EE_NODETAG_KYB,
-    EE_NODETAG_DATACENTER,
-]
-
 class COMM_INFO:
   IN_KB = 'IN_KB'
   OUT_KB = 'OUT_KB'
