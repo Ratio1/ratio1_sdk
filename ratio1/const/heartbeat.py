@@ -75,7 +75,13 @@ R1FS_ONLINE = 'R1FS_ONLINE'
 R1FS_RELAY = 'R1FS_RELAY'
 
 # Node tags.
-EE_NODETAG_KYB = 'EE_NODETAG_KYB'
+PREFIX_EE_NODETAG = 'EE_NT_' # Prefix for all node tag variables.
+
+EE_NT_IS_KYB = 'EE_NT_IS_KYB' # boolean True if is KYB
+EE_NT_DC = 'EE_NT_DC' # string with dc name if is datacenter | none if it's not
+EE_NT_CT = 'EE_NT_CT' # string with country code if known | none if not known
+EE_NT_REG = 'EE_NT_REG' # string continetn if known | none if not known
+
 # End node tags.
 
 class COMM_INFO:
