@@ -24,8 +24,6 @@ class EvmNetData:
   EE_DEEPLOY_API_URL_KEY = 'EE_DEEPLOY_API_URL'
   EE_DAPP_API_URL_KEY = 'EE_DAPP_API_URL_KEY'
 
-  # Node tags constants.
-  EE_NODETAG_KYB='EE_NODETAG_KYB'
 # endclass EvmNetData
 
 
