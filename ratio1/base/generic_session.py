@@ -117,6 +117,7 @@ class GenericSession(BaseDecentrAIObject):
               use_home_folder=True,
               eth_enabled=True,
               auto_configuration=True,
+              run_dauth=True,
               debug_env=False,     
               evm_network=None,         
               **kwargs
@@ -211,8 +212,11 @@ class GenericSession(BaseDecentrAIObject):
     auto_configuration : bool, optional
         If True, the SDK will attempt to complete the dauth process automatically.
         Defaults to True.
-        
-        
+
+    run_dauth : bool, optional
+        If True, the SDK will run the dAuth process.
+        Defaults to True. Will be set to true if auto_configuration is enabled.
+
     use_home_folder : bool, optional
         If True, the SDK will use the home folder as the base folder for the local cache.
         NOTE: if you need to use development style ./_local_cache, set this to False.
@@ -249,6 +253,7 @@ class GenericSession(BaseDecentrAIObject):
     self.comms_root_topic = root_topic
     
     self.__auto_configuration = auto_configuration
+    self.__run_dauth = run_dauth or auto_configuration
 
     self.log = log
           
@@ -355,20 +360,27 @@ class GenericSession(BaseDecentrAIObject):
 
     # TODO: needs refactoring - suboptimal design
     # start the blockchain engine assuming config is already set
-    
+    self.P("Starting blockchain engine...")
     self.__start_blockchain(
       self.__bc_engine, self.__blockchain_config, 
       user_config=self.__user_config_loaded,
     )
+    self.P("Blockchain engine started.")
     
-    # this next call will attempt to complete the dauth process
-    dct_env = self.bc_engine.dauth_autocomplete(
-      dauth_endp=None, # get from consts or env
-      add_env=self.__auto_configuration,
-      debug=False,
-      sender_alias=self.name
-    )
-    # end bc_engine
+    
+    if self.__run_dauth:
+      self.P("Requesting dAuth data...")
+      # this next call will attempt to complete the dauth process
+      dct_env = self.bc_engine.dauth_autocomplete(
+        dauth_endp=None, # get from consts or env
+        add_env=self.__auto_configuration,
+        debug=False,
+        sender_alias=self.name
+      )
+      # end bc_engine
+      self.P("dAuth process ended.")
+    else:
+      self.P("Skipping dAuth process.")
     # END TODO
     
     
@@ -1060,7 +1072,7 @@ class GenericSession(BaseDecentrAIObject):
       # been received
       REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
       REQUIRED_SIGNATURE = PLUGIN_SIGNATURES.NET_CONFIG_MONITOR
-      if msg_pipeline.lower() == REQUIRED_PIPELINE.lower() and msg_signature.upper() == REQUIRED_SIGNATURE.upper():
+      if isinstance(msg_pipeline, str) and msg_pipeline.lower() == REQUIRED_PIPELINE.lower() and msg_signature.upper() == REQUIRED_SIGNATURE.upper():
         # extract data
         sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
         short_sender_addr = sender_addr[:8] + '...' + sender_addr[-4:]
