@@ -33,6 +33,8 @@ class EvmNetConstants:
   NET_CONFIG_MONITOR_SHOW_EACH_KEY = 'NET_CONFIG_MONITOR_SHOW_EACH'
   SEED_NODES_ADDRESSES_KEY = 'SEED_NODES_ADDRESSES' # This is a list of seed nodes for the network, used for initial connections.
   EE_ORACLE_SYNC_USE_R1FS_KEY = 'EE_ORACLE_SYNC_USE_R1FS'  # This is a boolean flag to use R1FS for oracle sync.
+  ORACLE_SYNC_BLOCKCHAIN_PRESENCE_MIN_THRESHOLD_KEY = 'ORACLE_SYNC_BLOCKCHAIN_PRESENCE_MIN_THRESHOLD'
+  ORACLE_SYNC_ONLINE_PRESENCE_MIN_THRESHOLD_KEY = 'ORACLE_SYNC_ONLINE_PRESENCE_MIN_THRESHOLD'
 # endclass EvmNetConstants
 
 
@@ -493,6 +495,8 @@ EVM_NET_CONSTANTS = {
       "0xai_AgNhMIJZkkWdrTjnmrqdOa6hzAXkoXPNV4Zbvbm_piYJ",  # r1s-04
     ],
     EvmNetConstants.EE_ORACLE_SYNC_USE_R1FS_KEY: False,  # Do not use R1FS for oracle sync in mainnet.
+    EvmNetConstants.ORACLE_SYNC_BLOCKCHAIN_PRESENCE_MIN_THRESHOLD_KEY: 0.3,
+    EvmNetConstants.ORACLE_SYNC_ONLINE_PRESENCE_MIN_THRESHOLD_KEY: 0.4,
   },
   EvmNetData.TESTNET: {
     EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: 120,  # Log every 2 minutes.
@@ -502,6 +506,8 @@ EVM_NET_CONSTANTS = {
       "0xai_A61eKDV1otIH6uWy3zDlbJNJUWayp1jAsirOuYxztf82",  # tr1s-02
     ],
     EvmNetConstants.EE_ORACLE_SYNC_USE_R1FS_KEY: False,  # Do not use R1FS for oracle sync in testnet.
+    EvmNetConstants.ORACLE_SYNC_BLOCKCHAIN_PRESENCE_MIN_THRESHOLD_KEY: 0.3,
+    EvmNetConstants.ORACLE_SYNC_ONLINE_PRESENCE_MIN_THRESHOLD_KEY: 0.4,
   },
   EvmNetData.DEVNET: {
     EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: 60,  # Log every minute.
@@ -511,6 +517,8 @@ EVM_NET_CONSTANTS = {
       "0xai_AgnygSlY8BwnmaCj6mItg36JHlG_Lh3UqqFaTPbuNzy0",  # dr1s-02
     ],
     EvmNetConstants.EE_ORACLE_SYNC_USE_R1FS_KEY: True,  # Use R1FS for oracle sync in devnet.
+    EvmNetConstants.ORACLE_SYNC_BLOCKCHAIN_PRESENCE_MIN_THRESHOLD_KEY: 0.15,
+    EvmNetConstants.ORACLE_SYNC_ONLINE_PRESENCE_MIN_THRESHOLD_KEY: 0.2,
   },
 }
 
