@@ -89,6 +89,8 @@ class _PickleSerializationMixin(object):
     os.makedirs(os.path.split(datafile)[0], exist_ok=True)
 
     tm_start = time()
+    tm_elapsed = None
+    err_msg = None
     if compressed or '.pklz' in fn:
       if not compressed:
         P("Saving pickle with compression=True forced due to extension")
@@ -106,11 +108,15 @@ class _PickleSerializationMixin(object):
           with open(datafile, 'wb') as fhandle:
             pickle.dump(data, fhandle, protocol=pickle.HIGHEST_PROTOCOL)
           tm_elapsed = time() - tm_start
-        except:
-          pass
-    # endwith conditional lock
-      if verbose:
-        P("  Saved pickle '{}' in '{}' folder in {:.1f}s".format(fn, folder, tm_elapsed))
+        except Exception as e:
+          err_msg = e
+      if tm_elapsed is not None:
+        if verbose:
+          P("  Saved pickle '{}' in '{}' folder in {:.1f}s".format(fn, folder, tm_elapsed))
+      else:
+        # maybe show this only if verbose?
+        P(f"  FAILED pickle save! Error: {err_msg}")
+    # endif compressed or not
     return datafile
 
 
