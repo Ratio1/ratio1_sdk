@@ -67,6 +67,7 @@ from io import BytesIO
 import ssl
 from requests.auth import HTTPBasicAuth
 import tempfile
+import random
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -739,9 +740,10 @@ class R1FSEngine:
     def add_file(
       self,
       file_path: str,
+      nonce: int = None,
       secret: str = None,
       raise_on_error: bool = False,
-      show_logs: bool = True
+      show_logs: bool = True,
     ) -> str:
       """
       Add a file to R1FS with default encryption. The secret parameter is mandatory,
@@ -797,7 +799,12 @@ class R1FSEngine:
         raise ValueError(f"File {file_path} is too large ({file_size} bytes). Maximum allowed size is 2 GB.")
 
       key = self._hash_secret(secret)  # mandatory passphrase
-      nonce = os.urandom(12)           # recommended for GCM
+
+      if nonce is None:
+        nonce = os.urandom(12)           # recommended for GCM
+      else:
+        nonce = random.Random(nonce).randbytes(12)
+
       original_basename = os.path.basename(file_path)
 
       # JSON metadata storing the original filename
