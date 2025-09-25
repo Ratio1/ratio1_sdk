@@ -72,6 +72,7 @@ import random
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 DEFAULT_SECRET = "ratio1"
+DEFAULT_FILENAME_JSON = "data.json"
 
 from threading import Lock
 
@@ -626,16 +627,50 @@ class R1FSEngine:
       data, 
       fn=None, 
       secret: str = None,
-      tempfile=False, 
+      nonce: int = None,
+      use_tempfile=False,
       show_logs=True,
       raise_on_error=False,
-    ) -> bool:
+    ) -> str:
       """
       Add a JSON object to IPFS.
+      
+      Parameters
+      ----------
+      data : any
+          JSON-serializable data to add to IPFS.
+          
+      fn : str, optional
+          Filename to use for the JSON data. If None, uses DEFAULT_FILENAME_JSON
+          in a unique temporary directory.
+          
+      secret : str, optional
+          Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
+          
+      nonce : int, optional
+          Nonce for encryption. If None, a random nonce will be generated.
+          
+      use_tempfile : bool, optional
+          If True, use a system temporary file with random name. If False, use specified filename in unique directory.
+          
+      show_logs : bool, optional
+          Whether to show logs via self.P / self.Pd. Default is True.
+          
+      raise_on_error : bool, optional
+          If True, raise an Exception on command errors. Otherwise, logs them. Default is False.
+          
+      Returns
+      -------
+      str
+          The CID of the added JSON file.
       """
+      fn = None
+      unique_dir = None
       try:
-        json_data = json.dumps(data)
-        if tempfile:
+        json_data = json.dumps(data, sort_keys=True, separators=(',', ':'))
+        self.P(f"JSON data: {json_data}")
+        
+        if use_tempfile:
           if show_logs:
             self.Pd("Using tempfile for JSON")
           with tempfile.NamedTemporaryFile(
@@ -644,21 +679,55 @@ class R1FSEngine:
             f.write(json_data)
           fn = f.name
         else:
-          fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".json")
+          # Use default filename if none specified
+          if fn is None:
+            fn = DEFAULT_FILENAME_JSON
+            
+          # Create unique temporary directory for the file
+          unique_dir = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex)
+          os.makedirs(unique_dir, exist_ok=True)
+          fn = os.path.join(unique_dir, fn)
+          
           if show_logs:
-            self.Pd(f"Using unique name for JSON: {fn}")
+            self.Pd(f"Using unique directory for JSON: {fn}")
           with open(fn, "w") as f:
             f.write(json_data)
         #end if tempfile
+        
+        if show_logs:
+          self.Pd(f"About to call add_file with: file_path={fn}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
+        
         cid = self.add_file(
-          file_path=fn, secret=secret, show_logs=show_logs,
+          file_path=fn,
+          secret=secret,
+          nonce=nonce,
+          show_logs=show_logs,
           raise_on_error=raise_on_error
         )
+        
+        if show_logs:
+          self.Pd(f"add_file returned CID: {cid}")
+        
         return cid
+        
       except Exception as e:
         if show_logs:
           self.P(f"Error adding JSON to IPFS: {e}", color='r')
+        if raise_on_error:
+          raise
         return None
+        
+      finally:
+        # Clean up temporary files and directories
+        if fn and os.path.exists(fn):
+          os.remove(fn)
+          if show_logs:
+            self.Pd(f"Cleaned up temporary JSON file: {fn}")
+            
+        if unique_dir and os.path.exists(unique_dir):
+          os.rmdir(unique_dir)
+          if show_logs:
+            self.Pd(f"Cleaned up temporary directory: {unique_dir}")
       
       
     def add_yaml(
@@ -666,7 +735,8 @@ class R1FSEngine:
       data, 
       fn=None, 
       secret: str = None,
-      tempfile=False, 
+      nonce: int = None,
+      tempfile=False,
       show_logs=True,
       raise_on_error=False,
     ) -> str:
@@ -689,7 +759,10 @@ class R1FSEngine:
           with open(fn, "w") as f:
             f.write(yaml_data)
         cid = self.add_file(
-          file_path=fn, secret=secret, show_logs=show_logs,
+          file_path=fn,
+          secret=secret,
+          nonce=nonce,
+          show_logs=show_logs,
           raise_on_error=raise_on_error
         )
         return cid
@@ -704,7 +777,8 @@ class R1FSEngine:
       data, 
       fn=None, 
       secret: str = None,
-      tempfile=False, 
+      nonce: int = None,
+      tempfile=False,
       show_logs=True,
       raise_on_error=False,
     ) -> bool:
@@ -726,7 +800,10 @@ class R1FSEngine:
           with open(fn, "wb") as f:
             pickle.dump(data, f)
         cid = self.add_file(
-          file_path=fn, secret=secret, show_logs=show_logs,
+          file_path=fn,
+          secret=secret,
+          nonce=nonce,
+          show_logs=show_logs,
           raise_on_error=raise_on_error
         )
         return cid
@@ -801,27 +878,37 @@ class R1FSEngine:
       key = self._hash_secret(secret)  # mandatory passphrase
 
       if nonce is None:
-        nonce = os.urandom(12)           # recommended for GCM
+        nonce_bytes = os.urandom(12)           # recommended for GCM
+        if show_logs:
+          self.Pd(f"Generated random nonce: {nonce_bytes.hex()}")
       else:
-        nonce = random.Random(nonce).randbytes(12)
+        original_nonce = nonce
+        nonce_bytes = random.Random(nonce).randbytes(12)
+        if show_logs:
+          self.Pd(f"Nonce input: {original_nonce}, Generated nonce bytes: {nonce_bytes.hex()}")
 
       original_basename = os.path.basename(file_path)
 
       # JSON metadata storing the original filename
       meta_dict = {"filename": original_basename}
       meta_bytes = json.dumps(meta_dict).encode("utf-8")
+      
+      if show_logs:
+        self.Pd(f"Original basename: {original_basename}")
+        self.Pd(f"Metadata: {meta_dict}")
+        self.Pd(f"Secret hash (first 16 bytes): {key[:16].hex()}")
 
       tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
       
       folder_cid = None
       start_time = time.time()
       try:
-        encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
+        encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce_bytes)).encryptor()
 
         chunk_size = 1024 * 1024  # 1 MB chunks
         with open(file_path, "rb") as fin, open(tmp_cipher_path, "wb") as fout:
           # [nonce][4-byte-len][metadata][ciphertext][16-byte GCM tag]
-          fout.write(nonce)
+          fout.write(nonce_bytes)
           meta_len = len(meta_bytes)
           fout.write(meta_len.to_bytes(4, "big"))
           # encrypt the metadata and save
@@ -841,12 +928,24 @@ class R1FSEngine:
           fout.write(tag)
         #end with fin, fout
         
-        # Now we IPFS-add the ciphertext
-        output = self.__run_command(["ipfs", "add", "-q", "-w", tmp_cipher_path], show_logs=show_logs)
+        # Calculate SHA-256 hash of the encrypted content for comparison
+        with open(tmp_cipher_path, "rb") as f:
+          encrypted_content = f.read()
+        file_hash = hashlib.sha256(encrypted_content).digest()
+        if show_logs:
+          self.Pd(f"Encrypted content size: {len(encrypted_content)} bytes")
+          self.Pd(f"SHA-256 hash: {file_hash.hex()}")
+        
+        # Now we IPFS-add the ciphertext (without -w flag to match calculate_file_cid)
+        output = self.__run_command(["ipfs", "add", "-q", tmp_cipher_path], show_logs=show_logs)
         lines = output.strip().split("\n")
         if not lines:
-          raise RuntimeError("No output from 'ipfs add -w -q' for ciphertext.")
-        folder_cid = lines[-1].strip()
+          raise RuntimeError("No output from 'ipfs add -q' for ciphertext.")
+        
+        # Without -w flag, we get just the file CID
+        folder_cid = lines[0].strip()
+        if show_logs:
+          self.Pd(f"File CID: {folder_cid}")
       except Exception as e:
         msg = f"Error encrypting file {file_path}: {e}"
         if raise_on_error:
@@ -1148,6 +1247,250 @@ class R1FSEngine:
       except Exception as e:
         result = False
       return result
+
+    def calculate_file_cid(
+      self, 
+      file_path: str, 
+      nonce: int,
+      secret: str = None,
+      show_logs: bool = True
+    ) -> str:
+      """
+      Calculate the CID (Content Identifier) of a file without adding it to IPFS.
+      This method encrypts the file the same way as add_file and computes the CID
+      that would be generated if the encrypted file were added to IPFS.
+      
+      Parameters
+      ----------
+      file_path : str
+          Path to the local file to calculate CID for.
+          
+      nonce : int
+          Nonce for encryption. Required parameter for deterministic CID calculation.
+          
+      secret : str, optional
+          Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
+          
+      show_logs : bool, optional
+          Whether to show logs via self.P / self.Pd. Default is True.
+          
+      Returns
+      -------
+      str
+          The CID of the encrypted file (e.g., "QmHash...")
+          
+      Raises
+      ------
+      FileNotFoundError
+          If file_path does not exist.
+          
+      ImportError
+          If IPFS is not available or not running.
+          
+      ValueError
+          If nonce is None or invalid.
+          
+      Examples
+      --------
+      >>> cid = engine.calculate_file_cid("/path/to/file.txt", nonce=12345)
+      >>> print(cid)
+      QmHash123ABC...
+      """
+      if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+        
+      
+      if secret in ["", None]:
+        secret = self.__DEFAULT_SECRET
+        
+      # Validate nonce parameter
+      if nonce is None:
+        raise ValueError("nonce parameter is required for deterministic CID calculation")
+        
+      # Check file size and throw an error if larger than 2 GB.
+      file_size = os.path.getsize(file_path)
+      if file_size > 2 * 1024 * 1024 * 1024:
+        raise ValueError(f"File {file_path} is too large ({file_size} bytes). Maximum allowed size is 2 GB.")
+
+      key = self._hash_secret(secret)
+      nonce_bytes = random.Random(nonce).randbytes(12)
+
+      original_basename = os.path.basename(file_path)
+
+      # JSON metadata storing the original filename
+      meta_dict = {"filename": original_basename}
+      meta_bytes = json.dumps(meta_dict).encode("utf-8")
+
+      if show_logs:
+        self.Pd(f"Calculating CID for encrypted file: {file_path}")
+        self.Pd(f"Nonce input: {nonce}, Generated nonce bytes: {nonce_bytes.hex()}")
+        self.Pd(f"Original basename: {original_basename}")
+        self.Pd(f"Metadata: {meta_dict}")
+        self.Pd(f"Secret hash (first 16 bytes): {key[:16].hex()}")
+      
+      # Create temporary encrypted file (same as in add_file)
+      tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
+      
+      try:
+        # Encrypt the file content (same as in add_file)
+        encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce_bytes)).encryptor()
+
+        chunk_size = 1024 * 1024  # 1 MB chunks
+        with open(file_path, "rb") as fin, open(tmp_cipher_path, "wb") as fout:
+          # [nonce][4-byte-len][metadata][ciphertext][16-byte GCM tag]
+          fout.write(nonce_bytes)
+          meta_len = len(meta_bytes)
+          fout.write(meta_len.to_bytes(4, "big"))
+          # encrypt the metadata and save
+          enc_meta_data = encryptor.update(meta_bytes)
+          fout.write(enc_meta_data)
+
+          while True:
+            chunk = fin.read(chunk_size)
+            if not chunk:
+              break
+            fout.write(encryptor.update(chunk))
+          #end while there are still bytes to read
+          final_ct = encryptor.finalize()
+          fout.write(final_ct)
+          # Append 16-byte GCM tag
+          tag = encryptor.tag
+          fout.write(tag)
+        #end with fin, fout
+        
+        # Read the encrypted file content to calculate hash
+        with open(tmp_cipher_path, "rb") as f:
+          encrypted_content = f.read()
+        
+        # Calculate SHA-256 hash of the encrypted content
+        file_hash = hashlib.sha256(encrypted_content).digest()
+        
+        if show_logs:
+          self.Pd(f"Encrypted content size: {len(encrypted_content)} bytes")
+          self.Pd(f"SHA-256 hash: {file_hash.hex()}")
+        
+        # Use IPFS to calculate the hash without adding the file
+        output = self.__run_command(["ipfs", "add", "--only-hash", "-q", tmp_cipher_path], show_logs=show_logs)
+        lines = output.strip().split("\n")
+        if not lines:
+          raise RuntimeError("No output from 'ipfs add --only-hash -q' for ciphertext.")
+        
+        # Get the CID from IPFS
+        file_cid = lines[0].strip()
+        if show_logs:
+          self.Pd(f"IPFS calculated CID: {file_cid}")
+        
+        return file_cid
+        
+      finally:
+        # Clean up temporary encrypted file
+        if os.path.exists(tmp_cipher_path):
+          os.remove(tmp_cipher_path)
+
+    def calculate_json_cid(
+      self, 
+      data, 
+      nonce: int,
+      fn: str = None,
+      secret: str = None,
+      show_logs: bool = True
+    ) -> str:
+      """
+      Calculate the CID (Content Identifier) of JSON data without adding it to IPFS.
+      This method saves the JSON data to a temporary file, then uses calculate_file_cid
+      to compute the CID that would be generated if the encrypted file were added to IPFS.
+      
+      Parameters
+      ----------
+      data : any
+          JSON-serializable data to calculate CID for.
+          
+      nonce : int
+          Nonce for encryption. Required parameter for deterministic CID calculation.
+          
+      fn : str, optional
+          Filename to use for the JSON data. If None, uses DEFAULT_FILENAME_JSON.
+          This affects the CID calculation as the filename is included in the metadata.
+          
+      secret : str, optional
+          Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
+          
+      show_logs : bool, optional
+          Whether to show logs via self.P / self.Pd. Default is True.
+          
+      Returns
+      -------
+      str
+          The CID of the encrypted JSON file (e.g., "QmHash...")
+          
+      Raises
+      ------
+      ImportError
+          If IPFS is not available or not running.
+          
+      ValueError
+          If nonce is None or invalid, or if data cannot be JSON serialized.
+          
+      Examples
+      --------
+      >>> data = {"name": "test", "value": 123}
+      >>> cid = engine.calculate_json_cid(data, nonce=12345)
+      >>> print(cid)
+      QmHash123ABC...
+      
+      >>> # Use custom filename
+      >>> cid = engine.calculate_json_cid(data, nonce=12345, fn="config.json")
+      >>> print(cid)
+      QmHash456DEF...
+      """
+      # Serialize JSON data
+      try:
+        json_data = json.dumps(data, sort_keys=True, separators=(',', ':'))
+      except (TypeError, ValueError) as e:
+        raise ValueError(f"Data cannot be JSON serialized: {e}")
+      
+      self.P(f"JSON data: {json_data}")
+
+      # Use custom filename or default
+      if fn is None:
+        fn = DEFAULT_FILENAME_JSON
+
+      if show_logs:
+        self.Pd(f"Calculating CID for JSON data with {len(json_data)} characters, filename: {fn}")
+      
+      # Create temporary file for JSON data with the desired filename in a unique directory
+      unique_dir = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex)
+      os.makedirs(unique_dir, exist_ok=True)
+      tmp_json_path = os.path.join(unique_dir, fn)
+      
+      file_cid = None
+      try:
+        # Write JSON data to temporary file
+        with open(tmp_json_path, "w") as f:
+          f.write(json_data)
+        
+        if show_logs:
+          self.Pd(f"About to call calculate_file_cid with: file_path={tmp_json_path}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
+        
+        # Use calculate_file_cid to get the CID
+        file_cid = self.calculate_file_cid(
+          file_path=tmp_json_path,
+          nonce=nonce,
+          secret=secret,
+          show_logs=True  # Don't show logs from calculate_file_cid
+        )
+        
+        if show_logs:
+          self.Pd(f"calculate_file_cid returned CID: {file_cid}")
+        
+      finally:
+        # Clean up temporary JSON file and directory
+        if os.path.exists(tmp_json_path):
+          os.remove(tmp_json_path)
+        if os.path.exists(unique_dir):
+          os.rmdir(unique_dir)
+      
+      return file_cid
       
 
   # Start/stop IPFS methods (R1FS API)
