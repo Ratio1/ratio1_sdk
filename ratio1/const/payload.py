@@ -208,6 +208,7 @@ class PAYLOAD_DATA:
   NETMON_LAST_SEEN = 'last_seen_sec'
   NETMON_IS_SUPERVISOR = 'is_supervisor'
   NETMON_WHITELIST = 'whitelist'
+  NETMON_WHITELIST_MAP = 'whitelist_map'
   NETMON_NODE_SECURED = 'secured'
   NETMON_NODE_VERSION = 'version'
   NETMON_NODE_R1FS_ID = 'r1fs_id'
