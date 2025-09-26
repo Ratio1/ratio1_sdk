@@ -24,7 +24,7 @@ from ..bc import DefaultBlockEngine, _DotDict, EE_VPN_IMPL
 from ..const import (
   COMMANDS, ENVIRONMENT, HB, PAYLOAD_DATA, STATUS_TYPE, 
   PLUGIN_SIGNATURES, DEFAULT_PIPELINES,
-  BLOCKCHAIN_CONFIG, SESSION_CT, NET_CONFIG
+  BLOCKCHAIN_CONFIG, SESSION_CT, NET_CONFIG,
 )
 from ..const import comms as comm_ct
 from ..const import DEEPLOY_CT
@@ -993,7 +993,7 @@ class GenericSession(BaseDecentrAIObject):
       sender_addr: str,
     ):
       """
-      This method processes the net-mon messages received from the communication
+      This method processes the net-mon (NETMON) messages received from the communication
       channel.
       """
       REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
@@ -1007,8 +1007,12 @@ class GenericSession(BaseDecentrAIObject):
         ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
         current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})        
         if current_network:
-          # received valid netmon current network
-          
+          # received valid netmon current network          
+          if self._eth_enabled:
+            dct_msg = PAYLOAD_DATA.maybe_convert_netmon_whitelist(dict_msg)
+            current_network = dct_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})
+          # end if eth enabled
+
           # first we record the second of the minute
           second_bin = self.log.second_of_minute()
           self._netmon_second_bins[second_bin] += 1

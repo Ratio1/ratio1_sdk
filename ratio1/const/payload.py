@@ -215,7 +215,29 @@ class PAYLOAD_DATA:
   NETMON_NODE_R1FS_ONLINE = 'r1fs_online'
   NETMON_NODE_R1FS_RELAY = 'r1fs_relay'
   
-
+  @staticmethod
+  def maybe_convert_netmon_whitelist(full_payload : dict) -> dict:
+    """
+    This function will convert each node individual whitelist from the compressed index-based
+    version to the full address version if needed (EVM-based implementations only).    
+    """
+    current_network = full_payload.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})
+    dct_whitelist = full_payload.get(PAYLOAD_DATA.NETMON_WHITELIST_MAP, {})
+    if len(dct_whitelist) == 0:
+      return full_payload
+    # now lets decompress the whitelists
+    dct_idx_to_addr = {str(v): k for k, v in dct_whitelist.items()}
+    for node_info in current_network.values():
+      wl_indexes = node_info.get(PAYLOAD_DATA.NETMON_WHITELIST, [])
+      if not isinstance(wl_indexes, list):
+        wl_indexes = []
+      full_wl = []
+      for idx in wl_indexes:
+        addr = dct_idx_to_addr.get(str(idx), None)
+        if addr is not None:
+          full_wl.append(addr)
+      node_info[PAYLOAD_DATA.NETMON_WHITELIST] = full_wl
+    return full_payload
   
   
 class NET_CONFIG:
