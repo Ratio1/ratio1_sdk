@@ -777,27 +777,66 @@ class R1FSEngine:
       fn=None, 
       secret: str = None,
       nonce: int = None,
-      tempfile=False,
+      use_tempfile=False,
       show_logs=True,
       raise_on_error=False,
-    ) -> bool:
+    ) -> str:
       """
       Add a Pickle object to IPFS.
+      
+      Parameters
+      ----------
+      data : any
+          Python object to pickle and add to IPFS.
+          
+      fn : str, optional
+          Filename to use for the pickle data. If None, generates a unique filename.
+          
+      secret : str, optional
+          Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
+          
+      nonce : int, optional
+          Nonce for encryption. If None, a random nonce will be generated.
+          
+      use_tempfile : bool, optional
+          If True, use a system temporary file with random name. If False, use specified filename.
+          
+      show_logs : bool, optional
+          Whether to show logs via self.P / self.Pd. Default is True.
+          
+      raise_on_error : bool, optional
+          If True, raise an Exception on command errors. Otherwise, logs them. Default is False.
+          
+      Returns
+      -------
+      str
+          The CID of the added pickle file.
       """
       try:
         import pickle
-        if tempfile:
+        if show_logs:
+          self.Pd(f"Pickling data of type: {type(data)}")
+        
+        if use_tempfile:
           if show_logs:
             self.Pd("Using tempfile for Pickle")
           with tempfile.NamedTemporaryFile(mode='wb', suffix='.pkl', delete=False) as f:
             pickle.dump(data, f)
           fn = f.name
         else:
-          fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
-          if show_logs:
-            self.Pd(f"Using unique name for pkl: {fn}")
+          if fn is None:
+            fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
+            if show_logs:
+              self.Pd(f"Using unique name for pkl: {fn}")
+          else:
+            if show_logs:
+              self.Pd(f"Using provided filename: {fn}")
           with open(fn, "wb") as f:
             pickle.dump(data, f)
+        
+        if show_logs:
+          self.Pd(f"About to call add_file with: file_path={fn}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
+        
         cid = self.add_file(
           file_path=fn,
           secret=secret,
@@ -805,11 +844,25 @@ class R1FSEngine:
           show_logs=show_logs,
           raise_on_error=raise_on_error
         )
+        
+        if show_logs:
+          self.Pd(f"add_file returned CID: {cid}")
+        
         return cid
+        
       except Exception as e:
         if show_logs:
           self.P(f"Error adding Pickle to IPFS: {e}", color='r')
+        if raise_on_error:
+          raise
         return None
+        
+      finally:
+        # Clean up temporary files
+        if 'fn' in locals() and fn and os.path.exists(fn):
+          os.remove(fn)
+          if show_logs:
+            self.Pd(f"Cleaned up temporary pickle file: {fn}")
 
 
     @require_ipfs_started
@@ -1480,6 +1533,113 @@ class R1FSEngine:
         # Clean up temporary JSON file and directory
         if os.path.exists(tmp_json_path):
           os.remove(tmp_json_path)
+        if os.path.exists(unique_dir):
+          os.rmdir(unique_dir)
+      
+      return file_cid
+
+    def calculate_pickle_cid(
+      self,
+      data,
+      nonce: int,
+      fn: str = None,
+      secret: str = None,
+      show_logs: bool = True
+    ) -> str:
+      """
+      Calculate the CID (Content Identifier) of pickle data without adding it to IPFS.
+      This method saves the pickle data to a temporary file, then uses calculate_file_cid
+      to compute the CID that would be generated if the encrypted file were added to IPFS.
+      
+      Parameters
+      ----------
+      data : any
+          Python object to pickle and calculate CID for.
+          
+      nonce : int
+          Nonce for encryption. Required parameter for deterministic CID calculation.
+          
+      fn : str, optional
+          Filename to use for the pickle data. If None, generates a unique filename.
+          This affects the CID calculation as the filename is included in the metadata.
+          
+      secret : str, optional
+          Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
+          
+      show_logs : bool, optional
+          Whether to show logs via self.P / self.Pd. Default is True.
+          
+      Returns
+      -------
+      str
+          The CID of the encrypted pickle file (e.g., "QmHash...")
+          
+      Raises
+      ------
+      ImportError
+          If IPFS is not available or not running.
+          
+      ValueError
+          If nonce is None or invalid, or if data cannot be pickled.
+          
+      Examples
+      --------
+      >>> data = {"name": "test", "value": 123}
+      >>> cid = engine.calculate_pickle_cid(data, nonce=12345)
+      >>> print(cid)
+      QmHash123ABC...
+      
+      >>> # Use custom filename
+      >>> cid = engine.calculate_pickle_cid(data, nonce=12345, fn="model.pkl")
+      >>> print(cid)
+      QmHash456DEF...
+      """
+      # Serialize pickle data
+      try:
+        import pickle
+        pickle_data = pickle.dumps(data)
+      except (TypeError, ValueError, pickle.PicklingError) as e:
+        raise ValueError(f"Data cannot be pickled: {e}")
+      
+      if show_logs:
+        self.Pd(f"Pickled data of type: {type(data)}, size: {len(pickle_data)} bytes")
+
+      # Use custom filename or generate unique one
+      if fn is None:
+        fn = self._get_unique_or_complete_upload_name(fn=fn, suffix=".pkl")
+
+      if show_logs:
+        self.Pd(f"Calculating CID for pickle data with {len(pickle_data)} bytes, filename: {fn}")
+      
+      # Create temporary file for pickle data with the desired filename in a unique directory
+      unique_dir = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex)
+      os.makedirs(unique_dir, exist_ok=True)
+      tmp_pickle_path = os.path.join(unique_dir, fn)
+      
+      file_cid = None
+      try:
+        # Write pickle data to temporary file
+        with open(tmp_pickle_path, "wb") as f:
+          f.write(pickle_data)
+        
+        if show_logs:
+          self.Pd(f"About to call calculate_file_cid with: file_path={tmp_pickle_path}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
+        
+        # Use calculate_file_cid to get the CID
+        file_cid = self.calculate_file_cid(
+          file_path=tmp_pickle_path,
+          nonce=nonce,
+          secret=secret,
+          show_logs=True  # Don't show logs from calculate_file_cid
+        )
+        
+        if show_logs:
+          self.Pd(f"calculate_file_cid returned CID: {file_cid}")
+        
+      finally:
+        # Clean up temporary pickle file and directory
+        if os.path.exists(tmp_pickle_path):
+          os.remove(tmp_pickle_path)
         if os.path.exists(unique_dir):
           os.rmdir(unique_dir)
       
