@@ -664,7 +664,6 @@ class R1FSEngine:
       str
           The CID of the added JSON file.
       """
-      fn = None
       unique_dir = None
       try:
         json_data = json.dumps(data, sort_keys=True, separators=(',', ':'))
@@ -884,8 +883,6 @@ class R1FSEngine:
       else:
         original_nonce = nonce
         nonce_bytes = random.Random(nonce).randbytes(12)
-        if show_logs:
-          self.Pd(f"Nonce input: {original_nonce}, Generated nonce bytes: {nonce_bytes.hex()}")
 
       original_basename = os.path.basename(file_path)
 
@@ -927,15 +924,7 @@ class R1FSEngine:
           tag = encryptor.tag
           fout.write(tag)
         #end with fin, fout
-        
-        # Calculate SHA-256 hash of the encrypted content for comparison
-        with open(tmp_cipher_path, "rb") as f:
-          encrypted_content = f.read()
-        file_hash = hashlib.sha256(encrypted_content).digest()
-        if show_logs:
-          self.Pd(f"Encrypted content size: {len(encrypted_content)} bytes")
-          self.Pd(f"SHA-256 hash: {file_hash.hex()}")
-        
+
         # Now we IPFS-add the ciphertext (without -w flag to match calculate_file_cid)
         output = self.__run_command(["ipfs", "add", "-q", tmp_cipher_path], show_logs=show_logs)
         lines = output.strip().split("\n")
@@ -1101,11 +1090,19 @@ class R1FSEngine:
       
       # if the folder exists cleanup the content 
       if os.path.exists(local_folder):
-        if show_logs:
-          files = os.listdir(local_folder)
-          self.Pd(f"Cleaning up {local_folder} with {files}")
-        #end if show_logs
-        shutil.rmtree(local_folder)
+        if os.path.isdir(local_folder):
+          if show_logs:
+            files = os.listdir(local_folder)
+            self.Pd(f"Cleaning up {local_folder} with {files}")
+          #end if show_logs
+          shutil.rmtree(local_folder)
+        else:
+          # If it's a file, just remove it
+          if show_logs:
+            self.Pd(f"Removing existing file {local_folder}")
+          #end if show_logs
+          os.remove(local_folder)
+        #end if isdir
       #end if local_folder exists
 
       
@@ -1123,6 +1120,14 @@ class R1FSEngine:
       download_elapsed_time = time.time() - start_time
 
       # Expect exactly one file
+      if not os.path.isdir(local_folder):
+        msg = f"Expected {local_folder} to be a directory after IPFS download, but it's not"
+        if raise_on_error:
+          raise RuntimeError(msg)
+        else:
+          self.P(msg, color='r')
+          return
+
       contents = os.listdir(local_folder)
       if len(contents) != 1:
         msg = f"Expected 1 file in {local_folder}, found {contents}"
@@ -1249,8 +1254,8 @@ class R1FSEngine:
       return result
 
     def calculate_file_cid(
-      self, 
-      file_path: str, 
+      self,
+      file_path: str,
       nonce: int,
       secret: str = None,
       show_logs: bool = True
@@ -1298,8 +1303,7 @@ class R1FSEngine:
       """
       if not os.path.isfile(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
-        
-      
+
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
         
@@ -1327,10 +1331,10 @@ class R1FSEngine:
         self.Pd(f"Original basename: {original_basename}")
         self.Pd(f"Metadata: {meta_dict}")
         self.Pd(f"Secret hash (first 16 bytes): {key[:16].hex()}")
-      
+
       # Create temporary encrypted file (same as in add_file)
       tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
-      
+
       try:
         # Encrypt the file content (same as in add_file)
         encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce_bytes)).encryptor()
@@ -1357,18 +1361,7 @@ class R1FSEngine:
           tag = encryptor.tag
           fout.write(tag)
         #end with fin, fout
-        
-        # Read the encrypted file content to calculate hash
-        with open(tmp_cipher_path, "rb") as f:
-          encrypted_content = f.read()
-        
-        # Calculate SHA-256 hash of the encrypted content
-        file_hash = hashlib.sha256(encrypted_content).digest()
-        
-        if show_logs:
-          self.Pd(f"Encrypted content size: {len(encrypted_content)} bytes")
-          self.Pd(f"SHA-256 hash: {file_hash.hex()}")
-        
+
         # Use IPFS to calculate the hash without adding the file
         output = self.__run_command(["ipfs", "add", "--only-hash", "-q", tmp_cipher_path], show_logs=show_logs)
         lines = output.strip().split("\n")
@@ -1388,8 +1381,8 @@ class R1FSEngine:
           os.remove(tmp_cipher_path)
 
     def calculate_json_cid(
-      self, 
-      data, 
+      self,
+      data,
       nonce: int,
       fn: str = None,
       secret: str = None,
