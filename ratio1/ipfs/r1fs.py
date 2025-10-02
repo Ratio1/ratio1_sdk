@@ -978,16 +978,14 @@ class R1FSEngine:
           fout.write(tag)
         #end with fin, fout
 
-        # Now we IPFS-add the ciphertext (without -w flag to match calculate_file_cid)
-        output = self.__run_command(["ipfs", "add", "-q", tmp_cipher_path], show_logs=show_logs)
+        # Now we IPFS-add the ciphertext
+        output = self.__run_command(["ipfs", "add", "-q", "-w", tmp_cipher_path], show_logs=show_logs)
         lines = output.strip().split("\n")
+        self.P("output lines: ", json.dumps(lines))
+
         if not lines:
-          raise RuntimeError("No output from 'ipfs add -q' for ciphertext.")
-        
-        # Without -w flag, we get just the file CID
-        folder_cid = lines[0].strip()
-        if show_logs:
-          self.Pd(f"File CID: {folder_cid}")
+          raise RuntimeError("No output from 'ipfs add -w -q' for ciphertext.")
+        folder_cid = lines[-1].strip()
       except Exception as e:
         msg = f"Error encrypting file {file_path}: {e}"
         if raise_on_error:
@@ -1263,6 +1261,224 @@ class R1FSEngine:
       #end if out_path is not None
       return out_path
 
+    @require_ipfs_started
+    def get_pickle(
+      self,
+      cid: str,
+      local_folder: str = None,
+      secret: str = None,
+      timeout: int = None,
+      pin: bool = True,
+      raise_on_error: bool = False,
+      show_logs: bool = True,
+    ):
+      """
+      Retrieve and deserialize a pickle file from R1FS by CID.
+      Uses get_file under the hood to download and decrypt the file, then loads it with pickle.
+
+      Parameters
+      ----------
+      cid : str
+        The folder CID (wrapped single file).
+
+      local_folder : str, optional
+        Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
+
+      secret : str, optional
+        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+
+      timeout : int, optional
+        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+
+      pin : bool, optional
+        If True, we optionally pin the folder. Default True.
+
+      raise_on_error : bool, optional
+        If True, raise an Exception on command errors/timeouts. Otherwise logs them. Default False.
+
+      show_logs : bool, optional
+        If True, logs steps via self.P / self.Pd. Default True.
+
+      Returns
+      -------
+      any
+        The deserialized Python object from the pickle file.
+
+      Raises
+      ------
+      ValueError
+        If the secret is empty.
+
+      RuntimeError
+        If multiple or zero files are found in the downloaded folder,
+        or if we fail to parse the JSON metadata.
+
+      Exception
+        If the GCM tag is invalid or the IPFS command times out
+        and raise_on_error=True.
+
+      Examples
+      --------
+      >>> # Simple usage with default passphrase
+      >>> data = engine.get_pickle("QmEncFolderXYZ")
+      >>> print(data)
+      {'key': 'value', 'list': [1, 2, 3]}
+      
+      """
+      import pickle
+      
+      # Use get_file to download and decrypt the file
+      file_path = self.get_file(
+        cid=cid,
+        local_folder=local_folder,
+        secret=secret,
+        timeout=timeout,
+        pin=pin,
+        raise_on_error=raise_on_error,
+        show_logs=show_logs,
+        return_absolute_path=True
+      )
+      
+      if file_path is None:
+        if raise_on_error:
+          raise RuntimeError(f"Failed to retrieve file for CID {cid}")
+        else:
+          if show_logs:
+            self.P(f"Failed to retrieve file for CID {cid}", color='r')
+          return None
+      
+      # Load the pickle file
+      try:
+        with open(file_path, "rb") as f:
+          data = pickle.load(f)
+        
+        if show_logs:
+          self.Pd(f"Successfully loaded pickle data from {file_path}")
+        
+        # Clean up the temporary file
+        os.remove(file_path)
+        if show_logs:
+          self.Pd(f"Cleaned up temporary pickle file: {file_path}")
+        
+        return data
+        
+      except Exception as e:
+        msg = f"Error loading pickle file {file_path}: {e}"
+        if raise_on_error:
+          raise RuntimeError(msg)
+        else:
+          if show_logs:
+            self.P(msg, color='r')
+          return None
+
+    @require_ipfs_started
+    def get_json(
+      self,
+      cid: str,
+      local_folder: str = None,
+      secret: str = None,
+      timeout: int = None,
+      pin: bool = True,
+      raise_on_error: bool = False,
+      show_logs: bool = True,
+    ):
+      """
+      Retrieve and deserialize a JSON file from R1FS by CID.
+      Uses get_file under the hood to download and decrypt the file, then loads it with json.
+
+      Parameters
+      ----------
+      cid : str
+        The folder CID (wrapped single file).
+
+      local_folder : str, optional
+        Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
+
+      secret : str, optional
+        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+
+      timeout : int, optional
+        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+
+      pin : bool, optional
+        If True, we optionally pin the folder. Default True.
+
+      raise_on_error : bool, optional
+        If True, raise an Exception on command errors/timeouts. Otherwise logs them. Default False.
+
+      show_logs : bool, optional
+        If True, logs steps via self.P / self.Pd. Default True.
+
+      Returns
+      -------
+      any
+        The deserialized JSON object from the file.
+
+      Raises
+      ------
+      ValueError
+        If the secret is empty.
+
+      RuntimeError
+        If multiple or zero files are found in the downloaded folder,
+        or if we fail to parse the JSON metadata.
+
+      Exception
+        If the GCM tag is invalid or the IPFS command times out
+        and raise_on_error=True.
+
+      Examples
+      --------
+      >>> # Simple usage with default passphrase
+      >>> data = engine.get_json("QmEncFolderXYZ")
+      >>> print(data)
+      {'key': 'value', 'list': [1, 2, 3]}
+      
+      """
+      # Use get_file to download and decrypt the file
+      file_path = self.get_file(
+        cid=cid,
+        local_folder=local_folder,
+        secret=secret,
+        timeout=timeout,
+        pin=pin,
+        raise_on_error=raise_on_error,
+        show_logs=show_logs,
+        return_absolute_path=True
+      )
+      
+      if file_path is None:
+        if raise_on_error:
+          raise RuntimeError(f"Failed to retrieve file for CID {cid}")
+        else:
+          if show_logs:
+            self.P(f"Failed to retrieve file for CID {cid}", color='r')
+          return None
+      
+      # Load the JSON file
+      try:
+        with open(file_path, "r", encoding="utf-8") as f:
+          data = json.load(f)
+        
+        if show_logs:
+          self.Pd(f"Successfully loaded JSON data from {file_path}")
+        
+        # Clean up the temporary file
+        os.remove(file_path)
+        if show_logs:
+          self.Pd(f"Cleaned up temporary JSON file: {file_path}")
+        
+        return data
+        
+      except Exception as e:
+        msg = f"Error loading JSON file {file_path}: {e}"
+        if raise_on_error:
+          raise RuntimeError(msg)
+        else:
+          if show_logs:
+            self.P(msg, color='r')
+          return None
+
 
     @require_ipfs_started
     def list_pins(self):
@@ -1416,11 +1632,12 @@ class R1FSEngine:
         #end with fin, fout
 
         # Use IPFS to calculate the hash without adding the file
-        output = self.__run_command(["ipfs", "add", "--only-hash", "-q", tmp_cipher_path], show_logs=show_logs)
+        output = self.__run_command(["ipfs", "add", "--only-hash", "-q", "-w", tmp_cipher_path], show_logs=show_logs)
         lines = output.strip().split("\n")
+        self.P("output lines: ", json.dumps(lines))
         if not lines:
-          raise RuntimeError("No output from 'ipfs add --only-hash -q' for ciphertext.")
-        
+          raise RuntimeError("No output from 'ipfs add --only-hash -q -w' for ciphertext.")
+
         # Get the CID from IPFS
         file_cid = lines[0].strip()
         if show_logs:
