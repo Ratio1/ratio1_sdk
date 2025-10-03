@@ -38,7 +38,7 @@ def loop_processing(plugin: CustomPluginTemplate):
   need_last_epoch_info = "need_last_epoch_info"
 
   def get_erc721_total_supply(contract_address: str) -> int:
-    return int(plugin.requests.post("https://base-mainnet.public.blastapi.io", json={
+    return int(plugin.requests.post("https://base.drpc.org", json={
       "jsonrpc": "2.0",
       "method": "eth_call",
       "params": [
@@ -74,20 +74,6 @@ def loop_processing(plugin: CustomPluginTemplate):
         gnd_count += 1
     return (last_epoch_nd_mining / 10**18), nodes_count, nd_count, mnd_count, gnd_count
   
-  def get_burned_last_epoch(current_burn: int) -> int:
-    if plugin.obj_cache.get(epoch_review_cache_key) is None:
-      return current_burn
-    if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch - 1) is None:
-      return current_burn
-    return current_burn - plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch - 1).get("burned")
-  
-  def get_poai_burned_last_epoch(current_burn: int) -> int:
-    if plugin.obj_cache.get(epoch_review_cache_key) is None:
-      return current_burn
-    if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch - 1) is None:
-      return current_burn
-    return current_burn - plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch - 1).get("poai_burned", 0)
-
   # If it is the first run, we need to initialize the cache from diskapi
   if plugin.obj_cache.get(cache_already_read_key) is None:
     plugin.obj_cache[epoch_review_cache_key] = plugin.diskapi_load_pickle_from_data(diskapi_epoch_review_file_name) or {}
@@ -134,7 +120,7 @@ def loop_processing(plugin: CustomPluginTemplate):
     if plugin.obj_cache.get(epoch_review_cache_key).get(last_epoch) is not None and not need_info:
       return
     else:
-      plugin.P("Epoch review not processed for last epoch, continuing with processing.")
+      plugin.P("Epoch review not processed for last epoch or resend requested, continuing with processing.")
   else:
     plugin.P("No epoch review data found, initializing cache.")
     plugin.obj_cache[epoch_review_cache_key] = {}
@@ -142,24 +128,23 @@ def loop_processing(plugin: CustomPluginTemplate):
     
   plugin.obj_cache[need_last_epoch_info] = False # set false no matter wwhat as we display the info
 
+  # We get token details from the Ratio1 API
+  apiResponse = plugin.requests.get("https://dapp-api.ratio1.ai/token/bot-stats").json()
+  apiEpoch = apiResponse["epoch"]
+  if apiEpoch != last_epoch + 1:
+    plugin.P(f"API epoch {apiEpoch} does not match last epoch {last_epoch}, skipping epoch review processing.")
+    return
+
   # Get all the required data for the epoch review
   last_epoch_nd_mining, nodes_count, nd_count, mnd_count, gnd_count = get_nodes_details()
   plugin.P(f"Found {nd_count} ND, {mnd_count} MND, {gnd_count} GND. Last epoch mining: {last_epoch_nd_mining}")
 
-  # We get token details from the Ratio1 API
-  tokenDetails = plugin.requests.get("https://dapp-api.ratio1.ai/token/supply?withDecimals=true").json()
-  current_burn = float(tokenDetails["burned"])
-  nd_current_burn = float(tokenDetails["ndContractBurn"])
-  current_poai_burn = current_burn - nd_current_burn
-  circulating_supply = float(tokenDetails["circulatingSupply"])
-  total_supply = float(tokenDetails["totalSupply"])
-  burned_last_epoch = get_burned_last_epoch(current_burn)
-  burned_poai_last_epoch = get_poai_burned_last_epoch(current_poai_burn)
-  price_url = 'https://api.coingecko.com/api/v3/simple/price?ids=ratio1&vs_currencies=usd'
-  r1_usdc = plugin.requests.get(price_url).json().get("ratio1", {}).get("usd", 0)
-  poai_usdc_last_epoch = burned_poai_last_epoch / 0.15 * r1_usdc
-  burned_nd_last_epoch = burned_last_epoch - burned_poai_last_epoch
-  plugin.P(f"Burned last epoch: {burned_last_epoch}, ND burned last epoch: {burned_nd_last_epoch}, PoAI burned last epoch: {burned_poai_last_epoch}, Current burn: {current_burn}, Circulating supply: {circulating_supply}, Total supply: {total_supply}")
+  total_supply = float(apiResponse["totalSupply"])
+  circulating_supply = float(apiResponse["circulatingSupply"])
+  burned_nd_last_epoch = float(apiResponse["epochNdBurnR1"])
+  burned_poai_last_epoch = float(apiResponse["epochPoaiBurnR1"])
+  poai_usdc_last_epoch = float(apiResponse["epochPoaiRewardsUsdc"])
+  total_burn = float(apiResponse["totalBurn"])
 
   nd_supply = get_erc721_total_supply("0xE658DF6dA3FB5d4FBa562F1D5934bd0F9c6bd423")
   mnd_supply = get_erc721_total_supply("0x0C431e546371C87354714Fcc1a13365391A549E2")
@@ -178,14 +163,11 @@ def loop_processing(plugin: CustomPluginTemplate):
   if burned_poai_last_epoch > 0:
     message += f"🎁 Last Epoch PoAI Rewards: {(poai_usdc_last_epoch):,.2f} USDC\n"
     message += f"🔥 Last Epoch PoAI Burn: {(burned_poai_last_epoch):,.2f} R1\n"
-  message += f"🔥 Total Burn: {(current_burn):,.2f} R1\n"
+  message += f"🔥 Total Burn: {(total_burn):,.2f} R1\n"
   plugin.send_message_to_user(user_id=plugin.cfg_chat_id, text=message)
 
   # Save the epoch review data to the cache and diskapi
-  plugin.obj_cache[epoch_review_cache_key][last_epoch] = {
-    "burned": current_burn,
-    "poai_burned": current_poai_burn
-  }
+  plugin.obj_cache[epoch_review_cache_key][last_epoch] = True
   plugin.P(f"Saving epoch review data to diskapi file {diskapi_epoch_review_file_name}...")
   plugin.diskapi_save_pickle_to_data(plugin.obj_cache.get(epoch_review_cache_key), diskapi_epoch_review_file_name)
   return
@@ -345,6 +327,7 @@ if __name__ == "__main__":
         message_handler=reply,
         processing_handler=loop_processing,
         admins=['401110073', '683223680'],
+        process_delay=10,
       )
       pipeline.deploy()
     elif COMMAND == "STOP":
