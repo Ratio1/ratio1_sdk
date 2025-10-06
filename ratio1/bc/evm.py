@@ -1561,6 +1561,41 @@ class _EVMMixin:
 
       return result
 
+    def web3_get_first_closable_job_id(
+      self,
+      network: str = None
+    ):
+      """
+      Retrieve the ID of the first job that can be closed using getFirstClosableJobId().
+
+      Parameters
+      ----------
+      network : str, optional
+          The network to use. If None, defaults to self.evm_network.
+
+      Returns
+      -------
+      int or None
+          The ID of the first closable job, or None if no such job exists.
+      """
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address,
+        abi=EVM_ABI_DATA.POAI_MANAGER_ABI
+      )
+
+      self.P(f"`getFirstClosableJobId` on {network} via {w3vars.rpc_url}", verbosity=2)
+
+      # Call the contract function to get the first closable job ID.
+      result = contract.functions.getFirstClosableJobId().call()
+      if result == 0:
+        result = None
+      self.P(f"First closable job ID: {result}", verbosity=2)
+
+      return result
+
     def web3_get_is_last_epoch_allocated(
       self,
       network: str = None
