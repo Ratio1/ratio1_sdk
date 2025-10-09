@@ -3130,6 +3130,186 @@ class GenericSession(BaseDecentrAIObject):
         **kwargs
       )
 
+    def create_worker_web_app(
+      self,
+      *,
+      node,
+      name="Ratio1 Worker Web App",
+      tunnel_engine_enabled=True,
+      tunnel_engine="cloudflare",
+      cloudflare_token=None,
+      ngrok_edge_label=None,
+      extra_debug=False,
+      summary="Ratio1 Worker WebApp created via SDK",
+      description=None,
+      # Worker app specific parameters
+      vcs_data=None,
+      image="node:22",
+      build_and_run_commands=None,
+      cr_data=None,
+      env=None,
+      dynamic_env=None,
+      port=None,
+      endpoint_url=None,
+      endpoint_poll_interval=30,
+      container_resources=None,
+      volumes=None,
+      file_volumes=None,
+      restart_policy="always",
+      image_pull_policy="always",
+      image_poll_interval=300,
+      vcs_poll_interval=60,
+      **kwargs
+    ):
+      """
+      Create a new worker web app on a node.
+
+      Parameters
+      ----------
+
+      node : str
+          Address or Name of the ratio1 Edge Protocol edge node that will handle this web app.
+
+      name : str
+          Name of the worker web app.
+
+      tunnel_engine : str, optional
+          The tunnel engine to use for exposing the web app. Defaults to "cloudflare".
+          It can also be "ngrok" for ngrok tunnel.
+
+      tunnel_engine_enabled : bool, optional
+          If True, will use the specified tunnel engine to expose the web app. Defaults to True.
+
+      ngrok_edge_label : str, optional
+          The label of the edge node that will be used to expose the HTTP server. Defaults to None.
+
+      cloudflare_token : str, optional
+          The Cloudflare token to use for exposing the web app. Defaults to None.
+
+      vcs_data : dict, required
+          Version control system data containing:
+          - PROVIDER: "github" (currently only GitHub is supported)
+          - USERNAME: GitHub username for cloning (if private repo)
+          - TOKEN: GitHub personal access token for cloning (if private repo)
+          - REPO_OWNER: GitHub repository owner (user or org)
+          - REPO_NAME: GitHub repository name
+          - BRANCH: branch to monitor for updates (defaults to "main")
+          - POLL_INTERVAL: seconds between Git commit checks (defaults to 60)
+
+      image : str, optional
+          Docker image to use for the container. Defaults to "node:22".
+
+      build_and_run_commands : list, optional
+          List of commands to run in the container for building and running the app.
+          Defaults to ["npm install", "npm run build", "npm start"].
+
+      cr_data : dict, optional
+          Container registry data containing:
+          - SERVER: container registry URL (defaults to 'docker.io')
+          - USERNAME: registry username
+          - PASSWORD: registry password or token
+
+      env : dict, optional
+          Environment variables for the container.
+
+      dynamic_env : dict, optional
+          Dynamic environment variables for the container.
+
+      port : int, optional
+          Internal container port if it's a web app.
+
+      endpoint_url : str, optional
+          Endpoint to poll for health checks, e.g., "/health" or "/edgenode".
+
+      endpoint_poll_interval : int, optional
+          Seconds between endpoint health checks. Defaults to 30.
+
+      container_resources : dict, optional
+          Container resource limits containing:
+          - cpu: CPU limit (e.g., "0.5" for half a CPU, "1.0" for one CPU core)
+          - gpu: GPU limit (defaults to 0)
+          - memory: Memory limit (e.g., "512m" for 512MB)
+          - ports: List of container ports or dict of host_port: container_port mappings
+
+      volumes : dict, optional
+          Dictionary mapping host paths to container paths for directory volumes.
+          Example: {"/host/data": "/container/data"}
+
+      file_volumes : dict, optional
+          Dictionary mapping logical names to file configurations for creating and mounting
+          files with dynamic content. Each entry should contain:
+          - content: String content to write to the file
+          - mounting_point: Full path where file will be mounted in container
+          Example: {"config": {"content": "port=8080", "mounting_point": "/app/config.txt"}}
+
+      restart_policy : str, optional
+          Container restart policy. Defaults to "always".
+
+      image_pull_policy : str, optional
+          Image pull policy. Defaults to "always".
+
+      image_poll_interval : int, optional
+          Seconds between Docker image checks. Defaults to 300.
+
+      vcs_poll_interval : int, optional
+          Seconds between Git commit checks. Defaults to 60.
+
+      """
+      if vcs_data is None:
+        raise ValueError("vcs_data is required for worker web apps. Please provide repository information.")
+
+      # Set default values
+      if build_and_run_commands is None:
+        build_and_run_commands = ["npm install", "npm run build", "npm start"]
+      
+      if cr_data is None:
+        cr_data = {"SERVER": "docker.io", "USERNAME": None, "PASSWORD": None}
+      
+      if container_resources is None:
+        container_resources = {"cpu": 1, "gpu": 0, "memory": "512m", "ports": []}
+
+      # Prepare worker app specific configuration
+      worker_config = {
+        "VCS_DATA": {**vcs_data, "POLL_INTERVAL": vcs_poll_interval},
+        "IMAGE": image,
+        "BUILD_AND_RUN_COMMANDS": build_and_run_commands,
+        "CR_DATA": cr_data,
+        "ENV": env or {},
+        "DYNAMIC_ENV": dynamic_env or {},
+        "PORT": port,
+        "ENDPOINT_URL": endpoint_url,
+        "ENDPOINT_POLL_INTERVAL": endpoint_poll_interval,
+        "CONTAINER_RESOURCES": container_resources,
+        "VOLUMES": volumes or {},
+        "FILE_VOLUMES": file_volumes or {},
+        "RESTART_POLICY": restart_policy,
+        "IMAGE_PULL_POLICY": image_pull_policy,
+        "IMAGE_POLL_INTERVAL": image_poll_interval,
+        "CAR_VERBOSE": 100,
+      }
+
+      kwargs = self.maybe_clean_kwargs(
+        _kwargs=kwargs,
+        caller_method_name="create_worker_web_app",
+        solver_method_name="create_web_app",
+        parameters_to_remove=["signature"]
+      )
+      
+      return self.create_web_app(
+        node=node,
+        name=name,
+        signature=PLUGIN_SIGNATURES.WORKER_APP_RUNNER,
+        tunnel_engine=tunnel_engine,
+        tunnel_engine_enabled=tunnel_engine_enabled,
+        cloudflare_token=cloudflare_token,
+        ngrok_edge_label=ngrok_edge_label,
+        extra_debug=extra_debug,
+        summary=summary,
+        description=description,
+        **worker_config,
+        **kwargs
+      )
+
     def deeploy_launch_container_app(
         self,
         docker_image: str,
