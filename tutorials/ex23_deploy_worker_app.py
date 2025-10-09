@@ -24,7 +24,7 @@ if __name__ == '__main__':
   cloudflare_token = input("Enter your Cloudflare tunnel token (or press Enter to skip): ").strip()
 
   if not cloudflare_token:
-    print("Warning: No Cloudflare token provided. The app will not be accessible via tunnel.")
+    session.P("Warning: No Cloudflare token provided. The app will not be accessible via tunnel.")
     cloudflare_token = None
 
   # VCS data for the repository to monitor
@@ -93,13 +93,13 @@ if __name__ == '__main__':
   )
   app.deploy()
   try:
-    print("Worker webapp deployed")
-    print("The app will automatically:")
-    print("- Clone the repository and build the application")
-    print("- Monitor for new commits and restart when changes are detected")
-    print("- Expose the app via Cloudflare tunnel")
+    session.P("Worker webapp deployed")
+    session.P("The app will automatically:")
+    session.P("- Clone the repository and build the application")
+    session.P("- Monitor for new commits and restart when changes are detected")
+    session.P("- Expose the app via Cloudflare tunnel")
   except Exception as e:
-    print("Error deploying worker webapp: ", e)
+    session.P("Error deploying worker webapp: ", e)
 
   # Observation:
   #   next code is not mandatory - it is used to keep the session open and cleanup the resources
