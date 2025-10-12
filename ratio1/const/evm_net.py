@@ -430,6 +430,91 @@ _POAI_MANAGER_ABI = [
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getAllActiveJobs",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "projectHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "requestTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "startTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastNodesChangeTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "jobType",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "pricePerEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastExecutionEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "numberOfNodesRequested",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "balance",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastAllocatedEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address[]",
+            "name": "activeNodes",
+            "type": "address[]"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowOwner",
+            "type": "address"
+          }
+        ],
+        "internalType": "struct JobWithAllDetails[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]
 

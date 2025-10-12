@@ -1334,28 +1334,39 @@ class _EVMMixin:
 
       # Call the contract function to get details.
       result_tuple = contract.functions.getJobDetails(job_id).call()
-
-      # Unpack the tuple into a dictionary for readability.
-      details = {
-        "network": network,
-        "jobId": result_tuple[0],
-        "projectHash": "0x" + result_tuple[1].hex(),
-        "requestTimestamp": result_tuple[2],
-        "startTimestamp": result_tuple[3],
-        "lastNodesChangeTimestamp": result_tuple[4],
-        "jobType": result_tuple[5],
-        "pricePerEpoch": result_tuple[6],
-        "lastExecutionEpoch": result_tuple[7],
-        "numberOfNodesRequested": result_tuple[8],
-        "balance": result_tuple[9],
-        "lastAllocatedEpoch": result_tuple[10],
-        "activeNodes": result_tuple[11],
-        "escrowAddress": result_tuple[12],
-        "escrowOwner": result_tuple[13],
-      }
+      details = self._format_job_details(result_tuple, network)
       self.P(f"Job Details:\n{json.dumps(details, indent=2)}", verbosity=2)
-
       return details
+
+    def web3_get_all_active_jobs(
+      self,
+      network: str = None
+    ):
+      """
+      Retrieve all active jobs tracked by the PoAI manager.
+
+      Parameters
+      ----------
+      network : str, optional
+          The network to use. Defaults to the current engine network.
+
+      Returns
+      -------
+      list[dict]
+          A list with the job details for every active job.
+      """
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address,
+        abi=EVM_ABI_DATA.POAI_MANAGER_ABI
+      )
+
+      self.P(f"`getAllActiveJobs` on {network} via {w3vars.rpc_url}", verbosity=2)
+      raw_jobs = contract.functions.getAllActiveJobs().call()
+      jobs = [self._format_job_details(job, network) for job in raw_jobs]
+      self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
+      return jobs
 
     def web3_submit_node_update(
       self,
@@ -1630,6 +1641,28 @@ class _EVMMixin:
       self.P(f"Last epoch allocated: {result}", verbosity=2)
 
       return result
+    
+    def _format_job_details(self, raw_job_details, network: str):
+      """
+      Normalize the job details tuple returned by the PoAI Manager contract.
+      """
+      return {
+        "network": network,
+        "jobId": raw_job_details[0],
+        "projectHash": "0x" + raw_job_details[1].hex(),
+        "requestTimestamp": raw_job_details[2],
+        "startTimestamp": raw_job_details[3],
+        "lastNodesChangeTimestamp": raw_job_details[4],
+        "jobType": raw_job_details[5],
+        "pricePerEpoch": raw_job_details[6],
+        "lastExecutionEpoch": raw_job_details[7],
+        "numberOfNodesRequested": raw_job_details[8],
+        "balance": raw_job_details[9],
+        "lastAllocatedEpoch": raw_job_details[10],
+        "activeNodes": raw_job_details[11],
+        "escrowAddress": raw_job_details[12],
+        "escrowOwner": raw_job_details[13],
+      }
 
   def get_deeploy_url(self):
     """
