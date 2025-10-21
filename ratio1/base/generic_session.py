@@ -4860,6 +4860,7 @@ class GenericSession(BaseDecentrAIObject):
         'R1FS ID'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ID,
         'R1FS On'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ONLINE,
         'R1FS Relay' : PAYLOAD_DATA.NETMON_NODE_R1FS_RELAY,
+        'Comm Relay' : PAYLOAD_DATA.NETMON_NODE_COMM_RELAY,
       })
       if all_info:
         mapping = OrderedDict({
@@ -4970,7 +4971,7 @@ class GenericSession(BaseDecentrAIObject):
       if alias_filter is not None:
         df_res = df_res[df_res['Alias'].str.contains(alias_filter, case=False, na=False)]
       if not all_info:
-        DROPPABLE = ['State', 'Last probe']
+        DROPPABLE = ['State', 'Last probe', 'Comm Relay']
         to_drop = [x for x in DROPPABLE if x in df_res.columns]
         if to_drop:
           df_res = df_res.drop(
