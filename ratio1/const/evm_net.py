@@ -547,7 +547,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0xa8d7FFCE91a888872A9f5431B4Dd6c0c135055c1",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xd1c7Dca934B37FAA402EB2EC64F6644d6957bE3b",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0x68f825aA8fD4Af498c2998F4b165F103080574d4",
-    EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia.public.blastapi.io",      
+    EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia-rpc.publicnode.com",      
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
