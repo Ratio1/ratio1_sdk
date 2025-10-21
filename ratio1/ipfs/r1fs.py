@@ -1522,6 +1522,589 @@ class R1FSEngine:
         result = False
       return result
 
+
+    ########## START DELETE METHODS ##########
+    if True:
+      def is_pinned(self, cid: str, show_logs: bool = False) -> bool:
+        """
+        Check if a CID is pinned locally.
+
+        Parameters
+        ----------
+        cid : str
+            The CID to check.
+
+        show_logs : bool, optional
+            Whether to show logs. Default is False.
+
+        Returns
+        -------
+        bool
+            True if the CID is pinned, False otherwise.
+
+        Examples
+        --------
+        >>> if engine.is_pinned("QmHash123..."):
+        >>>   print("File is pinned")
+        """
+        try:
+          output = self.__run_command(
+            ["ipfs", "pin", "ls", "--type=recursive", cid],
+            raise_on_error=False,
+            show_logs=False
+          )
+          is_pinned = cid in output
+          if show_logs:
+            self.Pd(f"CID {cid} pinned: {is_pinned}")
+          return is_pinned
+        except Exception as e:
+          if show_logs:
+            self.Pd(f"Error checking if CID {cid} is pinned: {e}")
+          return False
+
+      def unpin_file(
+        self,
+        cid: str,
+        unpin_remote: bool = True,
+        show_logs: bool = True,
+        raise_on_error: bool = False
+      ) -> bool:
+        """
+        Unpin a file from R1FS locally and optionally on the relay.
+        This marks the file for garbage collection but does not immediately delete it.
+
+        Parameters
+        ----------
+        cid : str
+            The CID to unpin.
+
+        unpin_remote : bool, optional
+            Whether to also unpin from the relay. Default is True.
+
+        show_logs : bool, optional
+            Whether to show logs. Default is True.
+
+        raise_on_error : bool, optional
+            If True, raise an Exception on errors. Otherwise logs them. Default is False.
+
+        Returns
+        -------
+        bool
+            True if unpinning was successful, False otherwise.
+
+        Examples
+        --------
+        >>> # Unpin locally and on relay
+        >>> engine.unpin_file("QmHash123...")
+
+        >>> # Unpin only locally
+        >>> engine.unpin_file("QmHash123...", unpin_remote=False)
+        """
+        if cid in [None, ""]:
+          msg = "CID parameter cannot be None or empty"
+          if raise_on_error:
+            raise ValueError(msg)
+          else:
+            if show_logs:
+              self.P(msg, color='r')
+            return False
+
+        success = True
+
+        try:
+          # First, unpin locally
+          result = self.__run_command(
+            ["ipfs", "pin", "rm", cid],
+            raise_on_error=raise_on_error,
+            show_logs=False
+          )
+
+          if show_logs:
+            self.Pd(f"Unpinned CID locally: {cid}")
+
+        except Exception as e:
+          msg = f"Error unpinning CID {cid} locally: {e}"
+          success = False
+          if raise_on_error:
+            raise RuntimeError(msg)
+          else:
+            if show_logs:
+              self.P(msg, color='r')
+            return False
+
+        # Then, notify the relay to unpin (mirrors add_file behavior)
+        if unpin_remote and self.__ipfs_relay_api is not None:
+          try:
+            request_url = f"{self.__ipfs_relay_api}/api/v0/pin/rm?arg={cid}"
+            response = requests.post(
+              request_url,
+              auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
+              verify=self.__ipfs_certificate_path
+            )
+
+            if response.status_code == 200:
+              if show_logs:
+                self.Pd(f"Relay successfully notified to unpin CID={cid}")
+            else:
+              msg = f"Failed to notify relay to unpin CID {cid}: {response.text}"
+              if raise_on_error:
+                raise RuntimeError(msg)
+              else:
+                if show_logs:
+                  self.P(msg, color='r')
+                success = False
+            #end if response status code
+          except requests.RequestException as e:
+            msg = f"Error notifying relay to unpin CID {cid}: {e}"
+            if raise_on_error:
+              raise RuntimeError(msg)
+            else:
+              if show_logs:
+                self.P(msg, color='r')
+              success = False
+          #end try
+        #end if relay API exists
+
+        # Remove from tracking dicts if present
+        if success:
+          self.__uploaded_files.pop(cid, None)
+          self.__downloaded_files.pop(cid, None)
+
+        return success
+
+      def delete_file(
+        self,
+        cid: str,
+        unpin_remote: bool = True,
+        run_gc: bool = False,
+        cleanup_local_files: bool = False,
+        show_logs: bool = True,
+        raise_on_error: bool = False
+      ) -> bool:
+        """
+        Delete a file from R1FS by unpinning it locally and optionally on the relay,
+        then optionally running garbage collection.
+
+        Note: Unpinning removes the file from your local node and (optionally) the relay.
+        However, if other nodes have pinned this content, it may remain accessible on the network.
+
+        Parameters
+        ----------
+        cid : str
+            The CID to delete.
+
+        unpin_remote : bool, optional
+            Whether to also unpin from the relay. Default is True.
+            Set to False if you only want to free local storage.
+
+        run_gc : bool, optional
+            Whether to run garbage collection immediately after unpinning.
+            Default is False (GC runs automatically with --enable-gc flag on daemon).
+            Set to True for immediate disk space reclamation.
+
+        cleanup_local_files : bool, optional
+            Whether to also remove local downloaded files from the downloads directory.
+            Default is False.
+
+        show_logs : bool, optional
+            Whether to show logs. Default is True.
+
+        raise_on_error : bool, optional
+            If True, raise an Exception on errors. Otherwise logs them. Default is False.
+
+        Returns
+        -------
+        bool
+            True if deletion was successful, False otherwise.
+
+        Examples
+        --------
+        >>> # Simple delete (unpin locally and on relay)
+        >>> engine.delete_file("QmHash123...")
+
+        >>> # Delete with immediate garbage collection
+        >>> engine.delete_file("QmHash123...", run_gc=True)
+
+        >>> # Delete only locally, keep on relay
+        >>> engine.delete_file("QmHash123...", unpin_remote=False)
+
+        >>> # Full cleanup: unpin everywhere, GC, and remove local files
+        >>> engine.delete_file("QmHash123...", run_gc=True, cleanup_local_files=True)
+        """
+        if cid in [None, ""]:
+          msg = "CID parameter cannot be None or empty"
+          if raise_on_error:
+            raise ValueError(msg)
+          else:
+            if show_logs:
+              self.P(msg, color='r')
+            return False
+
+        try:
+          # Unpin the file (locally and optionally on relay)
+          success = self.unpin_file(
+            cid=cid,
+            unpin_remote=unpin_remote,
+            show_logs=show_logs,
+            raise_on_error=raise_on_error
+          )
+
+          if not success:
+            return False
+
+          # Optional: clean up local downloaded files
+          if cleanup_local_files:
+            local_folder = os.path.join(self.__downloads_dir, cid)
+            if os.path.exists(local_folder):
+              try:
+                if os.path.isdir(local_folder):
+                  shutil.rmtree(local_folder)
+                else:
+                  os.remove(local_folder)
+                if show_logs:
+                  self.Pd(f"Removed local files for CID {cid}")
+              except Exception as e:
+                msg = f"Error removing local files for CID {cid}: {e}"
+                if show_logs:
+                  self.P(msg, color='r')
+                # Don't fail the whole operation if local cleanup fails
+
+          # Optional: run garbage collection immediately
+          if run_gc:
+            if show_logs:
+              self.Pd("Running garbage collection...")
+            try:
+              gc_result = self.__run_command(
+                ["ipfs", "repo", "gc"],
+                raise_on_error=False,
+                show_logs=False  # GC output can be very verbose
+              )
+              if show_logs:
+                self.P(f"Deleted file {cid} and ran garbage collection", color='g')
+            except Exception as e:
+              msg = f"Error running garbage collection: {e}"
+              if show_logs:
+                self.P(msg, color='r')
+              # Don't fail if GC fails - the unpin was successful
+          else:
+            if show_logs:
+              location = "local + relay" if unpin_remote else "local only"
+              self.P(f"Unpinned file {cid} ({location})", color='g')
+
+          return True
+
+        except Exception as e:
+          msg = f"Error deleting file {cid}: {e}"
+          if raise_on_error:
+            raise RuntimeError(msg)
+          else:
+            if show_logs:
+              self.P(msg, color='r')
+            return False
+
+      def delete_files(
+        self,
+        cids: list,
+        unpin_remote: bool = True,
+        run_gc_after_all: bool = True,
+        cleanup_local_files: bool = False,
+        show_logs: bool = True,
+        raise_on_error: bool = False,
+        continue_on_error: bool = True
+      ) -> dict:
+        """
+        Delete multiple files from R1FS in bulk.
+        More efficient than calling delete_file repeatedly as it can run GC once at the end.
+
+        Parameters
+        ----------
+        cids : list
+            List of CIDs to delete.
+
+        unpin_remote : bool, optional
+            Whether to also unpin from the relay. Default is True.
+
+        run_gc_after_all : bool, optional
+            Whether to run garbage collection once after all deletions.
+            Default is True. More efficient than running GC for each file.
+
+        cleanup_local_files : bool, optional
+            Whether to also remove local downloaded files. Default is False.
+
+        show_logs : bool, optional
+            Whether to show logs. Default is True.
+
+        raise_on_error : bool, optional
+            If True, raise an Exception on first error. Default is False.
+
+        continue_on_error : bool, optional
+            Whether to continue deleting remaining files if one fails.
+            Only used if raise_on_error is False. Default is True.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys:
+            - 'success': list of successfully deleted CIDs
+            - 'failed': list of CIDs that failed to delete
+            - 'total': total number of CIDs processed
+            - 'success_count': number of successful deletions
+            - 'failed_count': number of failed deletions
+
+        Examples
+        --------
+        >>> # Delete multiple files efficiently
+        >>> cids = ["QmHash1...", "QmHash2...", "QmHash3..."]
+        >>> result = engine.delete_files(cids)
+        >>> print(f"Deleted {result['success_count']} of {result['total']} files")
+
+        >>> # Delete locally only, no GC
+        >>> result = engine.delete_files(cids, unpin_remote=False, run_gc_after_all=False)
+
+        >>> # Full cleanup
+        >>> result = engine.delete_files(
+        >>>   cids,
+        >>>   cleanup_local_files=True,
+        >>>   run_gc_after_all=True
+        >>> )
+        """
+        if not isinstance(cids, list):
+          msg = "cids parameter must be a list"
+          if raise_on_error:
+            raise ValueError(msg)
+          else:
+            if show_logs:
+              self.P(msg, color='r')
+            return {
+              'success': [],
+              'failed': cids if isinstance(cids, list) else [cids],
+              'total': 0,
+              'success_count': 0,
+              'failed_count': 0
+            }
+
+        if len(cids) == 0:
+          if show_logs:
+            self.Pd("No CIDs provided for deletion")
+          return {
+            'success': [],
+            'failed': [],
+            'total': 0,
+            'success_count': 0,
+            'failed_count': 0
+          }
+
+        if show_logs:
+          self.P(f"Deleting {len(cids)} files from R1FS...", color='m')
+
+        success_list = []
+        failed_list = []
+
+        for i, cid in enumerate(cids):
+          if show_logs:
+            self.Pd(f"Processing {i+1}/{len(cids)}: {cid}")
+
+          try:
+            # Delete without running GC for each file (we'll do it once at the end)
+            result = self.delete_file(
+              cid=cid,
+              unpin_remote=unpin_remote,
+              run_gc=False,  # Don't GC per file
+              cleanup_local_files=cleanup_local_files,
+              show_logs=False,  # Reduce log spam
+              raise_on_error=raise_on_error
+            )
+
+            if result:
+              success_list.append(cid)
+            else:
+              failed_list.append(cid)
+              if not continue_on_error:
+                break
+          except Exception as e:
+            failed_list.append(cid)
+            if show_logs:
+              self.P(f"Error deleting CID {cid}: {e}", color='r')
+            if raise_on_error:
+              raise
+            if not continue_on_error:
+              break
+
+        # Run garbage collection once at the end (more efficient)
+        if run_gc_after_all and len(success_list) > 0:
+          if show_logs:
+            self.P("Running garbage collection for all deleted files...", color='m')
+          try:
+            gc_result = self.__run_command(
+              ["ipfs", "repo", "gc"],
+              raise_on_error=False,
+              show_logs=False
+            )
+            if show_logs:
+              self.Pd("Garbage collection completed")
+          except Exception as e:
+            if show_logs:
+              self.P(f"Warning: Garbage collection failed: {e}", color='r')
+            # Don't fail the whole operation if GC fails
+
+        result = {
+          'success': success_list,
+          'failed': failed_list,
+          'total': len(cids),
+          'success_count': len(success_list),
+          'failed_count': len(failed_list)
+        }
+
+        if show_logs:
+          location = "local + relay" if unpin_remote else "local only"
+          self.P(
+            f"Bulk delete completed: {result['success_count']}/{result['total']} succeeded ({location})",
+            color='g' if result['failed_count'] == 0 else 'y'
+          )
+          if result['failed_count'] > 0:
+            self.P(f"Failed to delete {result['failed_count']} files", color='r')
+
+        return result
+
+      def garbage_collect(self, show_logs: bool = True, raise_on_error: bool = False) -> bool:
+        """
+        Manually run IPFS garbage collection to reclaim disk space from unpinned files.
+
+        Note: The IPFS daemon runs with --enable-gc flag, so GC happens automatically.
+        This method is useful for immediate disk space reclamation.
+
+        Parameters
+        ----------
+        show_logs : bool, optional
+            Whether to show logs. Default is True.
+
+        raise_on_error : bool, optional
+            If True, raise an Exception on errors. Default is False.
+
+        Returns
+        -------
+        bool
+            True if garbage collection succeeded, False otherwise.
+
+        Examples
+        --------
+        >>> # Run garbage collection manually
+        >>> engine.garbage_collect()
+        """
+        try:
+          if show_logs:
+            self.P("Running IPFS garbage collection...", color='m')
+
+          result = self.__run_command(
+            ["ipfs", "repo", "gc"],
+            raise_on_error=raise_on_error,
+            show_logs=False  # GC output can be very verbose
+          )
+
+          if show_logs:
+            # Count lines in output to show how many blocks were freed
+            lines = result.strip().split('\n') if result else []
+            blocks_removed = len([l for l in lines if l.strip()])
+            self.P(f"Garbage collection completed (~{blocks_removed} blocks processed)", color='g')
+
+          return True
+
+        except Exception as e:
+          msg = f"Error running garbage collection: {e}"
+          if raise_on_error:
+            raise RuntimeError(msg)
+          else:
+            if show_logs:
+              self.P(msg, color='r')
+            return False
+
+      def cleanup_downloads(
+        self,
+        cid: str = None,
+        show_logs: bool = True
+      ) -> int:
+        """
+        Clean up downloaded files from the local downloads directory.
+        This does NOT unpin files from IPFS, only removes local file copies.
+
+        Parameters
+        ----------
+        cid : str, optional
+            Specific CID to clean up. If None, cleans all downloads.
+
+        show_logs : bool, optional
+            Whether to show logs. Default is True.
+
+        Returns
+        -------
+        int
+            Number of items cleaned up.
+
+        Examples
+        --------
+        >>> # Clean up all downloaded files
+        >>> count = engine.cleanup_downloads()
+        >>> print(f"Cleaned up {count} files")
+
+        >>> # Clean up specific CID's downloads
+        >>> engine.cleanup_downloads(cid="QmHash123...")
+        """
+        count = 0
+
+        try:
+          if not os.path.exists(self.__downloads_dir):
+            if show_logs:
+              self.Pd(f"Downloads directory does not exist: {self.__downloads_dir}")
+            return 0
+
+          if cid is not None:
+            # Clean up specific CID
+            target_path = os.path.join(self.__downloads_dir, cid)
+            if os.path.exists(target_path):
+              try:
+                if os.path.isdir(target_path):
+                  shutil.rmtree(target_path)
+                else:
+                  os.remove(target_path)
+                count = 1
+                if show_logs:
+                  self.P(f"Cleaned up local files for CID: {cid}", color='g')
+                # Remove from tracking dict
+                self.__downloaded_files.pop(cid, None)
+              except Exception as e:
+                if show_logs:
+                  self.P(f"Error cleaning up CID {cid}: {e}", color='r')
+            else:
+              if show_logs:
+                self.Pd(f"No local files found for CID: {cid}")
+          else:
+            # Clean up all downloads
+            for item in os.listdir(self.__downloads_dir):
+              item_path = os.path.join(self.__downloads_dir, item)
+              try:
+                if os.path.isdir(item_path):
+                  shutil.rmtree(item_path)
+                else:
+                  os.remove(item_path)
+                count += 1
+              except Exception as e:
+                if show_logs:
+                  self.P(f"Error removing {item_path}: {e}", color='r')
+
+            if show_logs:
+              self.P(f"Cleaned up {count} items from downloads directory", color='g')
+
+            # Clear all tracking
+            self.__downloaded_files.clear()
+
+        except Exception as e:
+          if show_logs:
+            self.P(f"Error during cleanup: {e}", color='r')
+
+        return count
+
+    ######## END DELETE METHODS #########
+
     def calculate_file_cid(
       self,
       file_path: str,
