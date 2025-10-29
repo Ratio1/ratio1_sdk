@@ -538,7 +538,13 @@ class GenericSession(BaseDecentrAIObject):
       message_callback : Callable[[dict, str, str, str, str], None]
           The callback that will handle the message.
       """
-      dict_msg = json.loads(message)
+      dict_msg_parsed, dict_msg = None, None
+      try: 
+        dict_msg = json.loads(message)
+      except json.JSONDecodeError:
+        self.D("Failed to decode JSON message: {}".format(message), verbosity=2)
+        return
+
       # parse the message
       dict_msg_parsed = self.__parse_message(dict_msg)
       if dict_msg_parsed is None:
