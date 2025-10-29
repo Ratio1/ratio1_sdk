@@ -531,7 +531,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0x0C431e546371C87354714Fcc1a13365391A549E2",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xa2fDD4c7E93790Ff68a01f01AA789D619F12c6AC",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0xa8d7FFCE91a888872A9f5431B4Dd6c0c135055c1",
-    EvmNetData.DAUTH_RPC_KEY                    : "https://base-mainnet.public.blastapi.io",
+    EvmNetData.DAUTH_RPC_KEY                    : "https://base-rpc.publicnode.com",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
