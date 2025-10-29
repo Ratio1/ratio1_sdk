@@ -23,6 +23,9 @@ class EvmNetData:
   EE_ORACLE_API_URL_KEY = 'EE_ORACLE_API_URL'
   EE_DEEPLOY_API_URL_KEY = 'EE_DEEPLOY_API_URL'
   EE_DAPP_API_URL_KEY = 'EE_DAPP_API_URL_KEY'
+  EE_DAPP_APP_URL_KEY = 'EE_DAPP_APP_URL'
+  EE_EXPLORER_APP_URL_KEY = 'EE_EXPLORER_APP_URL'
+  EE_DEEPLOY_APP_URL_KEY = 'EE_DEEPLOY_APP_URL'
 
 # endclass EvmNetData
 
@@ -528,7 +531,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0x0C431e546371C87354714Fcc1a13365391A549E2",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xa2fDD4c7E93790Ff68a01f01AA789D619F12c6AC",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0xa8d7FFCE91a888872A9f5431B4Dd6c0c135055c1",
-    EvmNetData.DAUTH_RPC_KEY                    : "https://base-mainnet.public.blastapi.io",
+    EvmNetData.DAUTH_RPC_KEY                    : "https://base-rpc.publicnode.com",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
     EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY    : 3600,
@@ -536,6 +539,9 @@ EVM_NET_DATA = {
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://oracle.ratio1.ai",
     EvmNetData.EE_DEEPLOY_API_URL_KEY           : "https://deeploy-api.ratio1.ai",
     EvmNetData.EE_DAPP_API_URL_KEY              : "https://dapp-api.ratio1.ai",
+    EvmNetData.EE_DAPP_APP_URL_KEY              : "https://app.ratio1.ai",
+    EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://explorer.ratio1.ai",
+    EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://deeploy.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
@@ -555,6 +561,9 @@ EVM_NET_DATA = {
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://testnet-oracle.ratio1.ai",
     EvmNetData.EE_DEEPLOY_API_URL_KEY           : "https://testnet-deeploy-api.ratio1.ai",
     EvmNetData.EE_DAPP_API_URL_KEY              : "https://testnet-dapp-api.ratio1.ai",
+    EvmNetData.EE_DAPP_APP_URL_KEY              : "https://testnet-app.ratio1.ai",
+    EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://testnet-explorer.ratio1.ai",
+    EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://testnet-deeploy.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
@@ -575,6 +584,9 @@ EVM_NET_DATA = {
     EvmNetData.EE_ORACLE_API_URL_KEY            : "https://devnet-oracle.ratio1.ai",
     EvmNetData.EE_DEEPLOY_API_URL_KEY           : "https://devnet-deeploy-api.ratio1.ai",
     EvmNetData.EE_DAPP_API_URL_KEY              : "https://devnet-dapp-api.ratio1.ai",
+    EvmNetData.EE_DAPP_APP_URL_KEY              : "https://devnet-app.ratio1.ai",
+    EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://devnet-explorer.ratio1.ai",
+    EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://devnet-deeploy.ratio1.ai",
     EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 }
