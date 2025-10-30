@@ -1,6 +1,7 @@
 import os
 import bz2
 import pickle
+import tempfile
 from time import time
 
 class _PickleSerializationMixin(object):
@@ -55,12 +56,41 @@ class _PickleSerializationMixin(object):
     return myobj
 
 
-  def save_pickle(self, data, fn, folder=None,
-                  use_prefix=False, verbose=True,
-                  compressed=False,
-                  subfolder_path=None,
-                  locking=True,
-                  ):
+  def _fsync_dir(self, dirpath: str):
+    """Best-effort directory fsync for durable rename; silently ignore if unsupported."""
+    try:
+      # Linux: O_DIRECTORY available; on other OSes this may fail -> we ignore.
+      dir_fd = os.open(dirpath, getattr(os, "O_DIRECTORY", 0))
+      try:
+        os.fsync(dir_fd)
+      finally:
+        os.close(dir_fd)
+    except Exception:
+      # Not all platforms/filesystems support directory fsync; ignore if it fails.
+      pass
+  # enddef
+
+  def _fsync_file(self, filepath: str):
+    """Best-effort file fsync for durability; silently ignore if unsupported."""
+    # Ensure file contents hit disk even if helper didn't fsync
+    try:
+      rd_fd = os.open(filepath, os.O_RDONLY)
+      try:
+        os.fsync(rd_fd)
+      finally:
+        os.close(rd_fd)
+    except Exception:
+      # Best effort; continue to replace
+      pass
+  # enddef
+
+  def save_pickle(
+      self, data, fn, folder=None,
+      use_prefix=False, verbose=True,
+      compressed=False,
+      subfolder_path=None,
+      locking=True,
+  ):
     """
     compressed: True if compression is required OR you can just add '.pklz' to `fn`
     """
@@ -69,7 +99,6 @@ class _PickleSerializationMixin(object):
       if verbose:
         self.P(s)
       return
-
     # enddef
 
     lfld = self.get_target_folder(target=folder)
@@ -87,36 +116,62 @@ class _PickleSerializationMixin(object):
       datafile = os.path.join(datafolder, fn)
 
     os.makedirs(os.path.split(datafile)[0], exist_ok=True)
+    target_dir = os.path.dirname(datafile)
 
     tm_start = time()
     tm_elapsed = None
     err_msg = None
-    if compressed or '.pklz' in fn:
-      if not compressed:
-        P("Saving pickle with compression=True forced due to extension")
-      else:
-        P("Saving pickle with compression...")
-      if self._save_compressed_pickle(datafile, myobj=data, locking=locking):
-        tm_elapsed = time() - tm_start
-        P("  Compressed pickle {} saved in {} folder in {:.1f}s".format(fn, folder, tm_elapsed))
-      else:
-        P("  FAILED compressed pickle save!")
-    else:
-      P("Saving uncompressed pikle (lock:{}) : {} ".format(locking, datafile))
-      with self.managed_lock_resource(datafile, condition=locking):
-        try:
-          with open(datafile, 'wb') as fhandle:
-            pickle.dump(data, fhandle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    # Create a temp file in the SAME directory so os.replace is atomic
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(fn) + ".", suffix=".tmp", dir=target_dir)
+    os.close(tmp_fd)  # we'll reopen with Python I/O or let helper write to it
+
+    try:
+      if compressed or '.pklz' in fn:
+        if not compressed:
+          P("Saving pickle with compression=True forced due to extension")
+        else:
+          P("Saving pickle with compression...")
+
+        ok = self._save_compressed_pickle(tmp_path, myobj=data, locking=locking)
+        if ok:
+          # Ensure data is flushed to disk before rename
+          self._fsync_file(tmp_path)
+          os.replace(tmp_path, datafile)  # atomic move
+          self._fsync_dir(target_dir)
           tm_elapsed = time() - tm_start
-        except Exception as e:
-          err_msg = e
-      if tm_elapsed is not None:
-        if verbose:
-          P("  Saved pickle '{}' in '{}' folder in {:.1f}s".format(fn, folder, tm_elapsed))
+          P("  Compressed pickle {} saved in {} folder in {:.1f}s".format(fn, folder, tm_elapsed))
+        else:
+          P("  FAILED compressed pickle save!")
       else:
-        # maybe show this only if verbose?
-        P(f"  FAILED pickle save! Error: {err_msg}")
-    # endif compressed or not
+        P("Saving uncompressed pikle (lock:{}) : {} ".format(locking, datafile))
+        with self.managed_lock_resource(datafile, condition=locking):
+          try:
+            with open(tmp_path, 'wb') as fhandle:
+              pickle.dump(data, fhandle, protocol=pickle.HIGHEST_PROTOCOL)
+              fhandle.flush()
+              os.fsync(fhandle.fileno())  # ensure data is written to disk
+            # Atomic replace + dir fsync
+            os.replace(tmp_path, datafile)
+            self._fsync_dir(target_dir)
+            tm_elapsed = time() - tm_start
+          except Exception as e:
+            err_msg = e
+        if tm_elapsed is not None:
+          if verbose:
+            P("  Saved pickle '{}' in '{}' folder in {:.1f}s".format(fn, folder, tm_elapsed))
+        else:
+          # maybe show this only if verbose?
+          P(f"  FAILED pickle save! Error: {err_msg}")
+      # endif compressed or not
+    except Exception as e:
+      err_msg = e
+      try:
+        if os.path.exists(datafile):
+          os.remove(tmp_path)
+      except:
+        pass
+      P(f"  FAILED pickle save! Error: {err_msg}")
     return datafile
 
 
