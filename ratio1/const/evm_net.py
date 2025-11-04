@@ -616,8 +616,8 @@ EVM_NET_CONSTANTS = {
       "0xai_A61eKDV1otIH6uWy3zDlbJNJUWayp1jAsirOuYxztf82",  # tr1s-02
     ],
     EvmNetConstants.EE_ORACLE_SYNC_USE_R1FS_KEY: False,  # Do not use R1FS for oracle sync in testnet.
-    EvmNetConstants.ORACLE_SYNC_BLOCKCHAIN_PRESENCE_MIN_THRESHOLD_KEY: 0.3,
-    EvmNetConstants.ORACLE_SYNC_ONLINE_PRESENCE_MIN_THRESHOLD_KEY: 0.4,
+    EvmNetConstants.ORACLE_SYNC_BLOCKCHAIN_PRESENCE_MIN_THRESHOLD_KEY: 0.15,
+    EvmNetConstants.ORACLE_SYNC_ONLINE_PRESENCE_MIN_THRESHOLD_KEY: 0.2,
   },
   EvmNetData.DEVNET: {
     EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: 60,  # Log every minute.
