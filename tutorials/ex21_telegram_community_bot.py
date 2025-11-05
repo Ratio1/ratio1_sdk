@@ -34,6 +34,7 @@ def loop_processing(plugin: CustomPluginTemplate):
   cache_already_read_key = f"ratio1_epoch_review_already_read"
   diskapi_epoch_review_file_name = "ratio1_epoch_review_data.pkl"
   diskapi_watched_wallets_file_name = "ratio1_watched_wallets_data.pkl"
+  diskapi_alerts_file_name = "ratio1_offline_node_alerts_data.pkl"
 
   need_last_epoch_info = "need_last_epoch_info"
 
@@ -78,16 +79,20 @@ def loop_processing(plugin: CustomPluginTemplate):
   if plugin.obj_cache.get(cache_already_read_key) is None:
     plugin.obj_cache[epoch_review_cache_key] = plugin.diskapi_load_pickle_from_data(diskapi_epoch_review_file_name) or {}
     plugin.obj_cache[watched_wallets_cache_key] = plugin.diskapi_load_pickle_from_data(diskapi_watched_wallets_file_name) or {}
-    plugin.obj_cache[alert_cache_key] = {}
-    plugin.obj_cache[watched_wallets_loops_delay_cache_key] = 30
+    plugin.obj_cache[alert_cache_key] = plugin.diskapi_load_pickle_from_data(diskapi_alerts_file_name) or {}
+    plugin.obj_cache[watched_wallets_loops_delay_cache_key] = 10
     plugin.obj_cache[cache_already_read_key] = True # We use this flag to read the cache only once at the first run
     
 
   # Check users' watched wallets and notify if any node is offline
-  if plugin.obj_cache.get(watched_wallets_loops_delay_cache_key) == 30:
+  if plugin.obj_cache.get(watched_wallets_loops_delay_cache_key) == 10:
+    alert_changes = False
     watched_wallets = plugin.obj_cache.get(watched_wallets_cache_key)
+    offline_node_min_seens = plugin.cfg_offline_node_min_seens
     if watched_wallets is not None:
       for user, wallets in watched_wallets.items():
+        new_online_nodes = []
+        new_offline_nodes = []
         for wallet in wallets:
           wallet_nodes = plugin.bc.get_wallet_nodes(wallet)
           for node in wallet_nodes:
@@ -97,17 +102,56 @@ def loop_processing(plugin: CustomPluginTemplate):
             node_alert_cache_key = f"{user}-{node}"
             node_internal_addr = plugin.bc.eth_addr_to_internal_addr(node)
             node_is_online = plugin.netmon.network_node_is_online(node_internal_addr)
+            node_cache_value = plugin.obj_cache[alert_cache_key].get(node_alert_cache_key)
             if node_is_online:
-              if plugin.obj_cache[alert_cache_key].get(node_alert_cache_key) is not None:
-                # Node was previously offline, now it is back online, we notify the user
-                message = f"✅ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({node}) is back online."
-                plugin.send_message_to_user(user_id=user, text=message)
+              if node_cache_value is not None:
+                # Node was previously offline
+                if node_cache_value >= offline_node_min_seens:
+                  # If we had notified the user, we notify them that the node is back online
+                  new_online_nodes.append(node)
                 plugin.obj_cache[alert_cache_key][node_alert_cache_key] = None
-            elif plugin.obj_cache[alert_cache_key].get(node_alert_cache_key) is None:
-              # Node is offline and we haven't notified the user yet
-              plugin.obj_cache[alert_cache_key][node_alert_cache_key] = True
-              message = f"⚠️ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({node}) is offline. Please check your node status."
-              plugin.send_message_to_user(user_id=user, text=message)
+                alert_changes = True
+            else:
+              # Node is offline
+              if node_cache_value is None:
+                plugin.obj_cache[alert_cache_key][node_alert_cache_key] = 1
+                alert_changes = True
+                if offline_node_min_seens == 1:
+                  # We need to notify the user
+                  new_offline_nodes.append(node)
+              elif node_cache_value < offline_node_min_seens:
+                # The node was already offline but we have not notified the user yet
+                new_value = node_cache_value + 1
+                plugin.obj_cache[alert_cache_key][node_alert_cache_key] = new_value
+                alert_changes = True
+                if new_value >= offline_node_min_seens:
+                  # We need to notify the user
+                  new_offline_nodes.append(node)
+          # endfor wallet_nodes
+        # endfor wallets
+        if len(new_online_nodes) > 0:
+          if len(new_online_nodes) == 1:
+            message = f"✅ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({new_online_nodes[0]}) is back online."
+          else:
+            message = f"✅ The following nodes are back online:\n"
+            for node in new_online_nodes:
+              message += f"- {plugin.netmon.network_node_eeid(plugin.bc.eth_addr_to_internal_addr(node))} ({node})\n"
+          plugin.send_message_to_user(user_id=user, text=message)
+        # endif new_online_nodes
+        if len(new_offline_nodes) > 0:
+          if len(new_offline_nodes) == 1:
+            message = f"⚠️ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({new_offline_nodes[0]}) is offline. Please check your node status."
+          else:
+            message = f"⚠️ The following nodes are offline:\n"
+            for node in new_offline_nodes:
+              message += f"- {plugin.netmon.network_node_eeid(plugin.bc.eth_addr_to_internal_addr(node))} ({node})\n"
+            message += "Please check your nodes status."
+          plugin.send_message_to_user(user_id=user, text=message)
+        # endif new_offline_nodes
+      # endfor user, wallets
+      if alert_changes:
+        plugin.diskapi_save_pickle_to_data(plugin.obj_cache.get(alert_cache_key), diskapi_alerts_file_name)
+    # endif watched_wallets is not None
     plugin.obj_cache[watched_wallets_loops_delay_cache_key] = 0
   else:
     plugin.obj_cache[watched_wallets_loops_delay_cache_key] += 1
@@ -144,6 +188,8 @@ def loop_processing(plugin: CustomPluginTemplate):
   burned_nd_last_epoch = float(apiResponse["epochNdBurnR1"])
   burned_poai_last_epoch = float(apiResponse["epochPoaiBurnR1"])
   poai_usdc_last_epoch = float(apiResponse["epochPoaiRewardsUsdc"])
+  token_burn_last_epoch = float(apiResponse["dailyTokenBurn"])
+  ecosystem_token_burn_last_epoch = token_burn_last_epoch - burned_nd_last_epoch - burned_poai_last_epoch
   total_burn = float(apiResponse["totalBurn"])
 
   nd_supply = get_erc721_total_supply("0xE658DF6dA3FB5d4FBa562F1D5934bd0F9c6bd423")
@@ -163,6 +209,8 @@ def loop_processing(plugin: CustomPluginTemplate):
   if burned_poai_last_epoch > 0:
     message += f"🎁 Last Epoch PoAI Rewards: {(poai_usdc_last_epoch):,.2f} USDC\n"
     message += f"🔥 Last Epoch PoAI Burn: {(burned_poai_last_epoch):,.2f} R1\n"
+  if ecosystem_token_burn_last_epoch > 0:
+    message += f"🔥 Last Epoch Ecosystem Burn: {(ecosystem_token_burn_last_epoch):,.2f} R1\n"
   message += f"🔥 Total Burn: {(total_burn):,.2f} R1\n"
   plugin.send_message_to_user(user_id=plugin.cfg_chat_id, text=message)
 
@@ -327,6 +375,7 @@ if __name__ == "__main__":
         message_handler=reply,
         processing_handler=loop_processing,
         admins=['401110073', '683223680'],
+        offline_node_min_seens=2,
         process_delay=10,
       )
       pipeline.deploy()
