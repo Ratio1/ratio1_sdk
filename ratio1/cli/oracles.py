@@ -221,7 +221,15 @@ if True:
     silent = not args.verbose
     skip_seeds = args.skip_seeds
     skip_oracles = args.skip_oracles
+    skip_workers = getattr(args, "skip_workers", False)
     no_timeout = args.no_timeout
+    run_seed_nodes = not skip_seeds
+    run_oracle_nodes = not skip_oracles
+    run_edge_nodes = not skip_workers
+
+    if not (run_seed_nodes or run_oracle_nodes or run_edge_nodes):
+      log_with_color("All node groups were skipped; nothing to restart.", color='y')
+      return
 
     log_with_color("======================================================", color='b')
     log_with_color("Starting Oracle Rollout...", color='g')
@@ -238,6 +246,8 @@ if True:
       log_with_color("During this run seed nodes will be skipped...", color='b')
     if skip_oracles:
       log_with_color("During this run oracle nodes will be skipped...", color='b')
+    if skip_workers:
+      log_with_color("During this run worker edge nodes will be skipped...", color='b')
     user_confirmation = input(f"Write down 'RESTART ALL on {current_network}' in order to proceed...\n >")
 
     if user_confirmation != f"RESTART ALL on {current_network}":
@@ -257,17 +267,23 @@ if True:
       if node['address'] not in seed_nodes_addresses
     ]
 
-    if not (skip_seeds or skip_oracles):
+    restarted_seed_nodes_count = 0
+    restarted_oracle_nodes_count = 0
+    restarted_edge_nodes_count = 0
+
+    if run_seed_nodes:
       # 1. Send restart command to Seed Nodes.
       log_with_color(f"Sending restart commands to {len(seed_nodes_addresses)} seed nodes: {seed_nodes_addresses}",
                      color='b')
       _send_restart_command(session=session, nodes=seed_nodes_addresses)
+      restarted_seed_nodes_count = len(seed_nodes_addresses)
 
       # Remove seed node addresses from all_nodes_addresses
-      log_with_color(
-        f"Seed nodes restarted. Waiting 30 seconds before sending restart commands to all Oracle nodes, except seed nodes.",
-        color='g')
-      sleep(30)
+      if run_oracle_nodes or run_edge_nodes:
+        log_with_color(
+          "Seed nodes restarted. Waiting 30 seconds before sending restart commands to the next group of nodes.",
+          color='g')
+        sleep(30)
     else:
       log_with_color("Skipping Seed Nodes restart as per user request.", color='y')
 
@@ -278,12 +294,18 @@ if True:
       if node['oracle'] == True
     ]
 
-    if not skip_oracles:
+    if run_oracle_nodes:
       log_with_color(
         f"Sending restart commands to {len(oracle_nodes_addresses)} Non-Seed Oracle nodes, except seed nodes: {remaining_nodes}",
         color='b')
 
       _send_restart_command(session=session, nodes=oracle_nodes_addresses)
+      restarted_oracle_nodes_count = len(oracle_nodes_addresses)
+      if run_edge_nodes:
+        log_with_color(
+          "Oracle nodes restarted. Waiting 30 seconds before sending restart commands to remaining edge nodes.",
+          color='g')
+        sleep(30)
     else:
       log_with_color("Skipping Oracle Nodes restart as per user request.", color='y')
 
@@ -294,27 +316,20 @@ if True:
       if node['address'] not in oracle_nodes_addresses
     ]
 
-    log_with_color(
-      f"Oracles restarted. Waiting 30 seconds before sending restart commands to all Oracle nodes, except seed nodes.",
-      color='g')
-    sleep(30)
+    if run_edge_nodes:
+      # 3. Send restart command to all remaining edge nodes.
+      log_with_color(f"Sending restart commands to {len(remaining_nodes_addresses)} remaining edge nodes: {remaining_nodes_addresses}", color='b')
 
-    # 3. Send restart command to all remaining edge nodes.
-    log_with_color(f"Sending restart commands to {len(remaining_nodes_addresses)} remaining edge nodes: {remaining_nodes_addresses}", color='b')
+      timeout_min = 0
+      timeout_max = 0
+      if not no_timeout:
+        timeout_min = 5
+        timeout_max = 25
+      _send_restart_command(session=session, nodes=remaining_nodes_addresses, timeout_min=timeout_min, timeout_max=timeout_max)
+      restarted_edge_nodes_count = len(remaining_nodes_addresses)
+    else:
+      log_with_color("Skipping Edge Nodes restart as per user request.", color='y')
 
-    timeout_min = 0
-    timeout_max = 0
-    if not no_timeout:
-      timeout_min = 5
-      timeout_max = 25
-    _send_restart_command(session=session, nodes=remaining_nodes_addresses, timeout_min=timeout_min, timeout_max=timeout_max)
-    restarted_seed_nodes_count = 0
-    restarted_oracle_nodes_count = 0
-    if not (skip_seeds or skip_oracles):
-        restarted_seed_nodes_count = len(seed_nodes_addresses)
-    if not skip_oracles:
-      restarted_oracle_nodes_count = len(oracle_nodes_addresses)
-    restarted_edge_nodes_count = len(remaining_nodes_addresses)
     total_restarted_nodes_count = restarted_seed_nodes_count + restarted_oracle_nodes_count + restarted_edge_nodes_count
     log_with_color(f"All nodes restarted successfully.", color='g')
     log_with_color("======================================================", color='b')

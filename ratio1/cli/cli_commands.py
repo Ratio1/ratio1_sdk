@@ -148,6 +148,7 @@ CLI_COMMANDS = {
         "params": {
             "--skip-seeds": "Skip the seed nodes in the rollout (flag)",
             "--skip-oracles": "Skip the oracle nodes in the rollout (flag)",
+            "--skip-workers": "Skip the remaining edge worker nodes in the rollout (flag)",
             "--no-timeout": "Do not wait between nodes restarts (flag)",
         }
     },
