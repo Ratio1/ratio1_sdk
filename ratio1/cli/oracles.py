@@ -222,7 +222,7 @@ if True:
     skip_seeds = args.skip_seeds
     skip_oracles = args.skip_oracles
     skip_workers = getattr(args, "skip_workers", False)
-    no_timeout = args.no_timeout
+    no_timeout = not args.timeout
     run_seed_nodes = not skip_seeds
     run_oracle_nodes = not skip_oracles
     run_edge_nodes = not skip_workers
