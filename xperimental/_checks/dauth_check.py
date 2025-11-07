@@ -1,5 +1,6 @@
 
 import json
+from time import sleep
 from collections import defaultdict
 
 
@@ -14,15 +15,16 @@ if __name__ == '__main__' :
   eng = DefaultBlockEngine(
     log=l, name="default", 
     config={
-        "PEM_FILE": "aid01.pem",
+        "PEM_FILE": "sms.pem",
       }
   )
   
   responders = {}
   
-  eng.reset_network("devnet")
+  eng.reset_network("mainnet")
   
-  for _ in range(1):
+  for _ in range(50):
+    sleep(1)
     d = eng.dauth_autocomplete(
       # dauth_endp='N/Adhstrgredshtfnfnhgm',
       add_env=False,
@@ -41,8 +43,12 @@ if __name__ == '__main__' :
           'alias': server_alias, 'count': 0,
           'eth_addr' : server_eth_addr,
           'auth_data' : auth_len,
+          'mqtt' : [],
         }
       responders[server_node_addr]['count'] += 1
+      mqtt_set = set(responders[server_node_addr]['mqtt'])
+      mqtt_set.add(d['result']['auth'].get('EE_MQTT_HOST', None))
+      responders[server_node_addr]['mqtt'] = list(mqtt_set)
     except:
       pass
     print(f'Got the response: {d} !')
