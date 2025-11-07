@@ -4977,7 +4977,7 @@ class GenericSession(BaseDecentrAIObject):
       if alias_filter is not None:
         df_res = df_res[df_res['Alias'].str.contains(alias_filter, case=False, na=False)]
       if not all_info:
-        DROPPABLE = ['State', 'Last probe', 'Comm Relay']
+        DROPPABLE = ['State', 'Last probe', 'R1FS ID', "Zone"]
         to_drop = [x for x in DROPPABLE if x in df_res.columns]
         if to_drop:
           df_res = df_res.drop(
