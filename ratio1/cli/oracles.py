@@ -228,7 +228,7 @@ if True:
     run_edge_nodes = not skip_workers
 
     # Adjust these values to tweak pauses and restart pacing across node groups.
-    pause_after_seed_seconds = 60
+    pause_after_seed_seconds = 120
     pause_after_oracle_seconds = 60
     worker_timeout_min_seconds = 5
     worker_timeout_max_seconds = 25
