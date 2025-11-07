@@ -222,13 +222,13 @@ if True:
     skip_seeds = args.skip_seeds
     skip_oracles = args.skip_oracles
     skip_workers = getattr(args, "skip_workers", False)
-    no_timeout = args.no_timeout
+    no_timeout = not args.timeout
     run_seed_nodes = not skip_seeds
     run_oracle_nodes = not skip_oracles
     run_edge_nodes = not skip_workers
 
     # Adjust these values to tweak pauses and restart pacing across node groups.
-    pause_after_seed_seconds = 60
+    pause_after_seed_seconds = 120
     pause_after_oracle_seconds = 60
     worker_timeout_min_seconds = 5
     worker_timeout_max_seconds = 25
@@ -255,11 +255,11 @@ if True:
     log_with_color("======================================================", color='b')
     log_with_color("Starting Oracle Rollout...", color='g')
     log_with_color("======================================================", color='b')
+    
     session = Session(
       silent=True
     )
     current_network = session.bc_engine.current_evm_network
-    session.close()
 
     restart_plan_display = " -> ".join(restart_groups)
     confirmation_keyword = "RESTART ALL" if len(restart_groups) == 3 else f"RESTART {', '.join(restart_groups)}"
@@ -282,11 +282,11 @@ if True:
       log_with_color("Aborted by user...", color='y')
       return
 
-    session = Session(
-      silent=silent
-    )
+    session.log.silent = silent
+    session.silent = silent
 
     seed_nodes_addresses = _get_seed_nodes(current_network)
+    seed_nodes_aliases = [session.get_node_alias(addr) for addr in seed_nodes_addresses]
 
     all_online_nodes = _get_all_online_nodes()
     remaining_nodes = [
@@ -301,25 +301,36 @@ if True:
 
     if run_seed_nodes:
       # 1. Send restart command to Seed Nodes.
-      log_with_color(f"Sending restart commands to {len(seed_nodes_addresses)} seed nodes: {seed_nodes_addresses}",
-                     color='b')
+      log_with_color(
+        f"Sending restart commands to {len(seed_nodes_addresses)} seed nodes: {seed_nodes_aliases}",
+        color='b'
+      )
       _send_restart_command(session=session, nodes=seed_nodes_addresses)
+      
+      # now check heartbeats for SHUTDOWN confirmation individually
+      # ... we display one by one the status with timeout `pause_after_seed_seconds`
+      # here all seeds restarted so we check recent heartbeats for each of them
+      # ... we display one by one the status with timeout `pause_after_seed_seconds`
+      # now finally we confirm all seeds are back online
       restarted_seed_nodes_count = len(seed_nodes_addresses)
 
       # Remove seed node addresses from all_nodes_addresses
       if run_oracle_nodes or run_edge_nodes:
         if pause_after_seed_seconds > 0:
           log_with_color(
-            f"Seed nodes restarted. Waiting {pause_after_seed_seconds} seconds before sending restart commands to the next group of nodes.",
-            color='g')
-          sleep(pause_after_seed_seconds)
+            f"Seed nodes restarting. Waiting {pause_after_seed_seconds} seconds before sending restart commands to the next group of nodes.",
+            color='g'
+          )
+          sleep(pause_after_seed_seconds) # maybe obsolete due to per-node wait above
         else:
           log_with_color(
-            "Seed nodes restarted. Continuing without wait before the next group of nodes.",
-            color='g')
+            "Seed nodes restarting. Continuing without wait before the next group of nodes.",
+            color='g'
+          )
     else:
       log_with_color("Skipping Seed Nodes restart as per user request.", color='y')
-
+      
+      
     # 2. Send restart commands to all Oracle nodes, except seed nodes.
     oracle_nodes_addresses = [
       node['address']
@@ -330,8 +341,8 @@ if True:
     if run_oracle_nodes:
       log_with_color(
         f"Sending restart commands to {len(oracle_nodes_addresses)} Non-Seed Oracle nodes, except seed nodes: {remaining_nodes}",
-        color='b')
-
+        color='b'
+      )
       _send_restart_command(session=session, nodes=oracle_nodes_addresses)
       restarted_oracle_nodes_count = len(oracle_nodes_addresses)
       if run_edge_nodes:
