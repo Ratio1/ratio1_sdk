@@ -23,8 +23,9 @@ if __name__ == '__main__' :
   
   eng.reset_network("mainnet")
   
-  for _ in range(50):
+  for i in range(50):
     sleep(1)
+    l.P(f"Running dauth autocomplete check #{i+1}...", show=True)
     d = eng.dauth_autocomplete(
       # dauth_endp='N/Adhstrgredshtfnfnhgm',
       add_env=False,
