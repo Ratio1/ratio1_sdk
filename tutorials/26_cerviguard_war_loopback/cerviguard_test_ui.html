@@ -356,7 +356,7 @@
 
                 // With PostponedRequest, the server keeps the connection open until processing is done
                 // No manual polling needed - the framework handles it server-side
-                const response = await fetch(`${apiUrl}/cerviguard_submit_image`, {
+                const response = await fetch(`${apiUrl}/predict`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -449,7 +449,7 @@
 
             try {
                 showStatus('Checking system status...', 'processing');
-                const response = await fetch(`${apiUrl}/cerviguard_status`);
+                const response = await fetch(`${apiUrl}/status`);
                 const data = await response.json();
                 const status = data.result;
 
