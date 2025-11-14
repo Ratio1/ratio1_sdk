@@ -262,7 +262,7 @@ if __name__ == "__main__":
           {
             "PORT": 5002,
             "INSTANCE_ID": "cerviguard_api",
-            "AI_ENGINE": "cerviguard_analyzer",  # Serving plugin to use
+            "AI_ENGINE": "CERVIGUARD_IMAGE_ANALYZER",  # Serving plugin to use
             "LOG_REQUESTS": True,
             "RESPONSE_FORMAT": "WRAPPED",
             "RESULT_CACHE_TTL": 300,  # Keep results for 5 minutes
