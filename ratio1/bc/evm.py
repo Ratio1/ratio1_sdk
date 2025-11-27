@@ -527,11 +527,11 @@ class _EVMMixin:
           
       message_prefix : str, optional
           A prefix to be added to the message before hashing (or signing). The default is "".
-
+                  
       Returns
       -------
-      bool or None
-          True if the signature is valid, False otherwise.
+      str
+          The address of the signer or None if the signature is invalid
       """
       types = ["string"]
       values = [message_prefix + text]
@@ -621,7 +621,10 @@ class _EVMMixin:
       indent : int, optional
           The indentation level for the JSON string. The default is 0.
                   
-        
+      Returns
+      -------
+      str
+          The address of the signer or None if the signature is invalid
       """
       result = None
       _payload = deepcopy(payload)
@@ -645,7 +648,7 @@ class _EVMMixin:
           text=str_data, signature=signature, message_prefix=message_prefix,
           no_hash=no_hash, raise_if_error=raise_if_error
         )
-        if result is None:
+        if result is None or result.lower() != sender.lower():
           if raise_if_error:
             raise Exception("Signature verification failed.")
           else:
