@@ -389,6 +389,9 @@ class R1FSEngine:
     
     def _get_unique_or_complete_upload_name(self, fn=None, prefix="r1fs", suffix=""):
       if fn is not None and os.path.dirname(fn) == "":
+        # Don't add suffix if filename already ends with it
+        if suffix and fn.endswith(suffix):
+          return os.path.join(self.__uploads_dir, fn)
         return os.path.join(self.__uploads_dir, f"{fn}{suffix}")
       return self._get_unique_upload_name(prefix, suffix=suffix)
     
