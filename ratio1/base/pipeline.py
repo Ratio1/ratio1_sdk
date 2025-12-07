@@ -200,6 +200,15 @@ class Pipeline(BaseCodeChecker):
         debug=debug, 
       )
       self.lst_plugin_instances.append(instance)
+      
+      # Call on_instance_create callback if provided (only for newly created instances, not attached ones)
+      if not is_attached and self.session is not None and hasattr(self.session, 'custom_on_instance_create'):
+        if self.session.custom_on_instance_create is not None:
+          try:
+            self.session.custom_on_instance_create(self.session, self, instance)
+          except Exception as e:
+            self.log.P(f"Error in on_instance_create callback: {e}", color='r')
+      
       return instance
 
     def __init_plugins(self, plugins, is_attached):
