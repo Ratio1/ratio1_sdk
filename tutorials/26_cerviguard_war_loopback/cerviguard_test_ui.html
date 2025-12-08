@@ -224,10 +224,10 @@
 <body>
     <div class="container">
         <h1>🔬 CerviGuard WAR</h1>
-        <p class="subtitle">Cervical Image Analysis - Loopback Pipeline Test</p>
+        <p class="subtitle">Cervical Image Analysis - Loopback Pipeline + PostponedRequest</p>
 
         <div style="text-align: center;">
-            <span class="loopback-indicator">🔄 LOOPBACK MODE ENABLED</span>
+            <span class="loopback-indicator">🔄 LOOPBACK + PostponedRequest Pattern</span>
         </div>
 
         <!-- API Configuration -->
@@ -269,9 +269,9 @@
 
         <!-- Footer -->
         <div class="footer">
-            <p>CerviGuard WAR Test Interface | Naeural Edge Node Loopback Demo</p>
+            <p>CerviGuard WAR Test Interface | Naeural Edge Node Loopback + PostponedRequest Demo</p>
             <p style="font-size: 12px; margin-top: 5px;">
-                Flow: UI → API (localhost) → Loopback Queue → Processor → Results
+                Flow: UI → API (PostponedRequest) → Loopback Queue → Processor → Auto-polling → Results
             </p>
         </div>
     </div>
@@ -289,7 +289,6 @@
         const apiUrlInput = document.getElementById('apiUrl');
 
         let selectedImage = null;
-        let currentRequestId = null;
 
         // Upload zone click
         uploadZone.addEventListener('click', () => imageInput.click());
@@ -338,7 +337,7 @@
             reader.readAsDataURL(file);
         }
 
-        // Submit image
+        // Submit image using PostponedRequest pattern
         submitBtn.addEventListener('click', async () => {
             if (!selectedImage) return;
 
@@ -352,9 +351,12 @@
             const apiUrl = apiUrlInput.value;
 
             try {
-                showStatus('Submitting image to CerviGuard API...', 'processing');
+                showStatus('Submitting image to CerviGuard API (PostponedRequest)...', 'processing');
+                showStatus('⏳ Connection open - waiting for processing to complete...', 'processing');
 
-                const response = await fetch(`${apiUrl}/cerviguard_submit_image`, {
+                // With PostponedRequest, the server keeps the connection open until processing is done
+                // No manual polling needed - the framework handles it server-side
+                const response = await fetch(`${apiUrl}/predict`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -371,14 +373,19 @@
                 const data = await response.json();
                 const result = data.result;
 
-                if (result.status === 'submitted') {
-                    currentRequestId = result.request_id;
-                    showStatus(`Image submitted successfully! Request ID: ${currentRequestId}`, 'success');
-                    showStatus('Polling for results (loopback processing)...', 'processing');
-                    pollForResults(currentRequestId);
-                } else {
-                    showStatus(`Error: ${result.error || 'Unknown error'}`, 'error');
+                // PostponedRequest returns the final result directly (or error)
+                if (result.status === 'completed') {
                     loader.style.display = 'none';
+                    showStatus('✓ Processing completed successfully!', 'success');
+                    displayResults(result);
+                    submitBtn.disabled = false;
+                } else if (result.status === 'error') {
+                    loader.style.display = 'none';
+                    showStatus(`✗ Processing Error: ${result.error}`, 'error');
+                    submitBtn.disabled = false;
+                } else {
+                    loader.style.display = 'none';
+                    showStatus(`Error: ${result.error || 'Unknown error'}`, 'error');
                     submitBtn.disabled = false;
                 }
 
@@ -390,51 +397,59 @@
             }
         });
 
-        // Poll for results
-        async function pollForResults(requestId, attempt = 1, maxAttempts = 20) {
-            const apiUrl = apiUrlInput.value;
-
-            try {
-                const response = await fetch(`${apiUrl}/cerviguard_get_result?request_id=${requestId}`);
-                const data = await response.json();
-                const result = data.result;
-
-                if (result.status === 'completed') {
-                    loader.style.display = 'none';
-                    showStatus('✓ Processing completed successfully!', 'success');
-                    displayResults(result.result);
-                    submitBtn.disabled = false;
-                } else if (result.status === 'processing') {
-                    showStatus(`⏳ Processing... (attempt ${attempt}/${maxAttempts})`, 'processing');
-                    if (attempt < maxAttempts) {
-                        setTimeout(() => pollForResults(requestId, attempt + 1, maxAttempts), 1000);
-                    } else {
-                        loader.style.display = 'none';
-                        showStatus('Timeout: Processing is taking too long', 'error');
-                        submitBtn.disabled = false;
-                    }
-                } else if (result.status === 'error') {
-                    loader.style.display = 'none';
-                    showStatus(`✗ Processing Error: ${result.error}`, 'error');
-                    submitBtn.disabled = false;
-                } else {
-                    loader.style.display = 'none';
-                    showStatus(`Unknown status: ${result.status}`, 'error');
-                    submitBtn.disabled = false;
-                }
-
-            } catch (error) {
-                loader.style.display = 'none';
-                showStatus(`Polling Error: ${error.message}`, 'error');
-                submitBtn.disabled = false;
-            }
-        }
-
         // Display results
         function displayResults(result) {
-            const imgInfo = result.image_info;
+            const analysis = result.analysis || {};
+            const imgInfo = analysis.image_info || {};
+
+            // Determine risk color based on lesion assessment
+            const getRiskColor = (assessment) => {
+                switch(assessment) {
+                    case 'none': return '#28a745';
+                    case 'low': return '#ffc107';
+                    case 'moderate': return '#fd7e14';
+                    case 'high': return '#dc3545';
+                    default: return '#6c757d';
+                }
+            };
+
+            const riskColor = getRiskColor(analysis.lesion_assessment);
 
             resultsContent.innerHTML = `
+                <h4 style="color: #667eea; margin-bottom: 15px;">📊 Cervical Screening Analysis</h4>
+
+                <div class="result-item" style="background: #f0f8ff; border-left: 4px solid ${riskColor};">
+                    <span class="result-label">Transformation Zone Type:</span>
+                    <span class="result-value" style="font-weight: bold; color: ${riskColor};">${analysis.tz_type || 'N/A'}</span>
+                </div>
+
+                <div class="result-item" style="background: #f0f8ff; border-left: 4px solid ${riskColor};">
+                    <span class="result-label">Lesion Assessment:</span>
+                    <span class="result-value" style="font-weight: bold; color: ${riskColor}; text-transform: uppercase;">${analysis.lesion_assessment || 'N/A'}</span>
+                </div>
+
+                <div class="result-item" style="background: #f0f8ff; border-left: 4px solid ${riskColor};">
+                    <span class="result-label">Risk Score:</span>
+                    <span class="result-value" style="font-weight: bold; color: ${riskColor};">${analysis.risk_score || 0}/100</span>
+                </div>
+
+                <div class="result-item" style="background: #f0f8ff; border-left: 4px solid ${riskColor};">
+                    <span class="result-label">Image Dimensions:</span>
+                    <span class="result-value" style="font-weight: bold;">${imgInfo.width} × ${imgInfo.height} pixels</span>
+                </div>
+
+                <div class="result-item" style="background: #f0f8ff; border-left: 4px solid ${riskColor};">
+                    <span class="result-label">Image Quality:</span>
+                    <span class="result-value" style="font-weight: bold; ${analysis.image_quality_sufficient ? '' : 'color: #ff9800;'}">${analysis.image_quality || 'N/A'}${!analysis.image_quality_sufficient ? ' ⚠️' : ' ✓'}</span>
+                </div>
+
+                <div class="result-item" style="background: #fffbf0; padding: 15px; border-left: 4px solid ${riskColor};">
+                    <span class="result-label" style="display: block; margin-bottom: 8px;">Clinical Summary:</span>
+                    <span class="result-value" style="display: block; line-height: 1.6; color: #333;">${analysis.lesion_summary || 'No summary available'}</span>
+                </div>
+
+                <h4 style="color: #667eea; margin: 20px 0 15px 0;">🖼️ Image Information</h4>
+
                 <div class="result-item">
                     <span class="result-label">Width:</span>
                     <span class="result-value">${imgInfo.width} pixels</span>
@@ -482,12 +497,12 @@
 
             try {
                 showStatus('Checking system status...', 'processing');
-                const response = await fetch(`${apiUrl}/cerviguard_status`);
+                const response = await fetch(`${apiUrl}/status`);
                 const data = await response.json();
                 const status = data.result;
 
                 showStatus(`✓ System Online | Service: ${status.service} | Version: ${status.version}`, 'success');
-                showStatus(`Total Requests: ${status.total_requests} | Pending: ${status.pending_requests} | Uptime: ${Math.round(status.uptime_seconds)}s`, 'info');
+                showStatus(`Total: ${status.total_requests} | Pending: ${status.pending_requests} | Completed: ${status.completed_requests || 0} | Uptime: ${Math.round(status.uptime_seconds)}s`, 'info');
 
             } catch (error) {
                 showStatus(`✗ Cannot connect to API: ${error.message}`, 'error');
