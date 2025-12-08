@@ -70,10 +70,18 @@ class _MachineMixin(object):
         for name, entries in temps.items():
           for entry in entries:
             key = f"{name}.{entry.label or 'N/A'}"
+            original_high = entry.high
+            original_critical = entry.critical
+            high = entry.high if isinstance(entry.high, (int, float)) else 65536
+            critical = entry.critical if isinstance(entry.critical, (int, float)) else 65536
+            high = max(95, high)
+            critical = max(100, critical)
             transformed[key] = {
               "current": entry.current if entry.current is not None else 0,
-              "high": entry.high if entry.high is not None else 65536,
-              "critical": entry.critical if entry.critical is not None else 65536,
+              "high": high,
+              "critical": critical,
+              "original_high": original_high,
+              "original_critical": original_critical,
             }
           #end for
         #end for
