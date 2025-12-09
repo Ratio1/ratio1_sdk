@@ -2238,12 +2238,9 @@ class GenericSession(BaseDecentrAIObject):
       )
       self.own_pipelines.append(pipeline)
       
-      # Call on_pipeline_create callback if provided
-      if self.custom_on_pipeline_create is not None:
-        try:
-          self.custom_on_pipeline_create(self, pipeline)
-        except Exception as e:
-          self.log.P(f"Error in on_pipeline_create callback: {e}", color='r')
+      # NOTE: on_pipeline_create callback is now called when R1EN confirms the pipeline
+      # in Pipeline.__apply_staged_config(), not here when the local object is instantiated.
+      # This ensures the callback is triggered only after the pipeline is confirmed by the R1EN.
       
       return pipeline
     
@@ -2580,7 +2577,9 @@ class GenericSession(BaseDecentrAIObject):
           **kwargs
         )
       
-      # Note: on_pipeline_create callback is already called in create_pipeline or attach_to_pipeline
+      # Note: on_pipeline_create callback is called:
+      # - For newly created pipelines: in Pipeline.__apply_staged_config() when R1EN confirms
+      # - For attached pipelines: immediately in attach_to_pipeline() since the pipeline already exists
       return pipeline
 
     def wait_for_transactions(self, transactions: list[Transaction]):
