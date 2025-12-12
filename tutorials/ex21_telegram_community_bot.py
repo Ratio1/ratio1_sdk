@@ -131,7 +131,7 @@ def loop_processing(plugin: CustomPluginTemplate):
         # endfor wallets
         if len(new_online_nodes) > 0:
           if len(new_online_nodes) == 1:
-            message = f"✅ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({new_online_nodes[0]}) is back online."
+            message = f"✅ Node {plugin.netmon.network_node_eeid(plugin.bc.eth_addr_to_internal_addr(new_online_nodes[0]))} ({new_online_nodes[0]}) is back online."
           else:
             message = f"✅ The following nodes are back online:\n"
             for node in new_online_nodes:
@@ -140,7 +140,7 @@ def loop_processing(plugin: CustomPluginTemplate):
         # endif new_online_nodes
         if len(new_offline_nodes) > 0:
           if len(new_offline_nodes) == 1:
-            message = f"⚠️ Node {plugin.netmon.network_node_eeid(node_internal_addr)} ({new_offline_nodes[0]}) is offline. Please check your node status."
+            message = f"⚠️ Node {plugin.netmon.network_node_eeid(plugin.bc.eth_addr_to_internal_addr(new_offline_nodes[0]))} ({new_offline_nodes[0]}) is offline. Please check your node status."
           else:
             message = f"⚠️ The following nodes are offline:\n"
             for node in new_offline_nodes:
