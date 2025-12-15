@@ -40,40 +40,40 @@ class EvmNetConstants:
 # endclass EvmNetConstants
 
 
-_DAUTH_ABI_IS_NODE_ACTIVE = [{
-  "inputs": [
-    {
-      "internalType": "address",
-      "name": "nodeAddress",
-      "type": "address"
-    }
-  ],
-  "name": "isNodeActive",
-  "outputs": [
-    {
-      "internalType": "bool",
-      "name": "",
-      "type": "bool"
-    }
-  ],
-  "stateMutability": "view",
-  "type": "function"
-}]
-
-
-_CONTROLLER_ABI = [{
-  "inputs": [],
-  "name": "getOracles",
-  "outputs": [
-    {
-      "internalType": "address[]",
-      "name": "",
-      "type": "address[]"
-    }
-  ],
-  "stateMutability": "view",
-  "type": "function"
-}]
+_CONTROLLER_ABI = [
+  {
+    "inputs": [],
+    "name": "getOracles",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "nodeAddress",
+        "type": "address"
+      }
+    ],
+    "name": "isNodeActive",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
 
 _PROXY_ABI = [
   {
@@ -606,7 +606,6 @@ EVM_NET_CONSTANTS = {
 }
 
 class EVM_ABI_DATA:
-  IS_NODE_ACTIVE = _DAUTH_ABI_IS_NODE_ACTIVE
   ERC20_ABI = _ERC20_ABI
   POAI_MANAGER_ABI = _POAI_MANAGER_ABI
   PROXY_ABI = _PROXY_ABI

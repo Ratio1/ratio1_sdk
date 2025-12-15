@@ -784,7 +784,7 @@ class _EVMMixin:
       
       contract = w3vars.w3.eth.contract(
         address=w3vars.controller_contract_address, 
-        abi=EVM_ABI_DATA.IS_NODE_ACTIVE,
+        abi=EVM_ABI_DATA.CONTROLLER_ABI,
       )
 
       result = contract.functions.isNodeActive(address).call()
