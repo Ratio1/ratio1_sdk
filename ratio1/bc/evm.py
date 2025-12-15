@@ -1317,6 +1317,7 @@ class _EVMMixin:
 
       raw_jobs = contract.functions.getAllActiveJobs().call()
       jobs = [self._format_job_details(job, network) for job in raw_jobs]
+      self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
       return jobs
 
     def web3_submit_node_update(
