@@ -10,7 +10,6 @@ class EvmNetData:
   DAUTH_MND_ADDR_KEY = 'EE_DAUTH_MND_ADDR'
   DAUTH_PROXYAPI_ADDR_KEY = 'EE_DAUTH_PROXYAPI_ADDR'
   DAUTH_POAI_MANAGER_ADDR_KEY = 'EE_DAUTH_POAI_MANAGER_ADDR'
-  
   DAUTH_CONTROLLER_ADDR_KEY = 'EE_DAUTH_CONTROLLER_ADDR'
   
   EE_GENESIS_EPOCH_DATE_KEY = 'EE_GENESIS_EPOCH_DATE'
@@ -42,19 +41,6 @@ class EvmNetConstants:
 
 _CONTROLLER_ABI = [
   {
-    "inputs": [],
-    "name": "getOracles",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "address",
@@ -72,7 +58,20 @@ _CONTROLLER_ABI = [
     ],
     "stateMutability": "view",
     "type": "function"
-  }
+  },
+  {
+    "inputs": [],
+    "name": "getOracles",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
 ]
 
 _PROXY_ABI = [
