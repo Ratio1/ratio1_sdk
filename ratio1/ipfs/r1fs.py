@@ -919,6 +919,9 @@ class R1FSEngine:
       >>> print(cid)
       QmFolder123ABC
       """
+      add_time, remove_time, pin_time = 0.0, 0.0, 0.0
+      start_time = time.time()
+
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
       
@@ -954,7 +957,6 @@ class R1FSEngine:
       tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
       
       folder_cid = None
-      start_time = time.time()
       try:
         encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce_bytes)).encryptor()
 
@@ -996,11 +998,16 @@ class R1FSEngine:
         else:
           self.P(msg, color='r')
       #end try
-      elapsed_time = time.time() - start_time
+      add_time = time.time() - start_time
+      
+      remove_start_time = time.time()
       # Cleanup temp file
       os.remove(tmp_cipher_path)
+      remove_time = time.time() - remove_start_time
       
       if folder_cid is not None:
+        # Now we notify the relay (if any) about the new CID
+        pin_start_time = time.time()
         if self.__ipfs_relay_api is not None:
           #  Notifying the Relay about a new CID.
           try:
@@ -1028,10 +1035,14 @@ class R1FSEngine:
         self.__uploaded_files[folder_cid] = file_path
         # now we pin the folder
         res = self.__pin_add(folder_cid)
-        if show_logs:
-          self.P(f"Added file {file_path} as <{folder_cid}> in {elapsed_time:.1f}s")      
+        pin_time = time.time() - pin_start_time
         #end if show_logs
       #end if folder_cid is not None
+      total_time = time.time() - start_time
+      if show_logs:
+        self.P("Added file {} as <{}> in {.2f}s: add_time={.2f}s, remove_time={.2f}s, pin_time={.2f}s".format(
+          file_path, folder_cid, total_time, add_time, remove_time, pin_time
+        ))      
       return folder_cid
 
 
