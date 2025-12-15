@@ -1166,7 +1166,7 @@ class _EVMMixin:
       # or you may adapt this code if your contract address is stored differently.
       contract = w3vars.w3.eth.contract(
         address=w3vars.proxy_contract_address,  # or the relevant address from your environment
-        abi=EVM_ABI_DATA.GET_NODE_INFO
+        abi=EVM_ABI_DATA.PROXY_ABI,
       )
 
       self.P(f"`getNodeLicenseDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
@@ -1241,7 +1241,7 @@ class _EVMMixin:
       # or you may adapt this code if your contract address is stored differently.
       contract = w3vars.w3.eth.contract(
         address=w3vars.proxy_contract_address,  # or the relevant address from your environment
-        abi=EVM_ABI_DATA.GET_WALLET_NODES,
+        abi=EVM_ABI_DATA.PROXY_ABI,
       )
       
       self.P(f"`getWalletNodes` on {network} via {w3vars.rpc_url}", verbosity=2)
@@ -1282,7 +1282,7 @@ class _EVMMixin:
       # Create the contract instance for the proxy contract.
       contract = w3vars.w3.eth.contract(
         address=w3vars.proxy_contract_address,
-        abi=EVM_ABI_DATA.GET_ADDRESSES_BALANCES
+        abi=EVM_ABI_DATA.PROXY_ABI,
       )
 
       self.P(f"`getAddressesBalances` on {network} via {w3vars.rpc_url}", verbosity=2)

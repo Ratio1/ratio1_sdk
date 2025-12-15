@@ -91,115 +91,107 @@ _DAUTH_ABI_GET_SIGNERS_deprecated = [{
   "type": "function"
 }]
 
-
-_GET_NODE_INFO_ABI = [
+_PROXY_ABI = [
   {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "node",
-          "type": "address"
-        }
-      ],
-      "name": "getNodeLicenseDetails",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "enum LicenseType",
-              "name": "licenseType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "uint256",
-              "name": "licenseId",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "owner",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "nodeAddress",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "totalAssignedAmount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "totalClaimedAmount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "lastClaimEpoch",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "assignTimestamp",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "lastClaimOracle",
-              "type": "address"
-            },
-            {
-              "internalType": "bool",
-              "name": "isBanned",
-              "type": "bool"
-            },
-            {
-              "internalType": "uint256",
-              "name": "usdcPoaiRewards",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "r1PoaiRewards",
-              "type": "uint256"
-            }
-          ],
-          "internalType": "struct LicenseDetails",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    }
-]
-
-
-_GET_WALLET_NODES = [
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "wallet",
-          "type": "address"
-        }
-      ],
-      "name": "getWalletNodes",
-      "outputs": [
-        {
-          "internalType": "address[]",
-          "name": "nodes",
-          "type": "address[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-]
-
-_GET_ADDRESSES_BALANCES = [
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "node",
+        "type": "address"
+      }
+    ],
+    "name": "getNodeLicenseDetails",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "enum LicenseType",
+            "name": "licenseType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "licenseId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "nodeAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalAssignedAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalClaimedAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastClaimEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "assignTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "lastClaimOracle",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "isBanned",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "usdcPoaiRewards",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "r1PoaiRewards",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct LicenseDetails",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      }
+    ],
+    "name": "getWalletNodes",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "nodes",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
   {
     "inputs": [
       {
@@ -633,10 +625,8 @@ EVM_NET_CONSTANTS = {
 }
 
 class EVM_ABI_DATA:
-  GET_NODE_INFO = _GET_NODE_INFO_ABI
-  GET_WALLET_NODES = _GET_WALLET_NODES
-  GET_ADDRESSES_BALANCES = _GET_ADDRESSES_BALANCES
   IS_NODE_ACTIVE = _DAUTH_ABI_IS_NODE_ACTIVE
   ERC20_ABI = _ERC20_ABI
   POAI_MANAGER_ABI = _POAI_MANAGER_ABI
+  PROXY_ABI = _PROXY_ABI
   
