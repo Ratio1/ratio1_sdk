@@ -210,6 +210,47 @@ _PROXY_ABI = [
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserEscrowDetails",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "isActive",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowOwner",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "permissions",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct UserEscrowDetails",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]
 

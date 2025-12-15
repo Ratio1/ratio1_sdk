@@ -1558,6 +1558,43 @@ class _EVMMixin:
       self.P(f"Last epoch allocated: {result}", verbosity=2)
       return result
     
+    def web3_get_user_escrow_details(self, address: str, network: str = None):
+      """
+      Retrieve escrow details for a given wallet address.
+
+      Parameters
+      ----------
+      address : str
+        The Ethereum wallet address to check.
+          
+      network : str, optional
+        The network to use. If None, defaults to self.evm_network.
+
+      Returns
+      -------
+      dict
+        A dictionary containing the user escrow details.
+      """
+      assert self.is_valid_eth_address(address), "Invalid Ethereum address"
+
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.proxy_contract_address,
+        abi=EVM_ABI_DATA.PROXY_ABI,
+      )
+      self.P(f"`getUserEscrowDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
+
+      result = contract.functions.getUserEscrowDetails(address).call()
+      details = {
+        "network": network,
+        "isActive": result[0],
+        "escrowAddress": result[1],
+        "escrowOwner": result[2],
+        "permissions": result[3],
+      }
+      return details
+    
     def _format_job_details(self, raw_job_details, network: str):
       """
       Normalize the job details tuple returned by the PoAI Manager contract.
