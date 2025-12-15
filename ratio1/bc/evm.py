@@ -29,7 +29,6 @@ Web3Vars = namedtuple(
     "proxy_contract_address",  
     "controller_contract_address",
     "poai_manager_address",
-    "get_oracles_abi",
   ]
 )
 
@@ -238,7 +237,6 @@ class _EVMMixin:
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
       poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
-      get_oracles_abi = network_data[dAuth.EvmNetData.DAUTH_GET_ORACLES_ABI]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
@@ -261,7 +259,6 @@ class _EVMMixin:
         proxy_contract_address=proxy_contract_address, 
         controller_contract_address=controller_contract_address,
         poai_manager_address=poai_manager_address,
-        get_oracles_abi=get_oracles_abi,
       )
       return result
 
@@ -811,17 +808,15 @@ class _EVMMixin:
       """
       w3vars = self._get_web3_vars(network)
 
-      func = w3vars.get_oracles_abi[0]["name"]
       if debug:
-        self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url} using `{func}`...")
+        self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url}...")
       
       contract = w3vars.w3.eth.contract(
         address=w3vars.controller_contract_address, 
-        abi=w3vars.get_oracles_abi,
+        abi=EVM_ABI_DATA.CONTROLLER_ABI,
       )
 
-      get_oracles_func = getattr(contract.functions, func)
-      result = get_oracles_func().call()
+      result = contract.functions.getOracles().call()
       return result    
 
     

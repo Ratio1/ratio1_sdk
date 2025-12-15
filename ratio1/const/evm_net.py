@@ -11,8 +11,7 @@ class EvmNetData:
   DAUTH_PROXYAPI_ADDR_KEY = 'EE_DAUTH_PROXYAPI_ADDR'
   DAUTH_POAI_MANAGER_ADDR_KEY = 'EE_DAUTH_POAI_MANAGER_ADDR'
   
-  DAUTH_CONTROLLER_ADDR_KEY = 'EE_DAUTH_CONTROLLER_ADDR'  
-  DAUTH_GET_ORACLES_ABI = 'EE_DAUTH_GET_ORACLES_ABI'
+  DAUTH_CONTROLLER_ADDR_KEY = 'EE_DAUTH_CONTROLLER_ADDR'
   
   EE_GENESIS_EPOCH_DATE_KEY = 'EE_GENESIS_EPOCH_DATE'
   EE_EPOCH_INTERVALS_KEY = 'EE_EPOCH_INTERVALS'
@@ -62,24 +61,9 @@ _DAUTH_ABI_IS_NODE_ACTIVE = [{
 }]
 
 
-_DAUTH_ABI_GET_ORACLES = [{
+_CONTROLLER_ABI = [{
   "inputs": [],
   "name": "getOracles",
-  "outputs": [
-    {
-      "internalType": "address[]",
-      "name": "",
-      "type": "address[]"
-    }
-  ],
-  "stateMutability": "view",
-  "type": "function"
-}]
-
-
-_DAUTH_ABI_GET_SIGNERS_deprecated = [{
-  "inputs": [],
-  "name": "getSigners",
   "outputs": [
     {
       "internalType": "address[]",
@@ -534,7 +518,6 @@ EVM_NET_DATA = {
     EvmNetData.EE_DAPP_APP_URL_KEY              : "https://app.ratio1.ai",
     EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://explorer.ratio1.ai",
     EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://deeploy.ratio1.ai",
-    EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
   EvmNetData.TESTNET: {
@@ -556,7 +539,6 @@ EVM_NET_DATA = {
     EvmNetData.EE_DAPP_APP_URL_KEY              : "https://testnet-app.ratio1.ai",
     EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://testnet-explorer.ratio1.ai",
     EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://testnet-deeploy.ratio1.ai",
-    EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
   
@@ -579,7 +561,6 @@ EVM_NET_DATA = {
     EvmNetData.EE_DAPP_APP_URL_KEY              : "https://devnet-app.ratio1.ai",
     EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://devnet-explorer.ratio1.ai",
     EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://devnet-deeploy.ratio1.ai",
-    EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 }
 
@@ -629,4 +610,4 @@ class EVM_ABI_DATA:
   ERC20_ABI = _ERC20_ABI
   POAI_MANAGER_ABI = _POAI_MANAGER_ABI
   PROXY_ABI = _PROXY_ABI
-  
+  CONTROLLER_ABI = _CONTROLLER_ABI
