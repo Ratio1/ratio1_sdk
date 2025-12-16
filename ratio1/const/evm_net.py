@@ -10,9 +10,7 @@ class EvmNetData:
   DAUTH_MND_ADDR_KEY = 'EE_DAUTH_MND_ADDR'
   DAUTH_PROXYAPI_ADDR_KEY = 'EE_DAUTH_PROXYAPI_ADDR'
   DAUTH_POAI_MANAGER_ADDR_KEY = 'EE_DAUTH_POAI_MANAGER_ADDR'
-  
-  DAUTH_CONTROLLER_ADDR_KEY = 'EE_DAUTH_CONTROLLER_ADDR'  
-  DAUTH_GET_ORACLES_ABI = 'EE_DAUTH_GET_ORACLES_ABI'
+  DAUTH_CONTROLLER_ADDR_KEY = 'EE_DAUTH_CONTROLLER_ADDR'
   
   EE_GENESIS_EPOCH_DATE_KEY = 'EE_GENESIS_EPOCH_DATE'
   EE_EPOCH_INTERVALS_KEY = 'EE_EPOCH_INTERVALS'
@@ -41,165 +39,142 @@ class EvmNetConstants:
 # endclass EvmNetConstants
 
 
-_DAUTH_ABI_IS_NODE_ACTIVE = [{
-  "inputs": [
-    {
-      "internalType": "address",
-      "name": "nodeAddress",
-      "type": "address"
-    }
-  ],
-  "name": "isNodeActive",
-  "outputs": [
-    {
-      "internalType": "bool",
-      "name": "",
-      "type": "bool"
-    }
-  ],
-  "stateMutability": "view",
-  "type": "function"
-}]
-
-
-_DAUTH_ABI_GET_ORACLES = [{
-  "inputs": [],
-  "name": "getOracles",
-  "outputs": [
-    {
-      "internalType": "address[]",
-      "name": "",
-      "type": "address[]"
-    }
-  ],
-  "stateMutability": "view",
-  "type": "function"
-}]
-
-
-_DAUTH_ABI_GET_SIGNERS_deprecated = [{
-  "inputs": [],
-  "name": "getSigners",
-  "outputs": [
-    {
-      "internalType": "address[]",
-      "name": "",
-      "type": "address[]"
-    }
-  ],
-  "stateMutability": "view",
-  "type": "function"
-}]
-
-
-_GET_NODE_INFO_ABI = [
+_CONTROLLER_ABI = [
   {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "node",
-          "type": "address"
-        }
-      ],
-      "name": "getNodeLicenseDetails",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "enum LicenseType",
-              "name": "licenseType",
-              "type": "uint8"
-            },
-            {
-              "internalType": "uint256",
-              "name": "licenseId",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "owner",
-              "type": "address"
-            },
-            {
-              "internalType": "address",
-              "name": "nodeAddress",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "totalAssignedAmount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "totalClaimedAmount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "lastClaimEpoch",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "assignTimestamp",
-              "type": "uint256"
-            },
-            {
-              "internalType": "address",
-              "name": "lastClaimOracle",
-              "type": "address"
-            },
-            {
-              "internalType": "bool",
-              "name": "isBanned",
-              "type": "bool"
-            },
-            {
-              "internalType": "uint256",
-              "name": "usdcPoaiRewards",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "r1PoaiRewards",
-              "type": "uint256"
-            }
-          ],
-          "internalType": "struct LicenseDetails",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    }
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "nodeAddress",
+        "type": "address"
+      }
+    ],
+    "name": "isNodeActive",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getOracles",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
 ]
 
-
-_GET_WALLET_NODES = [
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "wallet",
-          "type": "address"
-        }
-      ],
-      "name": "getWalletNodes",
-      "outputs": [
-        {
-          "internalType": "address[]",
-          "name": "nodes",
-          "type": "address[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-]
-
-_GET_ADDRESSES_BALANCES = [
+_PROXY_ABI = [
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "node",
+        "type": "address"
+      }
+    ],
+    "name": "getNodeLicenseDetails",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "enum LicenseType",
+            "name": "licenseType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "licenseId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "nodeAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalAssignedAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalClaimedAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastClaimEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "assignTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "lastClaimOracle",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "isBanned",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "usdcPoaiRewards",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "r1PoaiRewards",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct LicenseDetails",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      }
+    ],
+    "name": "getWalletNodes",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "nodes",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
   {
     "inputs": [
       {
@@ -231,6 +206,47 @@ _GET_ADDRESSES_BALANCES = [
         "internalType": "struct AddressBalances[]",
         "name": "balances",
         "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserEscrowDetails",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "isActive",
+            "type": "bool"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "escrowOwner",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "permissions",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct UserEscrowDetails",
+        "name": "",
+        "type": "tuple"
       }
     ],
     "stateMutability": "view",
@@ -542,7 +558,6 @@ EVM_NET_DATA = {
     EvmNetData.EE_DAPP_APP_URL_KEY              : "https://app.ratio1.ai",
     EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://explorer.ratio1.ai",
     EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://deeploy.ratio1.ai",
-    EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
   EvmNetData.TESTNET: {
@@ -564,7 +579,6 @@ EVM_NET_DATA = {
     EvmNetData.EE_DAPP_APP_URL_KEY              : "https://testnet-app.ratio1.ai",
     EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://testnet-explorer.ratio1.ai",
     EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://testnet-deeploy.ratio1.ai",
-    EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 
   
@@ -587,7 +601,6 @@ EVM_NET_DATA = {
     EvmNetData.EE_DAPP_APP_URL_KEY              : "https://devnet-app.ratio1.ai",
     EvmNetData.EE_EXPLORER_APP_URL_KEY          : "https://devnet-explorer.ratio1.ai",
     EvmNetData.EE_DEEPLOY_APP_URL_KEY           : "https://devnet-deeploy.ratio1.ai",
-    EvmNetData.DAUTH_GET_ORACLES_ABI            : _DAUTH_ABI_GET_ORACLES,
   },
 }
 
@@ -633,10 +646,7 @@ EVM_NET_CONSTANTS = {
 }
 
 class EVM_ABI_DATA:
-  GET_NODE_INFO = _GET_NODE_INFO_ABI
-  GET_WALLET_NODES = _GET_WALLET_NODES
-  GET_ADDRESSES_BALANCES = _GET_ADDRESSES_BALANCES
-  IS_NODE_ACTIVE = _DAUTH_ABI_IS_NODE_ACTIVE
   ERC20_ABI = _ERC20_ABI
   POAI_MANAGER_ABI = _POAI_MANAGER_ABI
-  
+  PROXY_ABI = _PROXY_ABI
+  CONTROLLER_ABI = _CONTROLLER_ABI

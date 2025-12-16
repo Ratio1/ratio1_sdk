@@ -29,7 +29,6 @@ Web3Vars = namedtuple(
     "proxy_contract_address",  
     "controller_contract_address",
     "poai_manager_address",
-    "get_oracles_abi",
   ]
 )
 
@@ -238,7 +237,6 @@ class _EVMMixin:
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
       poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
-      get_oracles_abi = network_data[dAuth.EvmNetData.DAUTH_GET_ORACLES_ABI]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
@@ -261,7 +259,6 @@ class _EVMMixin:
         proxy_contract_address=proxy_contract_address, 
         controller_contract_address=controller_contract_address,
         poai_manager_address=poai_manager_address,
-        get_oracles_abi=get_oracles_abi,
       )
       return result
 
@@ -767,7 +764,7 @@ class _EVMMixin:
           
     def web3_is_node_licensed(self, address : str, network=None, debug=False) -> bool:
       """
-      Check if the address is allowed to send commands to the node
+      Check if the address has a valid license
 
       Parameters
       ----------
@@ -777,18 +774,15 @@ class _EVMMixin:
       if EE_VPN_IMPL:
         self.P("VPN implementation. Skipping Ethereum check.", color='r')
         return False
-      
-      w3vars = self._get_web3_vars(network)
-      
       assert self.is_valid_eth_address(address), "Invalid Ethereum address"
-      
-      if debug:
-        self.P(f"Checking if {address} ({network}) is allowed...")
-      
+
+      w3vars = self._get_web3_vars(network)
       contract = w3vars.w3.eth.contract(
         address=w3vars.controller_contract_address, 
-        abi=EVM_ABI_DATA.IS_NODE_ACTIVE,
+        abi=EVM_ABI_DATA.CONTROLLER_ABI,
       )
+      if debug:
+        self.P(f"Checking if {address} ({w3vars.network}) is allowed...")
 
       result = contract.functions.isNodeActive(address).call()
       return result
@@ -801,27 +795,22 @@ class _EVMMixin:
       Parameters
       ----------
       network : str, optional
-        the network to use. The default is None.
+        The network to use. The default is None.
 
       Returns
       -------
       list
-        the list of oracles addresses.
-
+        The list of oracles addresses.
       """
       w3vars = self._get_web3_vars(network)
-
-      func = w3vars.get_oracles_abi[0]["name"]
-      if debug:
-        self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url} using `{func}`...")
-      
       contract = w3vars.w3.eth.contract(
         address=w3vars.controller_contract_address, 
-        abi=w3vars.get_oracles_abi,
+        abi=EVM_ABI_DATA.CONTROLLER_ABI,
       )
+      if debug:
+        self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url}...")
 
-      get_oracles_func = getattr(contract.functions, func)
-      result = get_oracles_func().call()
+      result = contract.functions.getOracles().call()
       return result    
 
     
@@ -842,6 +831,7 @@ class _EVMMixin:
       if address is None:
         address = self.eth_address
       assert self.is_valid_eth_address(address), "Invalid Ethereum address"
+
       w3vars = self._get_web3_vars(network)
       balance_wei = w3vars.w3.eth.get_balance(address)
       balance_eth = w3vars.w3.from_wei(balance_wei, 'ether')
@@ -981,8 +971,8 @@ class _EVMMixin:
       if address is None:
         address = self.eth_address
       assert self.is_valid_eth_address(address), "Invalid Ethereum address"
-      w3vars = self._get_web3_vars(network)
 
+      w3vars = self._get_web3_vars(network)
       token_contract = w3vars.w3.eth.contract(
         address=w3vars.r1_contract_address, abi=EVM_ABI_DATA.ERC20_ABI
       )
@@ -991,7 +981,6 @@ class _EVMMixin:
         decimals = token_contract.functions.decimals().call()
       except Exception:
         decimals = 18  # default to 18 if the decimals call fails
-
       raw_balance = token_contract.functions.balanceOf(address).call()
       human_balance = raw_balance / (10 ** decimals)
       return float(human_balance)
@@ -1014,44 +1003,39 @@ class _EVMMixin:
       Parameters
       ----------
       to_address : str
-          The recipient's Ethereum address.
+        The recipient's Ethereum address.
           
       amount : float
-          The amount of R1 tokens to send (in human-readable units).
+        The amount of R1 tokens to send (in human-readable units).
           
       extra_buffer_eth : float, optional
-          Additional ETH (in Ether) as a buffer for gas fees. Default is 0.005 ETH.
+        Additional ETH (in Ether) as a buffer for gas fees. Default is 0.005 ETH.
           
       wait_for_tx : bool, optional
-          If True, waits for the transaction to be mined and returns the receipt.
-          If False, returns immediately with the transaction hash.
+        If True, waits for the transaction to be mined and returns the receipt.
+        If False, returns immediately with the transaction hash.
           
       timeout : int, optional
-          Maximum number of seconds to wait for the transaction receipt. Default is 120.
+        Maximum number of seconds to wait for the transaction receipt. Default is 120.
           
       network : str, optional
-          The network to use. If None, uses the default self.evm_network.
+        The network to use. If None, uses the default self.evm_network.
 
       return_receipt: bool, optional
-          If True, returns the transaction receipt instead of the transaction hash.
+        If True, returns the transaction receipt instead of the transaction hash.
           
       raise_if_error : bool, optional
-          If True, raises an exception if the transaction fails. Default is False.  
+        If True, raises an exception if the transaction fails. Default is False.  
           
       Returns
       -------
-          If wait_for_tx is False, returns the transaction hash as a string.
-          If wait_for_tx is True, returns the transaction receipt as a dict.
+        If wait_for_tx is False, returns the transaction hash as a string.
+        If wait_for_tx is True, returns the transaction receipt as a dict.
       """
-      # Validate the recipient address.
       assert self.is_valid_eth_address(to_address), "Invalid Ethereum address"
-      
-      # Retrieve the Web3 instance, RPC URL, and the R1 contract address.
-      # Note: This follows the same pattern as web3_get_balance_r1.
+
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-      
-      # Create the token contract instance.
       token_contract = w3vars.w3.eth.contract(
         address=w3vars.r1_contract_address, abi=EVM_ABI_DATA.ERC20_ABI
       )
@@ -1061,7 +1045,6 @@ class _EVMMixin:
         decimals = token_contract.functions.decimals().call()
       except Exception:
         decimals = 18
-
       # Convert the human-readable amount to the token's smallest unit.
       token_amount = int(amount * (10 ** decimals))
       
@@ -1076,23 +1059,20 @@ class _EVMMixin:
           return None
       
       # Estimate gas fees for the token transfer.
-      gas_price = w3vars.w3.to_wei('50', 'gwei')  # Adjust as needed or use a dynamic gas strategy.
+      gas_price = w3vars.w3.eth.gas_price  # This fetches the current suggested gas price from the network.
       estimated_gas = token_contract.functions.transfer(
         to_address, token_amount
       ).estimate_gas(
         {'from': self.eth_address}
       )
       gas_cost = estimated_gas * gas_price
-      
       # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
       eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
       extra_buffer = w3vars.w3.to_wei(extra_buffer_eth, 'ether')
       if eth_balance < gas_cost + extra_buffer:
         raise Exception("Insufficient ETH balance to cover gas fees and extra buffer.")
-      
       # Get the transaction count for the nonce.
       nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
-      
       # Programmatically determine the chainId.
       chain_id = w3vars.w3.eth.chain_id
 
@@ -1104,13 +1084,11 @@ class _EVMMixin:
         'gasPrice': gas_price,
         'chainId': chain_id,
       })
-      
       self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
       
       # Sign the transaction using the internal account (via _get_eth_account).
       eth_account = self._get_eth_account()
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
-      
       # Broadcast the transaction.
       tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
       
@@ -1139,41 +1117,31 @@ class _EVMMixin:
       Parameters
       ----------
       node_address : str
-          The node address (must be a valid Ethereum address).
+        The node address (must be a valid Ethereum address).
           
       network : str, optional
-          The network to use. If None, defaults to self.evm_network.
+        The network to use. If None, defaults to self.evm_network.
           
       raise_if_issue : bool, optional
-          If True, raises an exception based on custom criteria (e.g., if node is banned).
-          Default is False.
-
+        If True, raises an exception based on custom criteria (e.g., if node is banned).
+        Default is False.
 
       Returns
       -------
       dict
-          A dictionary containing all license details returned by getNodeLicenseDetails.
+        A dictionary containing all license details returned by getNodeLicenseDetails.
       """
-      # Validate the node address.
       assert self.is_valid_eth_address(node_address), "Invalid Ethereum address"
 
-      # Retrieve the necessary Web3 variables (pattern consistent with web3_send_r1).
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-
-      # Create the contract instance for retrieving node info.
-      # Assuming you have a specific contract address in w3vars (e.g. license_contract_address),
-      # or you may adapt this code if your contract address is stored differently.
       contract = w3vars.w3.eth.contract(
-        address=w3vars.proxy_contract_address,  # or the relevant address from your environment
-        abi=EVM_ABI_DATA.GET_NODE_INFO
+        address=w3vars.proxy_contract_address,
+        abi=EVM_ABI_DATA.PROXY_ABI,
       )
-
       self.P(f"`getNodeLicenseDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
 
-      # Call the contract function to get details.
       result_tuple = contract.functions.getNodeLicenseDetails(node_address).call()
-
       # Unpack the tuple into a dictionary for readability.
       details = {
         "network": network,
@@ -1198,7 +1166,6 @@ class _EVMMixin:
       is_valid = not (
         no_owner or no_real_addr or is_banned
       )
-      
       details['isValid'] = is_valid
 
       self.P(f"Node Info:\n{json.dumps(details, indent=2)}", verbosity=2)
@@ -1220,35 +1187,27 @@ class _EVMMixin:
       Parameters
       ----------
       wallet_addr : str
-          The Ethereum wallet address to check.
+        The Ethereum wallet address to check.
           
       network : str, optional
-          The network to use. If None, defaults to self.evm_network.
+        The network to use. If None, defaults to self.evm_network.
 
       Returns
       -------
       list of dict
-          A list of dictionaries containing node details.
+        A list of dictionaries containing node details.
       """
       assert self.is_valid_eth_address(address), "Invalid Ethereum address"
 
-      # Retrieve the necessary Web3 variables (pattern consistent with web3_send_r1).
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-
-      # Create the contract instance for retrieving node info.
-      # Assuming you have a specific contract address in w3vars (e.g. license_contract_address),
-      # or you may adapt this code if your contract address is stored differently.
       contract = w3vars.w3.eth.contract(
-        address=w3vars.proxy_contract_address,  # or the relevant address from your environment
-        abi=EVM_ABI_DATA.GET_WALLET_NODES,
+        address=w3vars.proxy_contract_address,
+        abi=EVM_ABI_DATA.PROXY_ABI,
       )
-      
       self.P(f"`getWalletNodes` on {network} via {w3vars.rpc_url}", verbosity=2)
-      # Call the contract function to get details.
+
       result = contract.functions.getWalletNodes(address).call()
-      # Unpack the tuple into a dictionary for readability.
-      
       return result
     
     def web3_get_addresses_balances(
@@ -1262,32 +1221,28 @@ class _EVMMixin:
       Parameters
       ----------
       addresses : list of str
-          The list of Ethereum addresses to check.
+        The list of Ethereum addresses to check.
           
       network : str, optional
-          The network to use. If None, defaults to self.evm_network.
+        The network to use. If None, defaults to self.evm_network.
 
       Returns
       -------
       dict
-          A dictionary mapping each address to its balances.
+        A dictionary mapping each address to its balances.
       """
       assert isinstance(addresses, list), "Addresses must be a list"
       assert all(self.is_valid_eth_address(addr) for addr in addresses), "All addresses must be valid Ethereum addresses"
 
-      # Retrieve the necessary Web3 variables (pattern consistent with web3_send_r1).
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-
-      # Create the contract instance for the proxy contract.
       contract = w3vars.w3.eth.contract(
         address=w3vars.proxy_contract_address,
-        abi=EVM_ABI_DATA.GET_ADDRESSES_BALANCES
+        abi=EVM_ABI_DATA.PROXY_ABI,
       )
-
       self.P(f"`getAddressesBalances` on {network} via {w3vars.rpc_url}", verbosity=2)
+
       result = contract.functions.getAddressesBalances(addresses).call()
-      
       balances = {}
       for item in result:
         addr = item[0]
@@ -1297,7 +1252,6 @@ class _EVMMixin:
           "ethBalance": float(eth_balance),
           "r1Balance": float(r1_balance),
         }
-
       return balances
 
     def web3_get_job_details(
@@ -1311,31 +1265,26 @@ class _EVMMixin:
       Parameters
       ----------
       job_id : int
-          The job ID to retrieve details for.
+        The job ID to retrieve details for.
 
       network : str, optional
-          The network to use. If None, defaults to self.evm_network.
-
+        The network to use. If None, defaults to self.evm_network.
 
       Returns
       -------
       dict
-          A dictionary containing all job details returned by getJobDetails.
+        A dictionary containing all job details returned by getJobDetails.
       """
-      # Validate the job ID.
       assert isinstance(job_id, int), "Invalid job ID"
 
-      # Retrieve the necessary Web3 variables (pattern consistent with web3_send_r1).
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
       contract = w3vars.w3.eth.contract(
         address=w3vars.poai_manager_address,
         abi=EVM_ABI_DATA.POAI_MANAGER_ABI
       )
-
       self.P(f"`getJobDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
 
-      # Call the contract function to get details.
       result_tuple = contract.functions.getJobDetails(job_id).call()
       details = self._format_job_details(result_tuple, network)
       self.P(f"Job Details:\n{json.dumps(details, indent=2)}", verbosity=2)
@@ -1351,12 +1300,12 @@ class _EVMMixin:
       Parameters
       ----------
       network : str, optional
-          The network to use. Defaults to the current engine network.
+        The network to use. Defaults to the current engine network.
 
       Returns
       -------
       list[dict]
-          A list with the job details for every active job.
+        A list with the job details for every active job.
       """
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
@@ -1364,8 +1313,8 @@ class _EVMMixin:
         address=w3vars.poai_manager_address,
         abi=EVM_ABI_DATA.POAI_MANAGER_ABI
       )
-
       self.P(f"`getAllActiveJobs` on {network} via {w3vars.rpc_url}", verbosity=2)
+
       raw_jobs = contract.functions.getAllActiveJobs().call()
       jobs = [self._format_job_details(job, network) for job in raw_jobs]
       self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
@@ -1386,28 +1335,23 @@ class _EVMMixin:
       Parameters
       ----------
       job_id : int
-          The job ID to update.
+        The job ID to update.
           
       nodes : list
-          The list of new nodes running the job.
+        The list of new nodes running the job.
           
       network : str, optional
-          The network to use. If None, uses the default self.evm_network.
+        The network to use. If None, uses the default self.evm_network.
 
       Returns
       -------
-          The transaction hash.
+        The transaction hash.
       """
-      # Validate the input parameters.
       assert isinstance(job_id, int), "Invalid job ID"
       assert isinstance(nodes, list), "Nodes must be a list"
-      
-      # Retrieve the Web3 instance, RPC URL, and the R1 contract address.
-      # Note: This follows the same pattern as web3_get_balance_r1.
+
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-      
-      # Create the token contract instance.
       poai_manager_contract = w3vars.w3.eth.contract(
         address=w3vars.poai_manager_address, abi=EVM_ABI_DATA.POAI_MANAGER_ABI
       )
@@ -1416,15 +1360,12 @@ class _EVMMixin:
       gas_price = w3vars.w3.eth.gas_price  # This fetches the current suggested gas price from the network.
       estimated_gas = 1_000_000 # Have enough gas to cover all the actions if consensus is reached
       gas_cost = estimated_gas * gas_price
-      
       # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
       eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
       if eth_balance < gas_cost:
         raise Exception("Insufficient ETH balance to cover gas fees.")
-      
       # Get the transaction count for the nonce.
       nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
-      
       # Programmatically determine the chainId.
       chain_id = w3vars.w3.eth.chain_id
 
@@ -1436,13 +1377,11 @@ class _EVMMixin:
         'gasPrice': gas_price,
         'chainId': chain_id,
       })
-      
       self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
       
       # Sign the transaction using the internal account (via _get_eth_account).
       eth_account = self._get_eth_account()
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
-      
       # Broadcast the transaction.
       tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
       
@@ -1471,18 +1410,14 @@ class _EVMMixin:
       Parameters
       ----------
       network : str, optional
-          The network to use. If None, uses the default self.evm_network.
+        The network to use. If None, uses the default self.evm_network.
 
       Returns
       -------
-          The transaction hash.
+        The transaction hash.
       """
-      # Retrieve the Web3 instance, RPC URL, and the R1 contract address.
-      # Note: This follows the same pattern as web3_get_balance_r1.
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-      
-      # Create the token contract instance.
       poai_manager_contract = w3vars.w3.eth.contract(
         address=w3vars.poai_manager_address, abi=EVM_ABI_DATA.POAI_MANAGER_ABI
       )
@@ -1493,15 +1428,12 @@ class _EVMMixin:
         {'from': self.eth_address}
       )
       gas_cost = estimated_gas * gas_price
-      
       # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
       eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
       if eth_balance < gas_cost:
         raise Exception("Insufficient ETH balance to cover gas fees.")
-      
       # Get the transaction count for the nonce.
       nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
-      
       # Programmatically determine the chainId.
       chain_id = w3vars.w3.eth.chain_id
 
@@ -1513,13 +1445,11 @@ class _EVMMixin:
         'gasPrice': gas_price,
         'chainId': chain_id,
       })
-      
       self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
       
       # Sign the transaction using the internal account (via _get_eth_account).
       eth_account = self._get_eth_account()
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, eth_account.key)
-      
       # Broadcast the transaction.
       tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
       
@@ -1547,32 +1477,26 @@ class _EVMMixin:
       Parameters
       ----------
       oracle_address : str
-          The oracle address to check for.
+        The oracle address to check for.
           
       network : str, optional
-          The network to use. If None, defaults to self.evm_network.
+        The network to use. If None, defaults to self.evm_network.
 
       Returns
       -------
       list
-          A list of unvalidated job IDs.
+        A list of unvalidated job IDs.
       """
-      # Retrieve the necessary Web3 variables (pattern consistent with web3_get_job_details).
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-      
       contract = w3vars.w3.eth.contract(
         address=w3vars.poai_manager_address,
         abi=EVM_ABI_DATA.POAI_MANAGER_ABI
       )
-
       self.P(f"`getUnvalidatedJobIds` on {network} via {w3vars.rpc_url}", verbosity=2)
 
-      # Call the contract function to get unvalidated job IDs.
       result = contract.functions.getUnvalidatedJobIds(oracle_address).call()
-      
       self.P(f"Unvalidated Job IDs: {result}", verbosity=2)
-
       return result
 
     def web3_get_first_closable_job_id(
@@ -1585,29 +1509,25 @@ class _EVMMixin:
       Parameters
       ----------
       network : str, optional
-          The network to use. If None, defaults to self.evm_network.
+        The network to use. If None, defaults to self.evm_network.
 
       Returns
       -------
       int or None
-          The ID of the first closable job, or None if no such job exists.
+        The ID of the first closable job, or None if no such job exists.
       """
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-
       contract = w3vars.w3.eth.contract(
         address=w3vars.poai_manager_address,
         abi=EVM_ABI_DATA.POAI_MANAGER_ABI
       )
-
       self.P(f"`getFirstClosableJobId` on {network} via {w3vars.rpc_url}", verbosity=2)
 
-      # Call the contract function to get the first closable job ID.
       result = contract.functions.getFirstClosableJobId().call()
       if result == 0:
         result = None
       self.P(f"First closable job ID: {result}", verbosity=2)
-
       return result
 
     def web3_get_is_last_epoch_allocated(
@@ -1620,30 +1540,61 @@ class _EVMMixin:
       Parameters
       ----------
       network : str, optional
-          The network to use. If None, defaults to self.evm_network.
+        The network to use. If None, defaults to self.evm_network.
 
       Returns
       -------
       bool
-          True if the last epoch has been allocated, False otherwise.
+        True if the last epoch has been allocated, False otherwise.
       """
-      # Retrieve the necessary Web3 variables (pattern consistent with web3_get_unvalidated_job_ids).
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-      
       contract = w3vars.w3.eth.contract(
         address=w3vars.poai_manager_address,
         abi=EVM_ABI_DATA.POAI_MANAGER_ABI
       )
-
       self.P(f"`getIsLastEpochAllocated` on {network} via {w3vars.rpc_url}", verbosity=2)
 
-      # Call the contract function to check if last epoch is allocated.
       result = contract.functions.getIsLastEpochAllocated().call()
-      
       self.P(f"Last epoch allocated: {result}", verbosity=2)
-
       return result
+    
+    def web3_get_user_escrow_details(self, address: str, network: str = None):
+      """
+      Retrieve escrow details for a given wallet address.
+
+      Parameters
+      ----------
+      address : str
+        The Ethereum wallet address to check.
+          
+      network : str, optional
+        The network to use. If None, defaults to self.evm_network.
+
+      Returns
+      -------
+      dict
+        A dictionary containing the user escrow details.
+      """
+      assert self.is_valid_eth_address(address), "Invalid Ethereum address"
+
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.proxy_contract_address,
+        abi=EVM_ABI_DATA.PROXY_ABI,
+      )
+      self.P(f"`getUserEscrowDetails` on {network} via {w3vars.rpc_url}", verbosity=2)
+
+      result = contract.functions.getUserEscrowDetails(address).call()
+      details = {
+        "network": network,
+        "isActive": result[0],
+        "escrowAddress": result[1],
+        "escrowOwner": result[2],
+        "permissions": result[3],
+      }
+      return details
     
     def _format_job_details(self, raw_job_details, network: str):
       """
