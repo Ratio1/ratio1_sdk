@@ -1040,9 +1040,8 @@ class R1FSEngine:
       #end if folder_cid is not None
       total_time = time.time() - start_time
       if show_logs:
-        self.P("Added file {} as <{}> in {.2f}s: add_time={.2f}s, remove_time={.2f}s, pin_time={.2f}s".format(
-          file_path, folder_cid, total_time, add_time, remove_time, pin_time
-        ))      
+        self.P(
+          f"Added file {file_path} as <{folder_cid}> in {total_time:.2f}s: add_time={add_time:.2f}s, remove_time={remove_time:.2f}s, pin_time={pin_time:.2f}s")
       return folder_cid
 
 
