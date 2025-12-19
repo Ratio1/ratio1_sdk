@@ -1483,6 +1483,11 @@ class BaseBlockEngine(
     # Network handling
     if network is None:
       network = self.evm_network
+      
+    if not debug:
+      if 'test' in network.lower() or 'dev' in network.lower():
+        debug = True
+        self.P("Enabling dAuth debug mode for test/dev network '{}'".format(network))
 
     # URL handling
     if not isinstance(url, str) or len(url) < MIN_LEN:
@@ -1530,6 +1535,8 @@ class BaseBlockEngine(
           if debug:
             self.P(f"Sending to dAuth URL: {url}\n{json.dumps(json_to_send, indent=2)}")   
           response = requests.post(url, json=json_to_send)
+          if debug:
+            self.P(f"Received response (status {response.status_code}).")
           if response.status_code == 200:
             dct_response = response.json()
             dct_result = dct_response.get('result', {}) or {}
