@@ -1444,6 +1444,7 @@ class BaseBlockEngine(
     network=None,
     return_full_data=False,
     debug_data=False,
+    request_timeout=(3.05, 27),
     **kwargs
   ):
     """
@@ -1455,6 +1456,7 @@ class BaseBlockEngine(
     debug
     max_tries
     network
+    request_timeout
     kwargs
 
     Returns
@@ -1533,8 +1535,8 @@ class BaseBlockEngine(
           self.sign(to_send)    
           json_to_send = {'body' : to_send}
           if debug:
-            self.P(f"Sending to dAuth URL: {url}\n{json.dumps(json_to_send, indent=2)}")   
-          response = requests.post(url, json=json_to_send)
+            self.P(f"Requesting dAuth (timeout={request_timeout}): {url}\n{json.dumps(json_to_send, indent=2)}")   
+          response = requests.post(url, json=json_to_send, timeout=request_timeout)
           if debug:
             self.P(f"Received response (status {response.status_code}).")
           if response.status_code == 200:
