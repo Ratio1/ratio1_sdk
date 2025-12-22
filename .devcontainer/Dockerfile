@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
     libssl-dev \
+    nano \
+    curl \
     git \
     && rm -rf /var/lib/apt/lists/*
 

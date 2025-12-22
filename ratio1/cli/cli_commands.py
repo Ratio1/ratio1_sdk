@@ -10,7 +10,7 @@ and it is used by cli.py
 """
 
 from ratio1.cli.nodes import (
-  get_nodes, get_supervisors,
+  get_nodes, get_supervisors, get_comms,
   restart_node, shutdown_node,
   get_apps, inspect_node
 )
@@ -46,6 +46,10 @@ CLI_COMMANDS = {
                 "--eth" : "Use a specific node (flag)",
                 "--wide" : "Display all available information (flag)",
             }
+        },
+        "comms": {
+            "func": get_comms,
+            "description": "Get comm relay summary for seed ownership and connected peers.",
         },
         "eth" : {
             "func": get_eth_addr,

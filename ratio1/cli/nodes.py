@@ -137,6 +137,66 @@ def get_supervisors(args):
   return
 
 
+def get_comms(args):
+  """
+  This function is used to get the comm relay summary.
+  """
+  if args.verbose:
+    log_with_color("Getting comm relay summary...", color='b')
+
+  res = _get_netstats(
+    silent=not args.verbose,
+    online_only=False,
+    allowed_only=False,
+    return_session=True,
+  )
+  df, supervisor, super_alias, nr_supers, elapsed, sess = res
+
+  if supervisor == "ERROR":
+    log_with_color(f"No supervisors or no comms available in {elapsed:.1f}s. Please check your settings.", color='r')
+    return
+
+  if df is None or df.empty:
+    log_with_color("No nodes found in the network report.", color='r')
+    return
+
+  required_cols = ["Alias", "Comm Relay"]
+  missing_cols = [c for c in required_cols if c not in df.columns]
+  if missing_cols:
+    log_with_color(f"Missing columns in network report: {missing_cols}", color='r')
+    return
+
+  df_relays = df[required_cols].copy()
+  df_relays = df_relays[df_relays["Comm Relay"].notna()]
+
+  # Map each comm relay to its seed alias (seed names are r1s-XY).
+  seed_mask = df_relays["Alias"].str.match(r"^r1s-\d+$", case=False, na=False)
+  seed_alias_by_relay = {}
+  for _, row in df_relays[seed_mask].iterrows():
+    relay = row["Comm Relay"]
+    if relay not in seed_alias_by_relay:
+      seed_alias_by_relay[relay] = row["Alias"]
+
+  summary = df_relays.groupby("Comm Relay").size().reset_index(name="Connected Peers")
+  summary["Seed Alias"] = summary["Comm Relay"].map(seed_alias_by_relay)
+  summary = summary.rename(columns={"Comm Relay": "Comm relay"})
+  summary = summary[["Comm relay", "Seed Alias", "Connected Peers"]]
+
+  import pandas as pd
+  pd.set_option('display.float_format', '{:.4f}'.format)
+
+  network = sess.bc_engine.evm_network
+  addr = sess.bc_engine.address
+  log_with_color(f"Ratio1 client v{version}: {addr} \n", color='b')
+  log_with_color(
+    "Comm relays on '{}' reported by <{}> '{}' in {:.1f}s ({} supervisors seen):".format(
+      network, supervisor, super_alias, elapsed, nr_supers),
+    color='b'
+  )
+  log_with_color(f"{summary}\n")
+  return summary
+
+
 def get_apps(args):
   """
   Shows the apps running on a given node, if the client is allowed on that node.
