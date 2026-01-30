@@ -138,8 +138,14 @@ class _ComplexJsonEncoder(json.JSONEncoder):
       
       return text
 
+    # Convert indent to string if it's an integer (required for Python 3.13+)
+    indent = self.indent
+    if indent is not None and not isinstance(indent, str):
+      indent = ' ' * indent
+    # endif indent not string
+
     _iterencode = json.encoder._make_iterencode(
-      markers, self.default, _encoder, self.indent, floatstr,
+      markers, self.default, _encoder, indent, floatstr,
       self.key_separator, self.item_separator, self.sort_keys,
       self.skipkeys, _one_shot
     )
