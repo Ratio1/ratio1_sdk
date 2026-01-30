@@ -92,51 +92,40 @@ class _SimpleJsonEncoder(json.JSONEncoder):
       return float(obj)
     elif isinstance(obj, np.ndarray):
       return obj.tolist()
-    elif isinstance(obj, np.ndarray):
-      return obj.tolist()
+    # Datetime
     elif isinstance(obj, datetime.datetime):
       return obj.strftime("%Y-%m-%d %H:%M:%S")
-    else:
-      return super(_SimpleJsonEncoder, self).default(obj)
+    # torch
+    elif "torch" in str(type(obj)):
+      return str(obj)
+    # default
+    return super(_SimpleJsonEncoder, self).default(obj)
 
-class _ComplexJsonEncoder(json.JSONEncoder):
-  def default(self, obj):
-    if isinstance(obj, np.integer):
-      return int(obj)
-    elif isinstance(obj, np.floating):
-      return float(obj)
-    elif isinstance(obj, np.ndarray):
-      return obj.tolist()
-    elif isinstance(obj, datetime.datetime):
-      return obj.strftime("%Y-%m-%d %H:%M:%S")
-    else:
-      return super(_ComplexJsonEncoder, self).default(obj)
-
+class _ComplexJsonEncoder(_SimpleJsonEncoder):
   def iterencode(self, o, _one_shot=False):
     """Encode the given object and yield each string representation as available."""
-    if self.check_circular:
-      markers = {}
-    else:
-      markers = None
-    if self.ensure_ascii:
-      _encoder = json.encoder.encode_basestring_ascii
-    else:
-      _encoder = json.encoder.encode_basestring
-    
-    def floatstr(o, allow_nan=self.allow_nan, _repr=float.__repr__, _inf=json.encoder.INFINITY, _neginf=-json.encoder.INFINITY):
-      if o != o:  # Check for NaN
-        text = 'null'
-      elif o == _inf:
-        text = 'null'
-      elif o == _neginf:
-        text = 'null'
-      else:
-        return repr(o).rstrip('0').rstrip('.') if '.' in repr(o) else repr(o)
+    markers = {} if self.check_circular else None
+    _encoder = json.encoder.encode_basestring_ascii if self.ensure_ascii else json.encoder.encode_basestring
 
-      if not allow_nan:
-        raise ValueError("Out of range float values are not JSON compliant: " + repr(o))
-      
-      return text
+    def floatstr(
+        x, allow_nan=self.allow_nan, _repr=float.__repr__,
+        _inf=json.encoder.INFINITY, _neginf=-json.encoder.INFINITY
+    ):
+      # CRITICAL: normalize float subclasses (np.float64, etc.) to builtin float
+      # so we never emit "np.float64(9.99)" into JSON.
+      if type(x) is not float:
+        x = float(x)
+      # endif type check
+
+      # Check for NaN, Inf, -Inf
+      if x != x or x == _inf or x == _neginf:
+        if not allow_nan:
+          raise ValueError("Out of range float values are not JSON compliant: " + _repr(x))
+        return "null"
+
+      # Use builtin float repr (stable, JSON numeric literal)
+      return _repr(x)
+    # enddef floatstr
 
     # Convert indent to string if it's an integer (required for Python 3.13+)
     indent = self.indent

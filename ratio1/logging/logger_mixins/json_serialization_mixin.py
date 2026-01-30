@@ -1,13 +1,10 @@
 import json
 import yaml
 import os
-import numpy as np
 import traceback
-import datetime 
 
-from collections import OrderedDict 
-
-from copy import deepcopy
+from collections import OrderedDict
+from ...bc.base import _ComplexJsonEncoder, _SimpleJsonEncoder, replace_nan_inf
 
 def copy_docstring(original):
   """
@@ -29,98 +26,15 @@ def copy_docstring(original):
   return decorator
 
 
-def replace_nan_inf(data, inplace=False):
-  assert isinstance(data, (dict, list)), "Only dictionaries and lists are supported"
-  if inplace:
-    d = data
-  else:
-    d = deepcopy(data)    
-  stack = [d]
-  while stack:
-    current = stack.pop()
-    for key, value in current.items():
-      if isinstance(value, dict):
-        stack.append(value)
-      elif isinstance(value, list):
-        for item in value:
-          if isinstance(item, dict):
-            stack.append(item)
-      elif isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
-        current[key] = None
-  return d 
-
-class SimpleNPJson(json.JSONEncoder):
+class SimpleNPJson(_SimpleJsonEncoder):
   """
   Used to help jsonify numpy arrays or lists that contain numpy data types,
   and handle datetime.
   """
-  def default(self, obj):
-    if isinstance(obj, np.integer):
-      return int(obj)
-    elif isinstance(obj, np.floating):
-      return float(obj)
-    elif isinstance(obj, np.ndarray):
-      return obj.tolist()
-    elif isinstance(obj, datetime.datetime):
-      return obj.strftime("%Y-%m-%d %H:%M:%S")
-    elif "torch" in str(type(obj)):
-      return str(obj)
-    else:
-      return super(SimpleNPJson, self).default(obj)
+  pass
 
-class NPJson(json.JSONEncoder):
-  def default(self, obj):
-    if isinstance(obj, np.integer):
-      return int(obj)
-    elif isinstance(obj, np.floating):
-      return float(obj)
-    elif isinstance(obj, np.ndarray):
-      return obj.tolist()
-    elif isinstance(obj, datetime.datetime):
-      return obj.strftime("%Y-%m-%d %H:%M:%S")
-    elif "torch" in str(type(obj)):
-      return str(obj)
-    else:
-      return super(NPJson, self).default(obj)
-
-  def iterencode(self, o, _one_shot=False):
-    """Encode the given object and yield each string representation as available."""
-    if self.check_circular:
-      markers = {}
-    else:
-      markers = None
-    if self.ensure_ascii:
-      _encoder = json.encoder.encode_basestring_ascii
-    else:
-      _encoder = json.encoder.encode_basestring
-    
-    def floatstr(o, allow_nan=self.allow_nan, _repr=float.__repr__, _inf=json.encoder.INFINITY, _neginf=-json.encoder.INFINITY):
-      if o != o:  # Check for NaN
-        text = 'null'
-      elif o == _inf:
-        text = 'null'
-      elif o == _neginf:
-        text = 'null'
-      else:
-        return repr(o).rstrip('0').rstrip('.') if '.' in repr(o) else repr(o)
-
-      if not allow_nan:
-        raise ValueError("Out of range float values are not JSON compliant: " + repr(o))
-
-      return text
-
-    # Convert indent to string if it's an integer (required for Python 3.13+)
-    indent = self.indent
-    if indent is not None and not isinstance(indent, str):
-      indent = ' ' * indent
-
-    _iterencode = json.encoder._make_iterencode(
-      markers, self.default, _encoder, indent, floatstr,
-      self.key_separator, self.item_separator, self.sort_keys,
-      self.skipkeys, _one_shot
-    )
-    return _iterencode(o, 0)
-
+class NPJson(_ComplexJsonEncoder):
+  pass
 
 class _JSONSerializationMixin(object):
   """
