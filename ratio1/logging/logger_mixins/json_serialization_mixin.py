@@ -346,12 +346,13 @@ class _JSONSerializationMixin(object):
 
     with self.managed_lock_resource(path, condition=locking):
       try:
+        indent = 4 * ' ' if indent else None
         with open(path, 'w') as fp:
           json.dump(
             data_json, 
             fp, 
             sort_keys=True, 
-            indent=4 if indent else None, 
+            indent=indent,
             cls=NPJson
           )    
       except Exception as e:
