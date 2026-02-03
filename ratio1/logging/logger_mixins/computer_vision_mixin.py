@@ -270,10 +270,18 @@ class _ComputerVisionMixin(object):
       plt.axis('off')
     fig = plt.gcf()
     fig.canvas.draw()
-    data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    w, h = fig.canvas.get_width_height()
     try:
-      np_img = data.reshape((int(h), int(w), -1))
+      w, h = fig.canvas.get_width_height()
+      if hasattr(fig.canvas, 'tostring_rgb'):
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        np_img = data.reshape((int(h), int(w), 3))
+      elif hasattr(fig.canvas, 'tostring_argb'):
+        data = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8)
+        argb = data.reshape((int(h), int(w), 4))
+        np_img = argb[:, :, 1:4]
+      else:
+        rgba = np.asarray(fig.canvas.buffer_rgba())
+        np_img = rgba[:, :, :3]
     except Exception as e:
       print(e)
       np_img = None
