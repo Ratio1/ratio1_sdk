@@ -200,6 +200,15 @@ class Pipeline(BaseCodeChecker):
         debug=debug, 
       )
       self.lst_plugin_instances.append(instance)
+      
+      # Call on_instance_create callback if provided (only for newly created instances, not attached ones)
+      if not is_attached and self.session is not None and hasattr(self.session, 'custom_on_instance_create'):
+        if self.session.custom_on_instance_create is not None:
+          try:
+            self.session.custom_on_instance_create(self.session, self, instance)
+          except Exception as e:
+            self.log.P(f"Error in on_instance_create callback: {e}", color='r')
+      
       return instance
 
     def __init_plugins(self, plugins, is_attached):
@@ -648,8 +657,21 @@ class Pipeline(BaseCodeChecker):
         self.P("Deployed pipeline <{}> on <{}>".format(self.name, self.node_addr), color="g")
       self.__was_last_operation_successful = True
 
+      # Check if this is the first confirmation (pipeline was just created)
+      # A newly created pipeline will have an empty config before applying staged config
+      is_newly_created = len(self.config) == 0
+
       self.config = {**self.config, **self.__staged_config}
       self.__staged_config = None
+
+      # Call on_pipeline_create callback if this is a newly created pipeline
+      # This ensures the callback is triggered when R1EN confirms the pipeline, not when the local object is instantiated
+      if is_newly_created and self.session is not None and hasattr(self.session, 'custom_on_pipeline_create'):
+        if self.session.custom_on_pipeline_create is not None:
+          try:
+            self.session.custom_on_pipeline_create(self.session, self)
+          except Exception as e:
+            self.log.P(f"Error in on_pipeline_create callback: {e}", color='r')
 
       return
 
