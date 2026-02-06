@@ -9,10 +9,12 @@ import traceback
 import socket
 import threading
 import re
+import atexit
+import queue
 
 from time import time as tm
 from time import strftime, localtime, strptime, mktime
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from datetime import datetime as dt
 from datetime import timedelta, timezone, tzinfo
 from dateutil import tz
@@ -89,6 +91,59 @@ class BaseLogger(object):
               silent=False,          
               default_color='n',
               ):
+    """
+    Build and initialize the logger runtime.
+
+    This constructor wires together console formatting, filesystem paths,
+    lock primitives, and the asynchronous persistence components used by the
+    optimized logging pipeline.
+
+    Parameters
+    ----------
+    lib_name : str, optional
+      Logical logger/library name used in prefixes and output filenames.
+    lib_ver : str, optional
+      Version string displayed in startup logs.
+    config_file : str, optional
+      Path to a JSON configuration file. When empty, defaults are used.
+    config_data : dict, optional
+      In-memory configuration overrides merged on top of file config.
+    base_folder : str or None, optional
+      Root folder for data/log/output directories.
+    app_folder : str or None, optional
+      Application subfolder under ``base_folder``.
+    show_time : bool, optional
+      Whether to prepend timestamps to console/log messages.
+    config_file_encoding : str or None, optional
+      Explicit text encoding for ``config_file`` loading.
+    no_folders_no_save : bool, optional
+      Disable persistence and folder setup when ``True``.
+    max_lines : int or None, optional
+      Maximum in-memory lines before log splitting is triggered.
+    HTML : bool, optional
+      Enable HTML log output mode.
+    DEBUG : bool, optional
+      Toggle debug behavior for selected logger features.
+    data_config_subfolder : str or None, optional
+      Optional subfolder used when loading additional config payloads.
+    check_additional_configs : bool, optional
+      Enable automatic discovery of additional config files.
+    append_spaces : bool, optional
+      Pad console messages for aligned terminal output.
+    silent : bool, optional
+      Suppress console output while still collecting log messages.
+    default_color : str, optional
+      Default terminal color key.
+
+    Notes
+    -----
+    The optimization path initializes:
+
+    - buffered save policy controls (`_save_idle_seconds`, `_save_buffer_len`)
+    - append-only write offsets (`_save_file_offsets`)
+    - bounded writer queue/thread state and telemetry counters
+    - optional repeat-suppression state for rate control
+    """
 
     super(BaseLogger, self).__init__()
     if os.name == 'nt':
@@ -142,6 +197,36 @@ class BaseLogger(object):
       
     self.app_log = list()
     self.err_log = list()
+    # Flush policy defaults: save on idle gaps, otherwise batch by line count.
+    self._save_idle_seconds = 1.0
+    self._save_buffer_len = 100
+    self._error_flush_immediate = True
+
+    # Track producer-side enqueue offsets so disk writes can be append-only.
+    self._last_enqueued_app_len = 0
+    self._last_enqueued_err_len = 0
+    self._save_file_offsets = {}
+
+    # Dedicated writer queue/thread keeps file I/O off the hot producer path.
+    self._writer_queue_maxsize = 4096
+    self._writer_queue = queue.Queue(maxsize=self._writer_queue_maxsize)
+    self._writer_stop_event = threading.Event()
+    self._writer_thread = None
+
+    # Internal telemetry for queue pressure, drops, and writer latency.
+    self._writer_stats_lock = threading.Lock()
+    self._writer_dropped_lines = 0
+    self._writer_queue_high_watermark = 0
+    self._writer_batches_written = 0
+    self._writer_lines_written = 0
+    self._writer_latency_ms = deque(maxlen=5000)
+
+    # Optional repeat suppression state; disabled by default.
+    self._rate_limit_enabled = False
+    self._rate_limit_window_seconds = 1.0
+    self._rate_limit_max_repeats = 0
+    self._rate_limit_state = {}
+    self._rate_limit_suppressed_messages = 0
     self.split_part = 1
     self.split_err_part = 1
     self.config_data = None
@@ -193,6 +278,7 @@ class BaseLogger(object):
     self._generate_log_path()
     self._generate_error_log_path()
     self._check_additional_configs()
+    self._init_log_writer()
     
     self.git_branch = self.get_active_git_branch()
     self.conda_env = self.get_conda_env()
@@ -704,43 +790,453 @@ class BaseLogger(object):
 
   def _logger(self, logstr, show=None, noprefix=False, show_time=False, color=None):
     """
-    log processing method
-    """    
+    Process one log event on the producer path.
+
+    The method serializes producers through the logger lock, appends the
+    in-memory message, and decides whether pending messages should be flushed
+    to disk through the asynchronous writer queue.
+
+    Parameters
+    ----------
+    logstr : str
+      Message payload to log.
+    show : bool or None, optional
+      Console display flag. ``None`` delegates to default logger behavior.
+    noprefix : bool, optional
+      Skip automatic prefix/timestamp formatting.
+    show_time : bool, optional
+      Append call elapsed time marker to the message.
+    color : str or None, optional
+      Console color key override.
+
+    Returns
+    -------
+    float
+      Elapsed seconds since the previous log call, used by idle-flush logic.
+
+    Notes
+    -----
+    - Error messages can force immediate enqueue/flush.
+    - Disk I/O is intentionally delegated to `_log_writer_loop`.
+    """
     with self.managed_lock_logger():
-      # now that we have locking in place we no longer need to cancel in-thread logging    
-      # if not self.is_main_thread:
-      #   return
       self.start_timer('_logger', section='LOGGER_internal')
 
       elapsed = tm() - self.last_time
+      # Fast drop path for optional repeat suppression.
+      if not self._should_emit_log(logstr):
+        self.last_time = tm()
+        self.end_timer('_logger', section='LOGGER_internal')
+        return elapsed
 
       self.start_timer('_logger_add_log', section='LOGGER_internal')
+      # Compare error-list length to detect error-line insertion.
+      err_len_before = len(self.err_log)
       self._add_log(
         logstr, show=show,
         noprefix=noprefix,
         show_time=show_time,
         color=color
       )
+      err_len_after = len(self.err_log)
       self.end_timer('_logger_add_log', section='LOGGER_internal')
 
       self.start_timer('_logger_save_log', section='LOGGER_internal')
       if self._save_enabled:
-        self._save_log(
-          log=self.app_log,
-          log_file=self.log_file
-        )
-        self._save_log(
-          log=self.err_log,
-          log_file=self.log_e_file
-        )
+        # Errors may bypass buffering policy to reduce persistence lag.
+        immediate_error_flush = self._error_flush_immediate and err_len_after > err_len_before
+        if immediate_error_flush or self._should_save_logs(elapsed):
+          self._flush_pending_logs_async(force=immediate_error_flush)
       self.end_timer('_logger_save_log', section='LOGGER_internal')
       
       self.last_time = tm()
       self._check_log_size()
+      self._sync_enqueued_log_lengths()
 
       self.end_timer('_logger', section='LOGGER_internal')
     # endwith lock
     return elapsed
+
+  def configure_flush_policy(self, idle_seconds=None, save_buffer_len=None, error_immediate=None):
+    """
+    Configure persistence trigger policy for normal/error logs.
+
+    Parameters
+    ----------
+    idle_seconds : float or None, optional
+      Flush when time since previous call is above this threshold.
+    save_buffer_len : int or None, optional
+      Flush when unsaved lines reach this count.
+    error_immediate : bool or None, optional
+      Force immediate flush attempts for new error lines.
+
+    Returns
+    -------
+    None
+      Updates in-place logger policy fields.
+    """
+    if idle_seconds is not None:
+      self._save_idle_seconds = max(float(idle_seconds), 0.0)
+    if save_buffer_len is not None:
+      self._save_buffer_len = max(int(save_buffer_len), 1)
+    if error_immediate is not None:
+      self._error_flush_immediate = bool(error_immediate)
+    return
+
+  def configure_rate_control(self, enabled=None, window_seconds=None, max_repeats=None):
+    """
+    Configure optional repeated-message suppression.
+
+    Parameters
+    ----------
+    enabled : bool or None, optional
+      Toggle rate control.
+    window_seconds : float or None, optional
+      Sliding window size for duplicate detection.
+    max_repeats : int or None, optional
+      Maximum identical messages emitted inside one window.
+
+    Returns
+    -------
+    None
+      Updates in-place rate control fields.
+    """
+    if enabled is not None:
+      self._rate_limit_enabled = bool(enabled)
+    if window_seconds is not None:
+      self._rate_limit_window_seconds = max(float(window_seconds), 0.01)
+    if max_repeats is not None:
+      self._rate_limit_max_repeats = max(int(max_repeats), 0)
+    return
+
+  def get_log_writer_telemetry(self):
+    """
+    Return internal metrics for the asynchronous writer.
+
+    Returns
+    -------
+    dict
+      Telemetry snapshot containing queue occupancy, drop counters, writer
+      throughput counters, and p50/p95 writer latency in milliseconds.
+
+    Notes
+    -----
+    Latency quantiles are computed over a bounded rolling history.
+    """
+    with self._writer_stats_lock:
+      latencies = list(self._writer_latency_ms)
+      dropped_lines = self._writer_dropped_lines
+      queue_high_watermark = self._writer_queue_high_watermark
+      write_batches = self._writer_batches_written
+      write_lines = self._writer_lines_written
+
+    # Quantiles are computed outside the lock to minimize telemetry contention.
+    latencies_sorted = sorted(latencies)
+    if latencies_sorted:
+      idx50 = int((len(latencies_sorted) - 1) * 0.50)
+      idx95 = int((len(latencies_sorted) - 1) * 0.95)
+      p50_ms = latencies_sorted[idx50]
+      p95_ms = latencies_sorted[idx95]
+    else:
+      p50_ms = 0.0
+      p95_ms = 0.0
+    return {
+      "queue_maxsize": self._writer_queue_maxsize,
+      "queue_depth": self._writer_queue.qsize(),
+      "queue_high_watermark": queue_high_watermark,
+      "dropped_lines": dropped_lines,
+      "write_batches": write_batches,
+      "write_lines": write_lines,
+      "write_latency_p50_ms": p50_ms,
+      "write_latency_p95_ms": p95_ms,
+      "rate_limited_messages": self._rate_limit_suppressed_messages,
+    }
+
+  def _init_log_writer(self):
+    """
+    Start the background writer thread if persistence is available.
+
+    Returns
+    -------
+    None
+      Initializes writer lifecycle state and registers shutdown hook.
+    """
+    if self.no_folders_no_save or self._save_enabled is False:
+      return
+    if self._writer_thread is not None:
+      return
+
+    # The writer is daemonized and drained via explicit shutdown hook.
+    self._writer_stop_event.clear()
+    self._writer_thread = threading.Thread(
+      target=self._log_writer_loop,
+      name=f"{self.__lib__}-log-writer",
+      daemon=True,
+    )
+    self._writer_thread.start()
+    atexit.register(self._shutdown_log_writer)
+    return
+
+  def _shutdown_log_writer(self, timeout=5.0):
+    """
+    Flush and stop the writer thread.
+
+    Parameters
+    ----------
+    timeout : float, optional
+      Maximum seconds to wait for thread termination.
+
+    Returns
+    -------
+    None
+      Best-effort shutdown; safe to call multiple times.
+    """
+    if self._writer_thread is None:
+      return
+    if not self._writer_thread.is_alive():
+      return
+    try:
+      # Force enqueue of all outstanding lines before stop signal is issued.
+      with self.managed_lock_logger():
+        self._flush_pending_logs_async(force=True)
+    except:
+      pass
+    self._writer_stop_event.set()
+    try:
+      self._writer_queue.put_nowait(None)
+    except queue.Full:
+      pass
+    self._writer_thread.join(timeout=timeout)
+    return
+
+  def _log_writer_loop(self):
+    """
+    Consume queued save tasks and persist append-only deltas.
+
+    Returns
+    -------
+    None
+      Runs until stop signal is set and queue is drained.
+    """
+    while True:
+      if self._writer_stop_event.is_set() and self._writer_queue.empty():
+        break
+      try:
+        task = self._writer_queue.get(timeout=0.5)
+      except queue.Empty:
+        continue
+      if task is None:
+        self._writer_queue.task_done()
+        continue
+
+      log_ref, log_file, start_idx, end_idx = task
+      if end_idx > start_idx:
+        t0 = tm()
+        # Save only the delta segment prepared by the producer path.
+        self._save_log(
+          log=log_ref,
+          log_file=log_file,
+          start_idx=start_idx,
+          end_idx=end_idx,
+        )
+        duration_ms = (tm() - t0) * 1000.0
+        with self._writer_stats_lock:
+          # Update writer throughput/latency telemetry atomically.
+          self._writer_batches_written += 1
+          self._writer_lines_written += (end_idx - start_idx)
+          self._writer_latency_ms.append(duration_ms)
+      self._writer_queue.task_done()
+    return
+
+  def _enqueue_save_task(self, log_ref, log_file, start_idx, end_idx, force=False):
+    """
+    Enqueue a persistence task for the writer thread.
+
+    Parameters
+    ----------
+    log_ref : list
+      In-memory log list backing the write.
+    log_file : str
+      Target file path.
+    start_idx : int
+      Inclusive begin index for delta write.
+    end_idx : int
+      Exclusive end index for delta write.
+    force : bool, optional
+      When ``True``, block briefly or fallback to direct write.
+
+    Returns
+    -------
+    bool
+      ``True`` when task is accepted or handled through fallback path.
+    """
+    if end_idx <= start_idx:
+      return True
+    task = (log_ref, log_file, start_idx, end_idx)
+    put_timeout = 0.2 if force else 0.0
+    try:
+      if force:
+        self._writer_queue.put(task, timeout=put_timeout)
+      else:
+        self._writer_queue.put_nowait(task)
+      with self._writer_stats_lock:
+        self._writer_queue_high_watermark = max(
+          self._writer_queue_high_watermark, self._writer_queue.qsize()
+        )
+      return True
+    except queue.Full:
+      # Force path preserves durability for critical/error flush attempts.
+      if force:
+        self._save_log(log=log_ref, log_file=log_file, start_idx=start_idx, end_idx=end_idx)
+        return True
+      # Non-forced path accounts for dropped lines to avoid hidden data loss.
+      self._mark_dropped_lines(end_idx - start_idx)
+      return True
+
+  def _mark_dropped_lines(self, nr_lines):
+    """
+    Increase dropped-line telemetry counter.
+
+    Parameters
+    ----------
+    nr_lines : int
+      Number of lines dropped due to queue pressure.
+
+    Returns
+    -------
+    None
+      Counter is updated under telemetry lock.
+    """
+    if nr_lines <= 0:
+      return
+    with self._writer_stats_lock:
+      self._writer_dropped_lines += nr_lines
+    return
+
+  def _sync_enqueued_log_lengths(self):
+    """
+    Clamp producer enqueue cursors to current in-memory list sizes.
+
+    Returns
+    -------
+    None
+      Keeps cursor state valid after log rotation/truncation events.
+    """
+    if self._last_enqueued_app_len > len(self.app_log):
+      self._last_enqueued_app_len = len(self.app_log)
+    if self._last_enqueued_err_len > len(self.err_log):
+      self._last_enqueued_err_len = len(self.err_log)
+    return
+
+  def _flush_pending_logs_async(self, force=False):
+    """
+    Enqueue all unsaved deltas for app/error logs.
+
+    Parameters
+    ----------
+    force : bool, optional
+      Propagates urgency to enqueue layer (used for error or shutdown flushes).
+
+    Returns
+    -------
+    None
+      Updates enqueue cursors after queuing deltas.
+    """
+    self._sync_enqueued_log_lengths()
+    app_len = len(self.app_log)
+    err_len = len(self.err_log)
+    if app_len > self._last_enqueued_app_len:
+      # Queue only newly appended normal log lines.
+      self._enqueue_save_task(
+        log_ref=self.app_log,
+        log_file=self.log_file,
+        start_idx=self._last_enqueued_app_len,
+        end_idx=app_len,
+        force=force,
+      )
+      self._last_enqueued_app_len = app_len
+    if err_len > self._last_enqueued_err_len:
+      # Error path can be forced independently for lower durability latency.
+      self._enqueue_save_task(
+        log_ref=self.err_log,
+        log_file=self.log_e_file,
+        start_idx=self._last_enqueued_err_len,
+        end_idx=err_len,
+        force=True if force else False,
+      )
+      self._last_enqueued_err_len = err_len
+    return
+
+  def _should_save_logs(self, elapsed_since_last_call):
+    """
+    Decide whether current call should trigger a flush enqueue.
+
+    Parameters
+    ----------
+    elapsed_since_last_call : float
+      Seconds elapsed since previous producer call.
+
+    Returns
+    -------
+    bool
+      ``True`` when idle or buffer thresholds indicate a flush opportunity.
+    """
+    self._sync_enqueued_log_lengths()
+    if elapsed_since_last_call > self._save_idle_seconds:
+      return True
+    # Buffer policy: flush once enough unsaved normal/error lines accumulate.
+    app_unsaved = len(self.app_log) - self._last_enqueued_app_len
+    err_unsaved = len(self.err_log) - self._last_enqueued_err_len
+    if app_unsaved >= self._save_buffer_len or err_unsaved >= self._save_buffer_len:
+      return True
+    return False
+
+  def _should_emit_log(self, logstr):
+    """
+    Apply optional duplicate-message rate limiting.
+
+    Parameters
+    ----------
+    logstr : str
+      Candidate message before formatting/output.
+
+    Returns
+    -------
+    bool
+      ``True`` when message should be emitted; ``False`` when suppressed.
+
+    Notes
+    -----
+    Suppression is disabled unless explicitly configured through
+    :meth:`configure_rate_control`.
+    """
+    if not self._rate_limit_enabled or self._rate_limit_max_repeats <= 0:
+      return True
+
+    msg_key = logstr if type(logstr) == str else str(logstr)
+    now = tm()
+    state = self._rate_limit_state.get(msg_key)
+    if state is None:
+      # First occurrence starts a new counting window.
+      self._rate_limit_state[msg_key] = [now, 1]
+      return True
+
+    window_start, counter = state
+    if now - window_start > self._rate_limit_window_seconds:
+      # Window expired: reset counter and allow message.
+      self._rate_limit_state[msg_key] = [now, 1]
+      return True
+
+    if counter < self._rate_limit_max_repeats:
+      # Still below configured repeat budget in current window.
+      state[1] = counter + 1
+      return True
+
+    # Suppress overflow repeats and periodically prune state growth.
+    self._rate_limit_suppressed_messages += 1
+    if len(self._rate_limit_state) > 2048:
+      self._rate_limit_state = {}
+    return False
 
   def _normalize_path_sep(self):
     if self._base_folder is not None:
@@ -838,40 +1334,94 @@ class BaseLogger(object):
     #endif
     return
 
-  def _save_log(self, log, log_file, DEBUG_ERRORS=False):  
-    """ Generic method that saves logs to a specific file
+  def _save_log(
+    self,
+    log,
+    log_file,
+    DEBUG_ERRORS=False,
+    start_idx=None,
+    end_idx=None,
+    force_rewrite=False,
+  ):
+    """
+    Persist log lines to disk using append-only deltas or full rewrite mode.
 
-    Args:
-        log (list): The log list to save
-        log_file (str): The path to the desired file in which to save the log.
-        DEBUG_ERRORS (bool, optional): Print exceptions regarding opening the file and writing to it. Defaults to False.
+    Parameters
+    ----------
+    log : list[str]
+      In-memory list that stores logger lines.
+    log_file : str
+      Destination file path.
+    DEBUG_ERRORS : bool, optional
+      Print save-stage diagnostics on exceptions.
+    start_idx : int or None, optional
+      Inclusive delta start index. Defaults to internal saved offset.
+    end_idx : int or None, optional
+      Exclusive delta end index. Defaults to current ``len(log)``.
+    force_rewrite : bool, optional
+      Rewrite the full file when ``True``.
+
+    Returns
+    -------
+    None
+      Persists data and updates internal per-file save offset.
+
+    Notes
+    -----
+    - Normal optimized path writes only ``log[start_idx:end_idx]`` in append
+      mode.
+    - HTML mode always rewrites full file to preserve wrappers.
     """
     if self.no_folders_no_save or self._save_enabled is False:
+      return
+
+    if log is None:
       return
 
     nowtime = dt.now()
     strnowtime = nowtime.strftime("[{}][%Y-%m-%d %H:%M:%S] ".format(self.__lib__))
     stage = 0
     try:
-      log_output = codecs.open(log_file, "w", "utf-8")  # open(self.log_file, 'w+')
-      stage += 1
       if self.HTML:
+        # HTML wrapper mode requires full rewrite to keep valid document shape.
+        force_rewrite = True
+
+      if end_idx is None:
+        end_idx = len(log)
+      end_idx = min(end_idx, len(log))
+
+      if force_rewrite:
+        start_idx = 0
+        open_mode = "w"
+      else:
+        if start_idx is None:
+          # Default delta starts from last persisted index for this file.
+          start_idx = self._save_file_offsets.get(log_file, 0)
+        start_idx = max(start_idx, 0)
+        open_mode = "a"
+
+      if end_idx <= start_idx:
+        return
+
+      log_output = codecs.open(log_file, open_mode, "utf-8")
+      stage += 1
+      if self.HTML and force_rewrite:
         log_output.write(_HTML_START)
         stage += 1
-        iter_list = reversed(log)
+        iter_list = reversed(log[start_idx:end_idx])
       else:
-        iter_list = log
+        iter_list = log[start_idx:end_idx]
+
       for log_item in iter_list:
-        # if self.HTML:
-        #  log_output.write("%s<BR>\n" % log_item)
-        # else:
         log_output.write("{}\n".format(log_item))
         stage += 1
-      if self.HTML:
+      if self.HTML and force_rewrite:
         log_output.write(_HTML_END)
         stage += 1
       log_output.close()
       stage += 1
+      # Track last persisted index so next write can continue as delta append.
+      self._save_file_offsets[log_file] = end_idx if not force_rewrite else len(log)
     except:
       if DEBUG_ERRORS:
         print(strnowtime + "LogWErr S: {} [{}]".format(stage,
@@ -879,37 +1429,36 @@ class BaseLogger(object):
     return
 
   def _check_log_size(self):
+    """
+    Handle log splitting when in-memory line limits are reached.
+
+    Returns
+    -------
+    None
+      Forces pending writes, rotates file paths, and resets cursor state.
+    """
     if self.max_lines is None:
       return
 
     if len(self.app_log) >= self.max_lines:
+      # Flush before reset so rotation does not lose pending lines.
       self._add_log("Ending log part {}".format(self.split_part))
-      self._save_log(
-        log=self.app_log,
-        log_file=self.log_file
-      )
+      self._flush_pending_logs_async(force=True)
       self.app_log = []
+      self._last_enqueued_app_len = 0
       self.split_part += 1
       self._generate_log_path()
       self._add_log("Starting log part {}".format(self.split_part))
-      self._save_log(
-        log=self.app_log,
-        log_file=self.log_file
-      )    
+      self._flush_pending_logs_async(force=True)
     if len(self.err_log) >= self.max_lines:
       self._add_log("Ending error log part {}".format(self.split_err_part))
-      self._save_log(
-        log=self.err_log,
-        log_file=self.log_e_file
-      )
+      self._flush_pending_logs_async(force=True)
       self.err_log = []
+      self._last_enqueued_err_len = 0
       self.split_err_part += 1
       self._generate_error_log_path()
       self._add_log("Starting error log part {}".format(self.split_err_part))
-      self._save_log(
-        log=self.err_log,
-        log_file=self.log_e_file
-      )
+      self._flush_pending_logs_async(force=True)
       return
 
   def verbose_log(self, str_msg, show_time=False, noprefix=False, color=None, show=None):
@@ -1054,6 +1603,14 @@ class BaseLogger(object):
     return self._logger(str_msg, show=show, show_time=show_time, color=color)
 
   def _generate_log_path(self):
+    """
+    Create/refresh the active normal-log filepath metadata.
+
+    Returns
+    -------
+    None
+      Updates `self.log_file`, sidecar pointer metadata, and save offset cache.
+    """
     if self.no_folders_no_save:
       return
     part = '{:03d}'.format(self.split_part)
@@ -1063,8 +1620,10 @@ class BaseLogger(object):
       self.log_file = lp + '_' + ls + '_' + part + '_log_web.html'
     else:
       self.log_file = lp + '_' + ls + '_' + part + '_log.txt'
-      
+
     self.log_file = os.path.join(self._logs_dir, self.log_file)
+    # Reset append offset for newly generated filename.
+    self._save_file_offsets[self.log_file] = 0
     path_dict = {}
     path_dict['CURRENT_LOG'] = self.log_file
     file_path = os.path.join(self._logs_dir, self.__lib__ + '.txt')
@@ -1074,6 +1633,14 @@ class BaseLogger(object):
     return
 
   def _generate_error_log_path(self):
+    """
+    Create/refresh the active error-log filepath metadata.
+
+    Returns
+    -------
+    None
+      Updates `self.log_e_file`, sidecar pointer metadata, and save offset cache.
+    """
     if self.no_folders_no_save:
       return
     part = '{:03d}'.format(self.split_err_part)
@@ -1083,8 +1650,10 @@ class BaseLogger(object):
       self.log_e_file = lp + '_' + ls + '_' + part + '_error_log_web.html'
     else:
       self.log_e_file = lp + '_' + ls + '_' + part + '_error_log.txt'
-      
+
     self.log_e_file = os.path.join(self._logs_dir, self.log_e_file)
+    # Reset append offset for newly generated filename.
+    self._save_file_offsets[self.log_e_file] = 0
     path_dict = {}
     path_dict['CURRENT_E_LOG'] = self.log_e_file
     file_path = os.path.join(self._logs_dir, self.__lib__ + '.txt')
