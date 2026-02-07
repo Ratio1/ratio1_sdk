@@ -57,6 +57,8 @@
 - Payload helpers: `Payload` extends dict and can decode base64 images via `get_images_as_np` and `get_images_as_PIL`.
 - Logger persistence (2026-02): `BaseLogger` uses asynchronous append-only persistence with a bounded writer queue/thread; producer path enqueues deltas via tracked indexes (`start_idx`/`end_idx`) instead of synchronous full-file rewrites; flush policy is configurable (`idle_seconds`, buffered line threshold, immediate error flush), optional repeat suppression exists, and telemetry is exposed via `get_log_writer_telemetry` (queue depth/high watermark, dropped lines, write latency p50/p95).
 - Logger benchmarking: `xperimental/logger/logger_tester.py` runs deterministic threaded stress tests and emits timestamped stage reports/metrics; includes optional CI pass/fail mode via `--ci` and a deterministic post-run quality check that validates at least 50 threads x 200 lines (`THREAD-{idx}-LINE-{line}`) are fully persisted in log file(s).
+- Logger durability/backpressure edge behavior (2026-02): `_enqueue_save_task` can call `_save_log` synchronously when `force=True` and the writer queue is full (critical-path durability fallback); non-forced queue overflow increments dropped-line telemetry and advances enqueue cursors (lines are counted as dropped, not retried).
+- Logger flush trigger nuance (2026-02): idle flush policy is evaluated from `_logger(...)` calls; a burst that stops below buffer threshold relies on the next producer call (or shutdown flush) to trigger enqueue.
 
 ## Update Log (append-only)
 - 2025-12-22: Added `request_timeout` to `dauth_autocomplete` to prevent hanging HTTP requests.
@@ -64,4 +66,5 @@
 - 2026-02-06: Added living architecture memory with core flows, comms model, security, and deployment notes.
 - 2026-02-06: Added logger throughput architecture updates (async append writer, flush policy, telemetry, CI benchmark mode).
 - 2026-02-06: Added deterministic logger quality-check mode (50-thread/200-line minimum persistence verification).
+- 2026-02-06: Documented logger queue-full fallback semantics and idle-trigger flush nuance in living architecture memory.
 - (add new entries here)
