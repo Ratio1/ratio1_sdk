@@ -29,7 +29,7 @@ Web3Vars = namedtuple(
     "proxy_contract_address",  
     "controller_contract_address",
     "poai_manager_address",
-    "test_attestation_registry_address",
+    "attestation_registry_address",
   ]
 )
 
@@ -254,8 +254,8 @@ class _EVMMixin:
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
       poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
-      test_attestation_registry_address = network_data.get(
-        dAuth.EvmNetData.DAUTH_TEST_ATTESTATION_ADDR_KEY,
+      attestation_registry_address = network_data.get(
+        dAuth.EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY,
         "0x0000000000000000000000000000000000000000"
       )
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
@@ -280,7 +280,7 @@ class _EVMMixin:
         proxy_contract_address=proxy_contract_address, 
         controller_contract_address=controller_contract_address,
         poai_manager_address=poai_manager_address,
-        test_attestation_registry_address=test_attestation_registry_address,
+        attestation_registry_address=attestation_registry_address,
       )
       return result
 
@@ -1343,7 +1343,7 @@ class _EVMMixin:
       return jobs
 
 
-    def web3_get_test_attestation_count(
+    def web3_get_attestation_count(
       self,
       app_id: str,
       contract_address: str = None,
@@ -1357,12 +1357,12 @@ class _EVMMixin:
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
       if contract_address is None:
-        contract_address = w3vars.test_attestation_registry_address
-      assert self.is_valid_eth_address(contract_address), "Invalid test attestation registry contract address"
+        contract_address = w3vars.attestation_registry_address
+      assert self.is_valid_eth_address(contract_address), "Invalid attestation registry contract address"
 
       contract = w3vars.w3.eth.contract(
         address=contract_address,
-        abi=EVM_ABI_DATA.TEST_ATTESTATION_REGISTRY_ABI
+        abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
       )
       self.P(
         f"`getAttestationCount` on {network} via {w3vars.rpc_url} ({contract_address})",
@@ -1371,7 +1371,7 @@ class _EVMMixin:
       return int(contract.functions.getAttestationCount(app_id).call())
 
 
-    def web3_get_test_attestation(
+    def web3_get_attestation(
       self,
       app_id: str,
       index: int,
@@ -1379,7 +1379,7 @@ class _EVMMixin:
       network: str = None,
     ):
       """
-      Retrieve a stored test attestation by appId and index.
+      Retrieve a stored attestation by appId and index.
       """
       assert isinstance(app_id, str) and app_id.startswith("0x") and len(app_id) == 66, "Invalid app_id"
       assert isinstance(index, int) and index >= 0, "Invalid index"
@@ -1387,12 +1387,12 @@ class _EVMMixin:
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
       if contract_address is None:
-        contract_address = w3vars.test_attestation_registry_address
-      assert self.is_valid_eth_address(contract_address), "Invalid test attestation registry contract address"
+        contract_address = w3vars.attestation_registry_address
+      assert self.is_valid_eth_address(contract_address), "Invalid attestation registry contract address"
 
       contract = w3vars.w3.eth.contract(
         address=contract_address,
-        abi=EVM_ABI_DATA.TEST_ATTESTATION_REGISTRY_ABI
+        abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
       )
       self.P(
         f"`getAttestation` on {network} via {w3vars.rpc_url} ({contract_address})",
@@ -1414,7 +1414,7 @@ class _EVMMixin:
       return result
 
 
-    def web3_submit_test_attestation(
+    def web3_submit_attestation(
       self,
       app_id: str,
       test_mode: int,
@@ -1447,8 +1447,8 @@ class _EVMMixin:
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
       if contract_address is None:
-        contract_address = w3vars.test_attestation_registry_address
-      assert self.is_valid_eth_address(contract_address), "Invalid test attestation registry contract address"
+        contract_address = w3vars.attestation_registry_address
+      assert self.is_valid_eth_address(contract_address), "Invalid attestation registry contract address"
 
       if tx_private_key is None:
         signer_account = self._get_eth_account()
@@ -1458,7 +1458,7 @@ class _EVMMixin:
 
       contract = w3vars.w3.eth.contract(
         address=contract_address,
-        abi=EVM_ABI_DATA.TEST_ATTESTATION_REGISTRY_ABI
+        abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
       )
       tx_fn = contract.functions.submitAttestation(
         app_id,
@@ -1488,7 +1488,7 @@ class _EVMMixin:
         "chainId": chain_id,
       })
       self.P(
-        f"Submitting test attestation on {network} via {w3vars.rpc_url} from {from_address}:\n {json.dumps(dict(tx), indent=2)}",
+        f"Submitting attestation on {network} via {w3vars.rpc_url} from {from_address}:\n {json.dumps(dict(tx), indent=2)}",
         verbosity=2
       )
 
