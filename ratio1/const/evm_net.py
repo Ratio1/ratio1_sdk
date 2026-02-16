@@ -10,6 +10,7 @@ class EvmNetData:
   DAUTH_MND_ADDR_KEY = 'EE_DAUTH_MND_ADDR'
   DAUTH_PROXYAPI_ADDR_KEY = 'EE_DAUTH_PROXYAPI_ADDR'
   DAUTH_POAI_MANAGER_ADDR_KEY = 'EE_DAUTH_POAI_MANAGER_ADDR'
+  DAUTH_TEST_ATTESTATION_ADDR_KEY = 'EE_DAUTH_TEST_ATTESTATION_ADDR'
   DAUTH_CONTROLLER_ADDR_KEY = 'EE_DAUTH_CONTROLLER_ADDR'
   
   EE_GENESIS_EPOCH_DATE_KEY = 'EE_GENESIS_EPOCH_DATE'
@@ -537,6 +538,148 @@ _POAI_MANAGER_ABI = [
   }
 ]
 
+_TEST_ATTESTATION_REGISTRY_ABI = [
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "appId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getAttestationCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "appId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "index",
+        "type": "uint256"
+      }
+    ],
+    "name": "getAttestation",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "node",
+            "type": "address"
+          },
+          {
+            "internalType": "uint16",
+            "name": "nodeCount",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint8",
+            "name": "vulnerabilityScore",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "testMode",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bytes2",
+            "name": "ipObfuscated",
+            "type": "bytes2"
+          },
+          {
+            "internalType": "bytes10",
+            "name": "cidObfuscated",
+            "type": "bytes10"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "contentHash",
+            "type": "bytes32"
+          }
+        ],
+        "internalType": "struct TestAttestationRegistry.TestAttestation",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "appId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint8",
+        "name": "testMode",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint16",
+        "name": "nodeCount",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "vulnerabilityScore",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes2",
+        "name": "ipObfuscated",
+        "type": "bytes2"
+      },
+      {
+        "internalType": "bytes10",
+        "name": "cidObfuscated",
+        "type": "bytes10"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "contentHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "nodeSignature",
+        "type": "bytes"
+      }
+    ],
+    "name": "submitAttestation",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "index",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "node",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
+
 # Here are all the constants used for blockchain interaction for each network.
 EVM_NET_DATA = {
   EvmNetData.MAINNET: {
@@ -547,6 +690,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0x0C431e546371C87354714Fcc1a13365391A549E2",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xa2fDD4c7E93790Ff68a01f01AA789D619F12c6AC",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0xa8d7FFCE91a888872A9f5431B4Dd6c0c135055c1",
+    EvmNetData.DAUTH_TEST_ATTESTATION_ADDR_KEY  : "0x0000000000000000000000000000000000000000",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-rpc.publicnode.com",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
@@ -568,6 +712,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0xa8d7FFCE91a888872A9f5431B4Dd6c0c135055c1",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xd1c7Dca934B37FAA402EB2EC64F6644d6957bE3b",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0x68f825aA8fD4Af498c2998F4b165F103080574d4",
+    EvmNetData.DAUTH_TEST_ATTESTATION_ADDR_KEY  : "0x0000000000000000000000000000000000000000",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia-rpc.publicnode.com",      
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
@@ -590,6 +735,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_MND_ADDR_KEY               : "0x17B8934dc5833CdBa1eF42D13D65D677C4727748",
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xFcF04c9A67330431Af75a546615E4881BD8bdC78",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0xCc7C4e0f4f25b57807F34227Fb446E68c8c36ce5",
+    EvmNetData.DAUTH_TEST_ATTESTATION_ADDR_KEY  : "0x0000000000000000000000000000000000000000",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia-rpc.publicnode.com",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-06-30 07:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 1,
@@ -648,5 +794,6 @@ EVM_NET_CONSTANTS = {
 class EVM_ABI_DATA:
   ERC20_ABI = _ERC20_ABI
   POAI_MANAGER_ABI = _POAI_MANAGER_ABI
+  TEST_ATTESTATION_REGISTRY_ABI = _TEST_ATTESTATION_REGISTRY_ABI
   PROXY_ABI = _PROXY_ABI
   CONTROLLER_ABI = _CONTROLLER_ABI
