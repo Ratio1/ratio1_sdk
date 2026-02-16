@@ -29,6 +29,7 @@ Web3Vars = namedtuple(
     "proxy_contract_address",  
     "controller_contract_address",
     "poai_manager_address",
+    "test_attestation_registry_address",
   ]
 )
 
@@ -117,6 +118,22 @@ class _EVMMixin:
     def _get_eth_account(self):
       private_key_bytes = self.private_key.private_numbers().private_value.to_bytes(32, 'big')
       return Account.from_key(private_key_bytes)
+
+
+    @staticmethod
+    def _normalize_hex_private_key(private_key: str) -> str:
+      assert isinstance(private_key, str), "Private key must be a string"
+      key = private_key.strip()
+      if key.startswith("0x"):
+        key = key[2:]
+      assert len(key) == 64, "Private key must be 32 bytes (64 hex chars)"
+      int(key, 16)  # raises if not valid hex
+      return "0x" + key
+
+
+    def _get_eth_account_from_private_key(self, private_key: str):
+      key = self._normalize_hex_private_key(private_key)
+      return Account.from_key(key)
     
     
     def node_address_to_eth_address(self, address):
@@ -237,6 +254,10 @@ class _EVMMixin:
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
       poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
+      test_attestation_registry_address = network_data.get(
+        dAuth.EvmNetData.DAUTH_TEST_ATTESTATION_ADDR_KEY,
+        "0x0000000000000000000000000000000000000000"
+      )
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
@@ -259,6 +280,7 @@ class _EVMMixin:
         proxy_contract_address=proxy_contract_address, 
         controller_contract_address=controller_contract_address,
         poai_manager_address=poai_manager_address,
+        test_attestation_registry_address=test_attestation_registry_address,
       )
       return result
 
@@ -1319,6 +1341,168 @@ class _EVMMixin:
       jobs = [self._format_job_details(job, network) for job in raw_jobs]
       self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
       return jobs
+
+
+    def web3_get_test_attestation_count(
+      self,
+      app_id: str,
+      contract_address: str = None,
+      network: str = None,
+    ):
+      """
+      Retrieve the attestation count for a given appId.
+      """
+      assert isinstance(app_id, str) and app_id.startswith("0x") and len(app_id) == 66, "Invalid app_id"
+
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      if contract_address is None:
+        contract_address = w3vars.test_attestation_registry_address
+      assert self.is_valid_eth_address(contract_address), "Invalid test attestation registry contract address"
+
+      contract = w3vars.w3.eth.contract(
+        address=contract_address,
+        abi=EVM_ABI_DATA.TEST_ATTESTATION_REGISTRY_ABI
+      )
+      self.P(
+        f"`getAttestationCount` on {network} via {w3vars.rpc_url} ({contract_address})",
+        verbosity=2
+      )
+      return int(contract.functions.getAttestationCount(app_id).call())
+
+
+    def web3_get_test_attestation(
+      self,
+      app_id: str,
+      index: int,
+      contract_address: str = None,
+      network: str = None,
+    ):
+      """
+      Retrieve a stored test attestation by appId and index.
+      """
+      assert isinstance(app_id, str) and app_id.startswith("0x") and len(app_id) == 66, "Invalid app_id"
+      assert isinstance(index, int) and index >= 0, "Invalid index"
+
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      if contract_address is None:
+        contract_address = w3vars.test_attestation_registry_address
+      assert self.is_valid_eth_address(contract_address), "Invalid test attestation registry contract address"
+
+      contract = w3vars.w3.eth.contract(
+        address=contract_address,
+        abi=EVM_ABI_DATA.TEST_ATTESTATION_REGISTRY_ABI
+      )
+      self.P(
+        f"`getAttestation` on {network} via {w3vars.rpc_url} ({contract_address})",
+        verbosity=2
+      )
+      raw = contract.functions.getAttestation(app_id, index).call()
+      result = {
+        "network": network,
+        "appId": app_id,
+        "index": index,
+        "node": raw[0],
+        "nodeCount": int(raw[1]),
+        "vulnerabilityScore": int(raw[2]),
+        "testMode": int(raw[3]),
+        "ipObfuscated": w3vars.w3.to_hex(raw[4]),
+        "cidObfuscated": w3vars.w3.to_hex(raw[5]),
+        "contentHash": w3vars.w3.to_hex(raw[6]),
+      }
+      return result
+
+
+    def web3_submit_test_attestation(
+      self,
+      app_id: str,
+      test_mode: int,
+      node_count: int,
+      vulnerability_score: int,
+      ip_obfuscated: str,
+      cid_obfuscated: str,
+      content_hash: str,
+      node_signature: str,
+      tx_private_key: str = None,
+      contract_address: str = None,
+      wait_for_tx: bool = False,
+      timeout: int = 120,
+      network: str = None,
+      return_receipt=False,
+    ):
+      """
+      Submit a Proof-of-Test attestation signed by a node, using either the
+      engine account or a caller-supplied tx private key as transaction signer.
+      """
+      assert isinstance(app_id, str) and app_id.startswith("0x") and len(app_id) == 66, "Invalid app_id"
+      assert isinstance(test_mode, int) and test_mode in [0, 1], "Invalid test_mode"
+      assert isinstance(node_count, int) and node_count >= 0 and node_count <= 65535, "Invalid node_count"
+      assert isinstance(vulnerability_score, int) and vulnerability_score >= 0 and vulnerability_score <= 100, "Invalid vulnerability_score"
+      assert isinstance(ip_obfuscated, str) and ip_obfuscated.startswith("0x") and len(ip_obfuscated) == 6, "ip_obfuscated must be bytes2 hex"
+      assert isinstance(cid_obfuscated, str) and cid_obfuscated.startswith("0x") and len(cid_obfuscated) == 22, "cid_obfuscated must be bytes10 hex"
+      assert isinstance(content_hash, str) and content_hash.startswith("0x") and len(content_hash) == 66, "content_hash must be bytes32 hex"
+      assert isinstance(node_signature, str) and node_signature.startswith("0x") and len(node_signature) >= 132, "Invalid node signature"
+
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      if contract_address is None:
+        contract_address = w3vars.test_attestation_registry_address
+      assert self.is_valid_eth_address(contract_address), "Invalid test attestation registry contract address"
+
+      if tx_private_key is None:
+        signer_account = self._get_eth_account()
+      else:
+        signer_account = self._get_eth_account_from_private_key(tx_private_key)
+      from_address = signer_account.address
+
+      contract = w3vars.w3.eth.contract(
+        address=contract_address,
+        abi=EVM_ABI_DATA.TEST_ATTESTATION_REGISTRY_ABI
+      )
+      tx_fn = contract.functions.submitAttestation(
+        app_id,
+        test_mode,
+        node_count,
+        vulnerability_score,
+        ip_obfuscated,
+        cid_obfuscated,
+        content_hash,
+        node_signature,
+      )
+
+      gas_price = w3vars.w3.eth.gas_price
+      estimated_gas = tx_fn.estimate_gas({"from": from_address})
+      gas_cost = estimated_gas * gas_price
+      eth_balance = w3vars.w3.eth.get_balance(from_address)
+      if eth_balance < gas_cost:
+        raise Exception("Insufficient ETH balance to cover gas fees.")
+
+      nonce = w3vars.w3.eth.get_transaction_count(from_address)
+      chain_id = w3vars.w3.eth.chain_id
+      tx = tx_fn.build_transaction({
+        "from": from_address,
+        "nonce": nonce,
+        "gas": estimated_gas,
+        "gasPrice": gas_price,
+        "chainId": chain_id,
+      })
+      self.P(
+        f"Submitting test attestation on {network} via {w3vars.rpc_url} from {from_address}:\n {json.dumps(dict(tx), indent=2)}",
+        verbosity=2
+      )
+
+      signed_tx = w3vars.w3.eth.account.sign_transaction(tx, signer_account.key)
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+
+      if wait_for_tx:
+        tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        tx_hash_hex = tx_receipt.transactionHash.hex()
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        if return_receipt:
+          return tx_receipt
+        return tx_hash_hex
+      return tx_hash.hex()
 
     def web3_submit_node_update(
       self,
