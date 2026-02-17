@@ -1336,7 +1336,6 @@ class _EVMMixin:
 
     def web3_submit_attestation(
       self,
-      app_id: str,
       test_mode: int,
       node_count: int,
       vulnerability_score: int,
@@ -1352,10 +1351,9 @@ class _EVMMixin:
       return_receipt=False,
     ):
       """
-      Submit a Proof-of-Test attestation signed by a node, using either the
+      Submit a RedMesh attestation signed by a node, using either the
       engine account or a caller-supplied tx private key as transaction signer.
       """
-      assert isinstance(app_id, str) and app_id.startswith("0x") and len(app_id) == 66, "Invalid app_id"
       assert isinstance(test_mode, int) and test_mode in [0, 1], "Invalid test_mode"
       assert isinstance(node_count, int) and node_count >= 0 and node_count <= 65535, "Invalid node_count"
       assert isinstance(vulnerability_score, int) and vulnerability_score >= 0 and vulnerability_score <= 100, "Invalid vulnerability_score"
@@ -1368,7 +1366,7 @@ class _EVMMixin:
       network = w3vars.network
       if contract_address is None:
         contract_address = w3vars.attestation_registry_address
-      assert self.is_valid_eth_address(contract_address), "Invalid attestation registry contract address"
+      assert self.is_valid_eth_address(contract_address), "Invalid RedMesh attestation registry contract address"
 
       if tx_private_key is None:
         signer_account = self._get_eth_account()
@@ -1380,8 +1378,7 @@ class _EVMMixin:
         address=contract_address,
         abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
       )
-      tx_fn = contract.functions.submitAttestation(
-        app_id,
+      tx_fn = contract.functions.submitRedmeshAttestation(
         test_mode,
         node_count,
         vulnerability_score,
