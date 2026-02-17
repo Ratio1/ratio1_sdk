@@ -1390,19 +1390,10 @@ class _EVMMixin:
       last_octet = int(octets[-1])
       return f"0x{first_octet:02x}{last_octet:02x}"
 
-    def _redmesh_attestation_build_content_hash(self, report_cid, report):
-      material = None
-      if isinstance(report_cid, str) and report_cid.strip():
-        material = ("cid:" + report_cid.strip()).encode("utf-8")
-      elif report is not None:
-        material = json.dumps(
-          report,
-          sort_keys=True,
-          separators=(",", ":"),
-          default=str,
-        ).encode("utf-8")
-      if material is None:
+    def _redmesh_attestation_build_content_hash(self, report_cid):
+      if not isinstance(report_cid, str) or len(report_cid.strip()) == 0:
         return "0x" + ("00" * 32)
+      material = ("cid:" + report_cid.strip()).encode("utf-8")
       digest = hashlib.sha256(material).hexdigest()
       return "0x" + digest
 
@@ -1415,7 +1406,6 @@ class _EVMMixin:
       target: str,
       tx_private_key: str,
       report_cid: str = None,
-      report = None,
       wait_for_tx: bool = False,
       timeout: int = 120,
       network: str = None,
@@ -1436,7 +1426,7 @@ class _EVMMixin:
 
       ip_obfuscated = self._redmesh_attestation_pack_ip_obfuscated(target)
       cid_obfuscated = self._redmesh_attestation_pack_cid_obfuscated(report_cid)
-      content_hash = self._redmesh_attestation_build_content_hash(report_cid, report)
+      content_hash = self._redmesh_attestation_build_content_hash(report_cid)
       sign_data = self.eth_sign_message(
         types=["bytes32", "uint8", "uint16", "uint8", "bytes2", "bytes10", "bytes32"],
         values=[
