@@ -1334,49 +1334,6 @@ class _EVMMixin:
       return jobs
 
 
-    def web3_get_attestation(
-      self,
-      app_id: str,
-      index: int,
-      contract_address: str = None,
-      network: str = None,
-    ):
-      """
-      Retrieve a stored attestation by appId and index.
-      """
-      assert isinstance(app_id, str) and app_id.startswith("0x") and len(app_id) == 66, "Invalid app_id"
-      assert isinstance(index, int) and index >= 0, "Invalid index"
-
-      w3vars = self._get_web3_vars(network)
-      network = w3vars.network
-      if contract_address is None:
-        contract_address = w3vars.attestation_registry_address
-      assert self.is_valid_eth_address(contract_address), "Invalid attestation registry contract address"
-
-      contract = w3vars.w3.eth.contract(
-        address=contract_address,
-        abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
-      )
-      self.P(
-        f"`getAttestation` on {network} via {w3vars.rpc_url} ({contract_address})",
-        verbosity=2
-      )
-      raw = contract.functions.getAttestation(app_id, index).call()
-      result = {
-        "network": network,
-        "appId": app_id,
-        "index": index,
-        "node": raw[0],
-        "nodeCount": int(raw[1]),
-        "vulnerabilityScore": int(raw[2]),
-        "testMode": int(raw[3]),
-        "ipObfuscated": w3vars.w3.to_hex(raw[4]),
-        "cidObfuscated": w3vars.w3.to_hex(raw[5]),
-        "contentHash": w3vars.w3.to_hex(raw[6]),
-      }
-      return result
-
-
     def web3_submit_attestation(
       self,
       app_id: str,
