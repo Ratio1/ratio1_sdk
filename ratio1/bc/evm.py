@@ -1,6 +1,5 @@
 import json
 import os
-import hashlib
 import ipaddress
 
 from collections import namedtuple
@@ -1390,14 +1389,6 @@ class _EVMMixin:
       last_octet = int(octets[-1])
       return f"0x{first_octet:02x}{last_octet:02x}"
 
-    def _redmesh_attestation_build_content_hash(self, report_cid):
-      if not isinstance(report_cid, str) or len(report_cid.strip()) == 0:
-        return "0x" + ("00" * 32)
-      material = ("cid:" + report_cid.strip()).encode("utf-8")
-      digest = hashlib.sha256(material).hexdigest()
-      return "0x" + digest
-
-
     def web3_submit_redmesh_attestation(
       self,
       test_mode: int,
@@ -1414,9 +1405,9 @@ class _EVMMixin:
       """
       Submit a RedMesh attestation.
 
-      The SDK packs obfuscated fields, builds content hash, and signs the
-      attestation payload with the node engine key. The transaction itself is
-      signed with the caller-supplied tenant key.
+      The SDK packs obfuscated fields and signs the attestation payload with
+      the node engine key. The transaction itself is signed with the
+      caller-supplied tenant key.
       """
       assert isinstance(test_mode, int) and test_mode in [0, 1], "Invalid test_mode"
       assert isinstance(node_count, int) and node_count >= 0 and node_count <= 65535, "Invalid node_count"
@@ -1426,9 +1417,8 @@ class _EVMMixin:
 
       ip_obfuscated = self._redmesh_attestation_pack_ip_obfuscated(target)
       cid_obfuscated = self._redmesh_attestation_pack_cid_obfuscated(report_cid)
-      content_hash = self._redmesh_attestation_build_content_hash(report_cid)
       sign_data = self.eth_sign_message(
-        types=["bytes32", "uint8", "uint16", "uint8", "bytes2", "bytes10", "bytes32"],
+        types=["bytes32", "uint8", "uint16", "uint8", "bytes2", "bytes10"],
         values=[
           self.REDMESH_ATTESTATION_DOMAIN,
           test_mode,
@@ -1436,7 +1426,6 @@ class _EVMMixin:
           vulnerability_score,
           ip_obfuscated,
           cid_obfuscated,
-          content_hash,
         ],
       )
       node_signature = sign_data.get("signature")
@@ -1459,7 +1448,6 @@ class _EVMMixin:
         vulnerability_score,
         ip_obfuscated,
         cid_obfuscated,
-        content_hash,
         node_signature,
       )
 
