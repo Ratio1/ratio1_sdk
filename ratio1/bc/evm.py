@@ -1344,7 +1344,6 @@ class _EVMMixin:
       content_hash: str,
       node_signature: str,
       tx_private_key: str,
-      contract_address: str = None,
       wait_for_tx: bool = False,
       timeout: int = 120,
       network: str = None,
@@ -1365,8 +1364,7 @@ class _EVMMixin:
 
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-      if contract_address is None:
-        contract_address = w3vars.attestation_registry_address
+      contract_address = w3vars.attestation_registry_address
       assert self.is_valid_eth_address(contract_address), "Invalid RedMesh attestation registry contract address"
 
       signer_account = self._get_eth_account_from_private_key(tx_private_key)
