@@ -542,11 +542,6 @@ _ATTESTATION_REGISTRY_ABI = [
   {
     "inputs": [
       {
-        "internalType": "bytes32",
-        "name": "appId",
-        "type": "bytes32"
-      },
-      {
         "internalType": "uint8",
         "name": "testMode",
         "type": "uint8"
@@ -582,7 +577,7 @@ _ATTESTATION_REGISTRY_ABI = [
         "type": "bytes"
       }
     ],
-    "name": "submitAttestation",
+    "name": "submitRedmeshAttestation",
     "outputs": [
       {
         "internalType": "uint256",
