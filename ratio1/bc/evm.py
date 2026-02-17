@@ -119,20 +119,14 @@ class _EVMMixin:
       private_key_bytes = self.private_key.private_numbers().private_value.to_bytes(32, 'big')
       return Account.from_key(private_key_bytes)
 
-
-    @staticmethod
-    def _normalize_hex_private_key(private_key: str) -> str:
+    def _get_eth_account_from_private_key(self, private_key: str):
       assert isinstance(private_key, str), "Private key must be a string"
       key = private_key.strip()
       if key.startswith("0x"):
         key = key[2:]
       assert len(key) == 64, "Private key must be 32 bytes (64 hex chars)"
       int(key, 16)  # raises if not valid hex
-      return "0x" + key
-
-
-    def _get_eth_account_from_private_key(self, private_key: str):
-      key = self._normalize_hex_private_key(private_key)
+      key = "0x" + key
       return Account.from_key(key)
     
     
@@ -254,10 +248,7 @@ class _EVMMixin:
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
       poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
-      attestation_registry_address = network_data.get(
-        dAuth.EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY,
-        "0x0000000000000000000000000000000000000000"
-      )
+      attestation_registry_address = network_data[dAuth.EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
@@ -1341,34 +1332,6 @@ class _EVMMixin:
       jobs = [self._format_job_details(job, network) for job in raw_jobs]
       self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
       return jobs
-
-
-    def web3_get_attestation_count(
-      self,
-      app_id: str,
-      contract_address: str = None,
-      network: str = None,
-    ):
-      """
-      Retrieve the attestation count for a given appId.
-      """
-      assert isinstance(app_id, str) and app_id.startswith("0x") and len(app_id) == 66, "Invalid app_id"
-
-      w3vars = self._get_web3_vars(network)
-      network = w3vars.network
-      if contract_address is None:
-        contract_address = w3vars.attestation_registry_address
-      assert self.is_valid_eth_address(contract_address), "Invalid attestation registry contract address"
-
-      contract = w3vars.w3.eth.contract(
-        address=contract_address,
-        abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
-      )
-      self.P(
-        f"`getAttestationCount` on {network} via {w3vars.rpc_url} ({contract_address})",
-        verbosity=2
-      )
-      return int(contract.functions.getAttestationCount(app_id).call())
 
 
     def web3_get_attestation(
