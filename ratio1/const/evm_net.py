@@ -547,67 +547,6 @@ _ATTESTATION_REGISTRY_ABI = [
         "type": "bytes32"
       },
       {
-        "internalType": "uint256",
-        "name": "index",
-        "type": "uint256"
-      }
-    ],
-    "name": "getAttestation",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "address",
-            "name": "node",
-            "type": "address"
-          },
-          {
-            "internalType": "uint16",
-            "name": "nodeCount",
-            "type": "uint16"
-          },
-          {
-            "internalType": "uint8",
-            "name": "vulnerabilityScore",
-            "type": "uint8"
-          },
-          {
-            "internalType": "uint8",
-            "name": "testMode",
-            "type": "uint8"
-          },
-          {
-            "internalType": "bytes2",
-            "name": "ipObfuscated",
-            "type": "bytes2"
-          },
-          {
-            "internalType": "bytes10",
-            "name": "cidObfuscated",
-            "type": "bytes10"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "contentHash",
-            "type": "bytes32"
-          }
-        ],
-        "internalType": "struct AttestationRegistry.Attestation",
-        "name": "",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "appId",
-        "type": "bytes32"
-      },
-      {
         "internalType": "uint8",
         "name": "testMode",
         "type": "uint8"
