@@ -1,10 +1,13 @@
 import json
 import os
+import hashlib
+import ipaddress
 
 from collections import namedtuple
 from copy import deepcopy
 
 from datetime import timezone, datetime
+from urllib.parse import urlparse
 
 from eth_account import Account
 from eth_utils import keccak, to_checksum_address
@@ -45,6 +48,7 @@ else:
 
 
 class _EVMMixin:
+  REDMESH_ATTESTATION_DOMAIN = "0x" + keccak(b"RATIO1_REDMESH_ATTESTATION_V1").hex()
   
   # EVM address methods
   if True:
@@ -1333,34 +1337,119 @@ class _EVMMixin:
       self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
       return jobs
 
+    @staticmethod
+    def _redmesh_attestation_pack_cid_obfuscated(report_cid) -> str:
+      if not isinstance(report_cid, str) or len(report_cid.strip()) == 0:
+        return "0x" + ("00" * 10)
+      cid = report_cid.strip()
+      if len(cid) >= 10:
+        masked = cid[:5] + cid[-5:]
+      else:
+        masked = cid.ljust(10, "_")
+      safe = "".join(ch if 32 <= ord(ch) <= 126 else "_" for ch in masked)[:10]
+      data = safe.encode("ascii", errors="ignore")
+      if len(data) < 10:
+        data = data + (b"_" * (10 - len(data)))
+      return "0x" + data[:10].hex()
+
+    @staticmethod
+    def _redmesh_attestation_extract_host(target):
+      if not isinstance(target, str):
+        return None
+      target = target.strip()
+      if not target:
+        return None
+      if "://" in target:
+        parsed = urlparse(target)
+        if parsed.hostname:
+          return parsed.hostname
+      host = target.split("/", 1)[0]
+      if host.count(":") == 1 and "." in host:
+        host = host.split(":", 1)[0]
+      return host
+
+    def _redmesh_attestation_pack_ip_obfuscated(self, target) -> str:
+      host = self._redmesh_attestation_extract_host(target)
+      if not host:
+        return "0x0000"
+      if ".." in host:
+        parts = host.split("..")
+        if len(parts) == 2 and all(part.isdigit() for part in parts):
+          first_octet = int(parts[0])
+          last_octet = int(parts[1])
+          if 0 <= first_octet <= 255 and 0 <= last_octet <= 255:
+            return f"0x{first_octet:02x}{last_octet:02x}"
+      try:
+        ip_obj = ipaddress.ip_address(host)
+      except Exception:
+        return "0x0000"
+      if ip_obj.version != 4:
+        return "0x0000"
+      octets = host.split(".")
+      first_octet = int(octets[0])
+      last_octet = int(octets[-1])
+      return f"0x{first_octet:02x}{last_octet:02x}"
+
+    def _redmesh_attestation_build_content_hash(self, report_cid, report):
+      material = None
+      if isinstance(report_cid, str) and report_cid.strip():
+        material = ("cid:" + report_cid.strip()).encode("utf-8")
+      elif report is not None:
+        material = json.dumps(
+          report,
+          sort_keys=True,
+          separators=(",", ":"),
+          default=str,
+        ).encode("utf-8")
+      if material is None:
+        return "0x" + ("00" * 32)
+      digest = hashlib.sha256(material).hexdigest()
+      return "0x" + digest
+
 
     def web3_submit_redmesh_attestation(
       self,
       test_mode: int,
       node_count: int,
       vulnerability_score: int,
-      ip_obfuscated: str,
-      cid_obfuscated: str,
-      content_hash: str,
-      node_signature: str,
+      target: str,
       tx_private_key: str,
+      report_cid: str = None,
+      report = None,
       wait_for_tx: bool = False,
       timeout: int = 120,
       network: str = None,
       return_receipt=False,
     ):
       """
-      Submit a RedMesh attestation signed by a node, using the caller-supplied
-      tx private key as transaction signer.
+      Submit a RedMesh attestation.
+
+      The SDK packs obfuscated fields, builds content hash, and signs the
+      attestation payload with the node engine key. The transaction itself is
+      signed with the caller-supplied tenant key.
       """
       assert isinstance(test_mode, int) and test_mode in [0, 1], "Invalid test_mode"
       assert isinstance(node_count, int) and node_count >= 0 and node_count <= 65535, "Invalid node_count"
       assert isinstance(vulnerability_score, int) and vulnerability_score >= 0 and vulnerability_score <= 100, "Invalid vulnerability_score"
-      assert isinstance(ip_obfuscated, str) and ip_obfuscated.startswith("0x") and len(ip_obfuscated) == 6, "ip_obfuscated must be bytes2 hex"
-      assert isinstance(cid_obfuscated, str) and cid_obfuscated.startswith("0x") and len(cid_obfuscated) == 22, "cid_obfuscated must be bytes10 hex"
-      assert isinstance(content_hash, str) and content_hash.startswith("0x") and len(content_hash) == 66, "content_hash must be bytes32 hex"
-      assert isinstance(node_signature, str) and node_signature.startswith("0x") and len(node_signature) >= 132, "Invalid node signature"
+      assert isinstance(target, str) and len(target.strip()) > 0, "target is required"
       assert isinstance(tx_private_key, str) and len(tx_private_key.strip()) > 0, "tx_private_key is required"
+
+      ip_obfuscated = self._redmesh_attestation_pack_ip_obfuscated(target)
+      cid_obfuscated = self._redmesh_attestation_pack_cid_obfuscated(report_cid)
+      content_hash = self._redmesh_attestation_build_content_hash(report_cid, report)
+      sign_data = self.eth_sign_message(
+        types=["bytes32", "uint8", "uint16", "uint8", "bytes2", "bytes10", "bytes32"],
+        values=[
+          self.REDMESH_ATTESTATION_DOMAIN,
+          test_mode,
+          node_count,
+          vulnerability_score,
+          ip_obfuscated,
+          cid_obfuscated,
+          content_hash,
+        ],
+      )
+      node_signature = sign_data.get("signature")
 
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
