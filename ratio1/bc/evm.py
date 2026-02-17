@@ -1343,7 +1343,7 @@ class _EVMMixin:
       cid_obfuscated: str,
       content_hash: str,
       node_signature: str,
-      tx_private_key: str = None,
+      tx_private_key: str,
       contract_address: str = None,
       wait_for_tx: bool = False,
       timeout: int = 120,
@@ -1351,8 +1351,8 @@ class _EVMMixin:
       return_receipt=False,
     ):
       """
-      Submit a RedMesh attestation signed by a node, using either the
-      engine account or a caller-supplied tx private key as transaction signer.
+      Submit a RedMesh attestation signed by a node, using the caller-supplied
+      tx private key as transaction signer.
       """
       assert isinstance(test_mode, int) and test_mode in [0, 1], "Invalid test_mode"
       assert isinstance(node_count, int) and node_count >= 0 and node_count <= 65535, "Invalid node_count"
@@ -1361,6 +1361,7 @@ class _EVMMixin:
       assert isinstance(cid_obfuscated, str) and cid_obfuscated.startswith("0x") and len(cid_obfuscated) == 22, "cid_obfuscated must be bytes10 hex"
       assert isinstance(content_hash, str) and content_hash.startswith("0x") and len(content_hash) == 66, "content_hash must be bytes32 hex"
       assert isinstance(node_signature, str) and node_signature.startswith("0x") and len(node_signature) >= 132, "Invalid node signature"
+      assert isinstance(tx_private_key, str) and len(tx_private_key.strip()) > 0, "tx_private_key is required"
 
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
@@ -1368,10 +1369,7 @@ class _EVMMixin:
         contract_address = w3vars.attestation_registry_address
       assert self.is_valid_eth_address(contract_address), "Invalid RedMesh attestation registry contract address"
 
-      if tx_private_key is None:
-        signer_account = self._get_eth_account()
-      else:
-        signer_account = self._get_eth_account_from_private_key(tx_private_key)
+      signer_account = self._get_eth_account_from_private_key(tx_private_key)
       from_address = signer_account.address
 
       contract = w3vars.w3.eth.contract(
