@@ -545,25 +545,6 @@ _ATTESTATION_REGISTRY_ABI = [
         "internalType": "bytes32",
         "name": "appId",
         "type": "bytes32"
-      }
-    ],
-    "name": "getAttestationCount",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "appId",
-        "type": "bytes32"
       },
       {
         "internalType": "uint256",
