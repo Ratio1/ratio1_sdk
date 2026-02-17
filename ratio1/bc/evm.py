@@ -1334,7 +1334,7 @@ class _EVMMixin:
       return jobs
 
 
-    def web3_submit_attestation(
+    def web3_submit_redmesh_attestation(
       self,
       test_mode: int,
       node_count: int,
