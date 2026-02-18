@@ -1433,7 +1433,6 @@ class _EVMMixin:
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
       contract_address = w3vars.attestation_registry_address
-      assert self.is_valid_eth_address(contract_address), "Invalid RedMesh attestation registry contract address"
 
       signer_account = self._get_eth_account_from_private_key(tx_private_key)
       from_address = signer_account.address
@@ -1468,7 +1467,7 @@ class _EVMMixin:
         "chainId": chain_id,
       })
       self.P(
-        f"Submitting attestation on {network} via {w3vars.rpc_url} from {from_address}:\n {json.dumps(dict(tx), indent=2)}",
+        f"Submitting attestation on {network} via {w3vars.rpc_url} from {from_address}",
         verbosity=2
       )
 
