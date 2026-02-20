@@ -1,10 +1,12 @@
 import json
 import os
+import ipaddress
 
 from collections import namedtuple
 from copy import deepcopy
 
 from datetime import timezone, datetime
+from urllib.parse import urlparse
 
 from eth_account import Account
 from eth_utils import keccak, to_checksum_address
@@ -29,6 +31,7 @@ Web3Vars = namedtuple(
     "proxy_contract_address",  
     "controller_contract_address",
     "poai_manager_address",
+    "attestation_registry_address",
   ]
 )
 
@@ -44,6 +47,7 @@ else:
 
 
 class _EVMMixin:
+  REDMESH_ATTESTATION_DOMAIN = "0x" + keccak(b"RATIO1_REDMESH_ATTESTATION_V1").hex()
   
   # EVM address methods
   if True:
@@ -117,6 +121,16 @@ class _EVMMixin:
     def _get_eth_account(self):
       private_key_bytes = self.private_key.private_numbers().private_value.to_bytes(32, 'big')
       return Account.from_key(private_key_bytes)
+
+    def _get_eth_account_from_private_key(self, private_key: str):
+      assert isinstance(private_key, str), "Private key must be a string"
+      key = private_key.strip()
+      if key.startswith("0x"):
+        key = key[2:]
+      assert len(key) == 64, "Private key must be 32 bytes (64 hex chars)"
+      int(key, 16)  # raises if not valid hex
+      key = "0x" + key
+      return Account.from_key(key)
     
     
     def node_address_to_eth_address(self, address):
@@ -237,6 +251,7 @@ class _EVMMixin:
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
       poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
+      attestation_registry_address = network_data[dAuth.EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
@@ -259,6 +274,7 @@ class _EVMMixin:
         proxy_contract_address=proxy_contract_address, 
         controller_contract_address=controller_contract_address,
         poai_manager_address=poai_manager_address,
+        attestation_registry_address=attestation_registry_address,
       )
       return result
 
@@ -1319,6 +1335,153 @@ class _EVMMixin:
       jobs = [self._format_job_details(job, network) for job in raw_jobs]
       self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
       return jobs
+
+    @staticmethod
+    def _redmesh_attestation_pack_cid_obfuscated(report_cid) -> str:
+      if not isinstance(report_cid, str) or len(report_cid.strip()) == 0:
+        return "0x" + ("00" * 10)
+      cid = report_cid.strip()
+      if len(cid) >= 10:
+        masked = cid[:5] + cid[-5:]
+      else:
+        masked = cid.ljust(10, "_")
+      safe = "".join(ch if 32 <= ord(ch) <= 126 else "_" for ch in masked)[:10]
+      data = safe.encode("ascii", errors="ignore")
+      if len(data) < 10:
+        data = data + (b"_" * (10 - len(data)))
+      return "0x" + data[:10].hex()
+
+    @staticmethod
+    def _redmesh_attestation_extract_host(target):
+      if not isinstance(target, str):
+        return None
+      target = target.strip()
+      if not target:
+        return None
+      if "://" in target:
+        parsed = urlparse(target)
+        if parsed.hostname:
+          return parsed.hostname
+      host = target.split("/", 1)[0]
+      if host.count(":") == 1 and "." in host:
+        host = host.split(":", 1)[0]
+      return host
+
+    def _redmesh_attestation_pack_ip_obfuscated(self, target) -> str:
+      host = self._redmesh_attestation_extract_host(target)
+      if not host:
+        return "0x0000"
+      if ".." in host:
+        parts = host.split("..")
+        if len(parts) == 2 and all(part.isdigit() for part in parts):
+          first_octet = int(parts[0])
+          last_octet = int(parts[1])
+          if 0 <= first_octet <= 255 and 0 <= last_octet <= 255:
+            return f"0x{first_octet:02x}{last_octet:02x}"
+      try:
+        ip_obj = ipaddress.ip_address(host)
+      except Exception:
+        return "0x0000"
+      if ip_obj.version != 4:
+        return "0x0000"
+      octets = host.split(".")
+      first_octet = int(octets[0])
+      last_octet = int(octets[-1])
+      return f"0x{first_octet:02x}{last_octet:02x}"
+
+    def web3_submit_redmesh_attestation(
+      self,
+      test_mode: int,
+      node_count: int,
+      vulnerability_score: int,
+      target: str,
+      tx_private_key: str,
+      report_cid: str = None,
+      wait_for_tx: bool = False,
+      timeout: int = 120,
+      network: str = None,
+      return_receipt=False,
+    ):
+      """
+      Submit a RedMesh attestation.
+
+      The SDK packs obfuscated fields and signs the attestation payload with
+      the node engine key. The transaction itself is signed with the
+      caller-supplied tenant key.
+      """
+      assert isinstance(test_mode, int) and test_mode in [0, 1], "Invalid test_mode"
+      assert isinstance(node_count, int) and node_count >= 0 and node_count <= 65535, "Invalid node_count"
+      assert isinstance(vulnerability_score, int) and vulnerability_score >= 0 and vulnerability_score <= 100, "Invalid vulnerability_score"
+      assert isinstance(target, str) and len(target.strip()) > 0, "target is required"
+      assert isinstance(tx_private_key, str) and len(tx_private_key.strip()) > 0, "tx_private_key is required"
+
+      ip_obfuscated = self._redmesh_attestation_pack_ip_obfuscated(target)
+      cid_obfuscated = self._redmesh_attestation_pack_cid_obfuscated(report_cid)
+      sign_data = self.eth_sign_message(
+        types=["bytes32", "uint8", "uint16", "uint8", "bytes2", "bytes10"],
+        values=[
+          self.REDMESH_ATTESTATION_DOMAIN,
+          test_mode,
+          node_count,
+          vulnerability_score,
+          ip_obfuscated,
+          cid_obfuscated,
+        ],
+      )
+      node_signature = sign_data.get("signature")
+
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      contract_address = w3vars.attestation_registry_address
+
+      signer_account = self._get_eth_account_from_private_key(tx_private_key)
+      from_address = signer_account.address
+
+      contract = w3vars.w3.eth.contract(
+        address=contract_address,
+        abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
+      )
+      tx_fn = contract.functions.submitRedmeshAttestation(
+        test_mode,
+        node_count,
+        vulnerability_score,
+        ip_obfuscated,
+        cid_obfuscated,
+        node_signature,
+      )
+
+      gas_price = w3vars.w3.eth.gas_price
+      estimated_gas = tx_fn.estimate_gas({"from": from_address})
+      gas_cost = estimated_gas * gas_price
+      eth_balance = w3vars.w3.eth.get_balance(from_address)
+      if eth_balance < gas_cost:
+        raise Exception("Insufficient ETH balance to cover gas fees.")
+
+      nonce = w3vars.w3.eth.get_transaction_count(from_address)
+      chain_id = w3vars.w3.eth.chain_id
+      tx = tx_fn.build_transaction({
+        "from": from_address,
+        "nonce": nonce,
+        "gas": estimated_gas,
+        "gasPrice": gas_price,
+        "chainId": chain_id,
+      })
+      self.P(
+        f"Submitting attestation on {network} via {w3vars.rpc_url} from {from_address}",
+        verbosity=2
+      )
+
+      signed_tx = w3vars.w3.eth.account.sign_transaction(tx, signer_account.key)
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+
+      if wait_for_tx:
+        tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        tx_hash_hex = tx_receipt.transactionHash.hex()
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        if return_receipt:
+          return tx_receipt
+        return tx_hash_hex
+      return tx_hash.hex()
 
     def web3_submit_node_update(
       self,
