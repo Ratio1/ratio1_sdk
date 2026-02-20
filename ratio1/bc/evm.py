@@ -932,7 +932,7 @@ class _EVMMixin:
         'chainId': chain_id,
       }
       
-      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(tx, indent=2)}", verbosity=2)
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(tx, indent=2)}")
           
       # Sign the transaction with the account's private key.
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, self.eth_account.key)
@@ -942,10 +942,10 @@ class _EVMMixin:
       
       if wait_for_tx:
         # Wait for the transaction receipt with the specified timeout.
-        self.P("Waiting for transaction to be mined...", verbosity=2)
+        self.P("Waiting for transaction to be mined...")
         tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
         tx_hash_hex = tx_receipt.transactionHash.hex()
-        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g')
         if return_receipt:          
           return tx_receipt
         else:
@@ -1084,7 +1084,7 @@ class _EVMMixin:
         'gasPrice': gas_price,
         'chainId': chain_id,
       })
-      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}")
       
       # Sign the transaction using the internal account (via _get_eth_account).
       eth_account = self._get_eth_account()
@@ -1096,7 +1096,7 @@ class _EVMMixin:
         # Wait for the transaction receipt if required.
         tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
         tx_hash_hex = tx_receipt.transactionHash.hex()
-        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g')
         if return_receipt:          
           return tx_receipt
         else:
@@ -1377,7 +1377,7 @@ class _EVMMixin:
         'gasPrice': gas_price,
         'chainId': chain_id,
       })
-      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}")
       
       # Sign the transaction using the internal account (via _get_eth_account).
       eth_account = self._get_eth_account()
@@ -1389,7 +1389,7 @@ class _EVMMixin:
         # Wait for the transaction receipt if required.
         tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
         tx_hash_hex = tx_receipt.transactionHash.hex()
-        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g')
         if return_receipt:          
           return tx_receipt
         else:
@@ -1445,7 +1445,7 @@ class _EVMMixin:
         'gasPrice': gas_price,
         'chainId': chain_id,
       })
-      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}", verbosity=2)
+      self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}")
       
       # Sign the transaction using the internal account (via _get_eth_account).
       eth_account = self._get_eth_account()
@@ -1457,7 +1457,7 @@ class _EVMMixin:
         # Wait for the transaction receipt if required.
         tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
         tx_hash_hex = tx_receipt.transactionHash.hex()
-        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g')
         if return_receipt:          
           return tx_receipt
         else:
