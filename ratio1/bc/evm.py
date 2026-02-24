@@ -1,12 +1,10 @@
 import json
 import os
-import ipaddress
 
 from collections import namedtuple
 from copy import deepcopy
 
 from datetime import timezone, datetime
-from urllib.parse import urlparse
 
 from eth_account import Account
 from eth_utils import keccak, to_checksum_address
@@ -47,8 +45,6 @@ else:
 
 
 class _EVMMixin:
-  REDMESH_ATTESTATION_DOMAIN = "0x" + keccak(b"RATIO1_REDMESH_ATTESTATION_V1").hex()
-  
   # EVM address methods
   if True:
     @staticmethod
@@ -1336,99 +1332,39 @@ class _EVMMixin:
       self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
       return jobs
 
-    @staticmethod
-    def _redmesh_attestation_pack_cid_obfuscated(report_cid) -> str:
-      if not isinstance(report_cid, str) or len(report_cid.strip()) == 0:
-        return "0x" + ("00" * 10)
-      cid = report_cid.strip()
-      if len(cid) >= 10:
-        masked = cid[:5] + cid[-5:]
-      else:
-        masked = cid.ljust(10, "_")
-      safe = "".join(ch if 32 <= ord(ch) <= 126 else "_" for ch in masked)[:10]
-      data = safe.encode("ascii", errors="ignore")
-      if len(data) < 10:
-        data = data + (b"_" * (10 - len(data)))
-      return "0x" + data[:10].hex()
-
-    @staticmethod
-    def _redmesh_attestation_extract_host(target):
-      if not isinstance(target, str):
-        return None
-      target = target.strip()
-      if not target:
-        return None
-      if "://" in target:
-        parsed = urlparse(target)
-        if parsed.hostname:
-          return parsed.hostname
-      host = target.split("/", 1)[0]
-      if host.count(":") == 1 and "." in host:
-        host = host.split(":", 1)[0]
-      return host
-
-    def _redmesh_attestation_pack_ip_obfuscated(self, target) -> str:
-      host = self._redmesh_attestation_extract_host(target)
-      if not host:
-        return "0x0000"
-      if ".." in host:
-        parts = host.split("..")
-        if len(parts) == 2 and all(part.isdigit() for part in parts):
-          first_octet = int(parts[0])
-          last_octet = int(parts[1])
-          if 0 <= first_octet <= 255 and 0 <= last_octet <= 255:
-            return f"0x{first_octet:02x}{last_octet:02x}"
-      try:
-        ip_obj = ipaddress.ip_address(host)
-      except Exception:
-        return "0x0000"
-      if ip_obj.version != 4:
-        return "0x0000"
-      octets = host.split(".")
-      first_octet = int(octets[0])
-      last_octet = int(octets[-1])
-      return f"0x{first_octet:02x}{last_octet:02x}"
-
-    def web3_submit_redmesh_attestation(
+    def web3_submit_attestation(
       self,
-      test_mode: int,
-      node_count: int,
-      vulnerability_score: int,
-      target: str,
+      function_name: str,
+      function_args: list,
+      signature_types: list,
+      signature_values: list,
       tx_private_key: str,
-      report_cid: str = None,
       wait_for_tx: bool = False,
       timeout: int = 120,
       network: str = None,
       return_receipt=False,
     ):
       """
-      Submit a RedMesh attestation.
+      Submit a generic attestation transaction to AttestationRegistry.
 
-      The SDK packs obfuscated fields and signs the attestation payload with
-      the node engine key. The transaction itself is signed with the
-      caller-supplied tenant key.
+      The node signature is produced in SDK from `signature_types` and
+      `signature_values`, then appended as the last argument in the contract
+      function call.
       """
-      assert isinstance(test_mode, int) and test_mode in [0, 1], "Invalid test_mode"
-      assert isinstance(node_count, int) and node_count >= 0 and node_count <= 65535, "Invalid node_count"
-      assert isinstance(vulnerability_score, int) and vulnerability_score >= 0 and vulnerability_score <= 100, "Invalid vulnerability_score"
-      assert isinstance(target, str) and len(target.strip()) > 0, "target is required"
+      assert isinstance(function_name, str) and len(function_name.strip()) > 0, "function_name is required"
+      assert isinstance(function_args, (list, tuple)), "function_args must be a list/tuple"
+      assert isinstance(signature_types, (list, tuple)) and len(signature_types) > 0, "signature_types are required"
+      assert isinstance(signature_values, (list, tuple)) and len(signature_values) > 0, "signature_values are required"
+      assert len(signature_types) == len(signature_values), "signature_types and signature_values length mismatch"
       assert isinstance(tx_private_key, str) and len(tx_private_key.strip()) > 0, "tx_private_key is required"
 
-      ip_obfuscated = self._redmesh_attestation_pack_ip_obfuscated(target)
-      cid_obfuscated = self._redmesh_attestation_pack_cid_obfuscated(report_cid)
       sign_data = self.eth_sign_message(
-        types=["bytes32", "uint8", "uint16", "uint8", "bytes2", "bytes10"],
-        values=[
-          self.REDMESH_ATTESTATION_DOMAIN,
-          test_mode,
-          node_count,
-          vulnerability_score,
-          ip_obfuscated,
-          cid_obfuscated,
-        ],
+        types=list(signature_types),
+        values=list(signature_values),
       )
       node_signature = sign_data.get("signature")
+      if not isinstance(node_signature, str) or len(node_signature.strip()) == 0:
+        raise Exception("Failed to generate node signature for attestation.")
 
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
@@ -1441,14 +1377,10 @@ class _EVMMixin:
         address=contract_address,
         abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
       )
-      tx_fn = contract.functions.submitRedmeshAttestation(
-        test_mode,
-        node_count,
-        vulnerability_score,
-        ip_obfuscated,
-        cid_obfuscated,
-        node_signature,
-      )
+      contract_fn = getattr(contract.functions, function_name, None)
+      if contract_fn is None:
+        raise ValueError(f"Attestation function '{function_name}' not found in registry ABI.")
+      tx_fn = contract_fn(*list(function_args), node_signature)
 
       gas_price = w3vars.w3.eth.gas_price
       estimated_gas = tx_fn.estimate_gas({"from": from_address})
