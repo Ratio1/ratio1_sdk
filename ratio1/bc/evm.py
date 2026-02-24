@@ -45,6 +45,7 @@ else:
 
 
 class _EVMMixin:
+
   # EVM address methods
   if True:
     @staticmethod
