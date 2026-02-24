@@ -1415,6 +1415,70 @@ class _EVMMixin:
         return tx_hash_hex
       return tx_hash.hex()
 
+    def web3_get_escrow_active_jobs(
+      self,
+      escrow_address: str,
+      network: str = None
+    ):
+      """
+      Retrieve active jobs from a specific escrow contract.
+
+      Parameters
+      ----------
+      escrow_address : str
+        The escrow contract address.
+
+      network : str, optional
+        The network to use. Defaults to the current engine network.
+
+      Returns
+      -------
+      list[dict]
+        Active jobs for the given escrow.
+      """
+      assert self.is_valid_eth_address(escrow_address), "Invalid escrow address"
+
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      contract = w3vars.w3.eth.contract(
+        address=escrow_address,
+        abi=EVM_ABI_DATA.CSP_ESCROW_ABI
+      )
+      self.P(f"`getActiveJobs` on {network} via {w3vars.rpc_url} (escrow {escrow_address})", verbosity=2)
+
+      raw_jobs = contract.functions.getActiveJobs().call()
+      jobs = [self._format_escrow_job_details(job, network, escrow_address) for job in raw_jobs]
+      self.P(f"Escrow active jobs found: {len(jobs)}", verbosity=2)
+      return jobs
+
+    def web3_get_escrow_active_job_ids(
+      self,
+      escrow_address: str,
+      network: str = None
+    ):
+      """
+      Retrieve active job IDs from a specific escrow contract.
+
+      Parameters
+      ----------
+      escrow_address : str
+        The escrow contract address.
+
+      network : str, optional
+        The network to use. Defaults to the current engine network.
+
+      Returns
+      -------
+      list[int]
+        Active job identifiers for the given escrow.
+      """
+      jobs = self.web3_get_escrow_active_jobs(
+        escrow_address=escrow_address,
+        network=network
+      )
+      job_ids = [int(job.get("jobId")) for job in jobs if job.get("jobId") is not None]
+      return job_ids
+
     def web3_submit_node_update(
       self,
       job_id: int,
@@ -1711,6 +1775,27 @@ class _EVMMixin:
         "activeNodes": raw_job_details[11],
         "escrowAddress": raw_job_details[12],
         "escrowOwner": raw_job_details[13],
+      }
+
+    def _format_escrow_job_details(self, raw_job_details, network: str, escrow_address: str):
+      """
+      Normalize the job details tuple returned by CspEscrow.getActiveJobs.
+      """
+      return {
+        "network": network,
+        "jobId": raw_job_details[0],
+        "projectHash": "0x" + raw_job_details[1].hex(),
+        "requestTimestamp": raw_job_details[2],
+        "startTimestamp": raw_job_details[3],
+        "lastNodesChangeTimestamp": raw_job_details[4],
+        "jobType": raw_job_details[5],
+        "pricePerEpoch": raw_job_details[6],
+        "lastExecutionEpoch": raw_job_details[7],
+        "numberOfNodesRequested": raw_job_details[8],
+        "balance": raw_job_details[9],
+        "lastAllocatedEpoch": raw_job_details[10],
+        "activeNodes": raw_job_details[11],
+        "escrowAddress": escrow_address,
       }
 
   def get_deeploy_url(self):
