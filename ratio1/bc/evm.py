@@ -29,6 +29,7 @@ Web3Vars = namedtuple(
     "proxy_contract_address",  
     "controller_contract_address",
     "poai_manager_address",
+    "attestation_registry_address",
   ]
 )
 
@@ -44,7 +45,7 @@ else:
 
 
 class _EVMMixin:
-  
+
   # EVM address methods
   if True:
     @staticmethod
@@ -117,6 +118,16 @@ class _EVMMixin:
     def _get_eth_account(self):
       private_key_bytes = self.private_key.private_numbers().private_value.to_bytes(32, 'big')
       return Account.from_key(private_key_bytes)
+
+    def _get_eth_account_from_private_key(self, private_key: str):
+      assert isinstance(private_key, str), "Private key must be a string"
+      key = private_key.strip()
+      if key.startswith("0x"):
+        key = key[2:]
+      assert len(key) == 64, "Private key must be 32 bytes (64 hex chars)"
+      int(key, 16)  # raises if not valid hex
+      key = "0x" + key
+      return Account.from_key(key)
     
     
     def node_address_to_eth_address(self, address):
@@ -237,6 +248,7 @@ class _EVMMixin:
       str_genesis_date = network_data[dAuth.EvmNetData.EE_GENESIS_EPOCH_DATE_KEY]
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
       poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
+      attestation_registry_address = network_data[dAuth.EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
@@ -259,6 +271,7 @@ class _EVMMixin:
         proxy_contract_address=proxy_contract_address, 
         controller_contract_address=controller_contract_address,
         poai_manager_address=poai_manager_address,
+        attestation_registry_address=attestation_registry_address,
       )
       return result
 
@@ -1319,6 +1332,88 @@ class _EVMMixin:
       jobs = [self._format_job_details(job, network) for job in raw_jobs]
       self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
       return jobs
+
+    def web3_submit_attestation(
+      self,
+      function_name: str,
+      function_args: list,
+      signature_types: list,
+      signature_values: list,
+      tx_private_key: str,
+      wait_for_tx: bool = False,
+      timeout: int = 120,
+      network: str = None,
+      return_receipt=False,
+    ):
+      """
+      Submit a generic attestation transaction to AttestationRegistry.
+
+      The node signature is produced in SDK from `signature_types` and
+      `signature_values`, then appended as the last argument in the contract
+      function call.
+      """
+      assert isinstance(function_name, str) and len(function_name.strip()) > 0, "function_name is required"
+      assert isinstance(function_args, (list, tuple)), "function_args must be a list/tuple"
+      assert isinstance(signature_types, (list, tuple)) and len(signature_types) > 0, "signature_types are required"
+      assert isinstance(signature_values, (list, tuple)) and len(signature_values) > 0, "signature_values are required"
+      assert len(signature_types) == len(signature_values), "signature_types and signature_values length mismatch"
+      assert isinstance(tx_private_key, str) and len(tx_private_key.strip()) > 0, "tx_private_key is required"
+
+      sign_data = self.eth_sign_message(
+        types=list(signature_types),
+        values=list(signature_values),
+      )
+      node_signature = sign_data.get("signature")
+      if not isinstance(node_signature, str) or len(node_signature.strip()) == 0:
+        raise Exception("Failed to generate node signature for attestation.")
+
+      w3vars = self._get_web3_vars(network)
+      network = w3vars.network
+      contract_address = w3vars.attestation_registry_address
+
+      signer_account = self._get_eth_account_from_private_key(tx_private_key)
+      from_address = signer_account.address
+
+      contract = w3vars.w3.eth.contract(
+        address=contract_address,
+        abi=EVM_ABI_DATA.ATTESTATION_REGISTRY_ABI
+      )
+      contract_fn = getattr(contract.functions, function_name, None)
+      if contract_fn is None:
+        raise ValueError(f"Attestation function '{function_name}' not found in registry ABI.")
+      tx_fn = contract_fn(*list(function_args), node_signature)
+
+      gas_price = w3vars.w3.eth.gas_price
+      estimated_gas = tx_fn.estimate_gas({"from": from_address})
+      gas_cost = estimated_gas * gas_price
+      eth_balance = w3vars.w3.eth.get_balance(from_address)
+      if eth_balance < gas_cost:
+        raise Exception("Insufficient ETH balance to cover gas fees.")
+
+      nonce = w3vars.w3.eth.get_transaction_count(from_address)
+      chain_id = w3vars.w3.eth.chain_id
+      tx = tx_fn.build_transaction({
+        "from": from_address,
+        "nonce": nonce,
+        "gas": estimated_gas,
+        "gasPrice": gas_price,
+        "chainId": chain_id,
+      })
+      self.P(
+        f"Submitting attestation on {network} via {w3vars.rpc_url} from {from_address}"
+      )
+
+      signed_tx = w3vars.w3.eth.account.sign_transaction(tx, signer_account.key)
+      tx_hash = w3vars.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+
+      if wait_for_tx:
+        tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        tx_hash_hex = tx_receipt.transactionHash.hex()
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g')
+        if return_receipt:
+          return tx_receipt
+        return tx_hash_hex
+      return tx_hash.hex()
 
     def web3_submit_node_update(
       self,
