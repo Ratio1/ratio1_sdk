@@ -1400,8 +1400,7 @@ class _EVMMixin:
         "chainId": chain_id,
       })
       self.P(
-        f"Submitting attestation on {network} via {w3vars.rpc_url} from {from_address}",
-        verbosity=2
+        f"Submitting attestation on {network} via {w3vars.rpc_url} from {from_address}"
       )
 
       signed_tx = w3vars.w3.eth.account.sign_transaction(tx, signer_account.key)
@@ -1410,7 +1409,7 @@ class _EVMMixin:
       if wait_for_tx:
         tx_receipt = w3vars.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
         tx_hash_hex = tx_receipt.transactionHash.hex()
-        self.P(f"Transaction mined: {tx_hash_hex}", color='g', verbosity=2)
+        self.P(f"Transaction mined: {tx_hash_hex}", color='g')
         if return_receipt:
           return tx_receipt
         return tx_hash_hex
