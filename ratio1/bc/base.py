@@ -1439,7 +1439,7 @@ class BaseBlockEngine(
     network=None,
     return_full_data=False,
     debug_data=False,
-    request_timeout=(3.05, 27),
+    request_timeout=(60, 120),
     **kwargs
   ):
     """
