@@ -538,6 +538,84 @@ _POAI_MANAGER_ABI = [
   }
 ]
 
+_CSP_ESCROW_ABI = [
+  {
+    "inputs": [],
+    "name": "getActiveJobs",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "projectHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "requestTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "startTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastNodesChangeTimestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "jobType",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "pricePerEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastExecutionEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "numberOfNodesRequested",
+            "type": "uint256"
+          },
+          {
+            "internalType": "int256",
+            "name": "balance",
+            "type": "int256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastAllocatedEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address[]",
+            "name": "activeNodes",
+            "type": "address[]"
+          }
+        ],
+        "internalType": "struct JobDetails[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
+
 _ATTESTATION_REGISTRY_ABI = [
   {
     "inputs": [
@@ -704,6 +782,7 @@ EVM_NET_CONSTANTS = {
 class EVM_ABI_DATA:
   ERC20_ABI = _ERC20_ABI
   POAI_MANAGER_ABI = _POAI_MANAGER_ABI
+  CSP_ESCROW_ABI = _CSP_ESCROW_ABI
   ATTESTATION_REGISTRY_ABI = _ATTESTATION_REGISTRY_ABI
   PROXY_ABI = _PROXY_ABI
   CONTROLLER_ABI = _CONTROLLER_ABI
