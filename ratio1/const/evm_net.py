@@ -635,6 +635,11 @@ _ATTESTATION_REGISTRY_ABI = [
         "type": "uint8"
       },
       {
+        "internalType": "bytes8",
+        "name": "executionId",
+        "type": "bytes8"
+      },
+      {
         "internalType": "bytes2",
         "name": "ipObfuscated",
         "type": "bytes2"
@@ -650,7 +655,56 @@ _ATTESTATION_REGISTRY_ABI = [
         "type": "bytes"
       }
     ],
-    "name": "submitRedmeshAttestation",
+    "name": "submitRedmeshTestAttestation",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "index",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "node",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "testMode",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint16",
+        "name": "nodeCount",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes8",
+        "name": "executionId",
+        "type": "bytes8"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "nodeHashes",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes2",
+        "name": "ipObfuscated",
+        "type": "bytes2"
+      },
+      {
+        "internalType": "bytes",
+        "name": "nodeSignature",
+        "type": "bytes"
+      }
+    ],
+    "name": "submitRedmeshJobStartAttestation",
     "outputs": [
       {
         "internalType": "uint256",
