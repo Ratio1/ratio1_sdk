@@ -95,7 +95,11 @@ class IPFSCt:
   TEMP_UPLOAD = os.path.join(f"./{CACHE_ROOT}/_output", R1FS_UPLOADS)
   
   TIMEOUT = 90 # seconds
-  REPROVIDER = "1m"
+  # The reprovide operation is very heavy and should be done infrequently.
+  # The kubo documentation advises on 22h. This was previously on 1m and will be
+  # increased to 10h to reduce the load on the relay(s).
+  REPROVIDER = "10h"
+  REPROVIDER_STRATEGY = "pinned+mfs"
 
 
 ERROR_TAG = "Unknown"
@@ -498,15 +502,45 @@ class R1FSEngine:
       )
       return result
 
-    def __set_routing_type_dht(self):
+    def __set_routing_type(self):
+      # Routing.Type: "dht" vs "dhtclient"
+      # - "dht" lets the node use the DHT and automatically act as a DHT *server* when it seems reachable
+      #   (serves/handles other peers' DHT queries → more CPU/bandwidth/connections).
+      # - "dhtclient" is lookup-only: it can query the DHT but never serves DHT traffic → lighter and more predictable.
+      #   In a private hub-and-spoke setup (single relay), it's usually best to keep clients on "dhtclient" and let only
+      #   the relay (or a small set of infra nodes) serve the DHT.
       result = self.__run_command(
-        ["ipfs", "config", "--json", "Routing.Type", '"dht"']
+        ["ipfs", "config", "--json", "Routing.Type", '"dhtclient"']
       )
       return result
 
     def __disable_ws_transport(self):
       result = self.__run_command(
         ["ipfs", "config", "--json", "Swarm.Transports.Network.Websocket", "false"]
+      )
+      return result
+
+    def __disable_mdns_discovery(self):
+      # Discovery.MDNS.Enabled: enabled vs disabled
+      # mDNS is "LAN auto-discovery": peers on the same local network broadcast/announce themselves and auto-connect.
+      # - Enabled: convenient for dev/LAN clusters where multicast works and you want plug-and-play discovery.
+      # - Disabled: recommended for most server/relay/container deployments across machines/subnets (mDNS doesn't cross
+      #   routers reliably, adds background chatter, and creates less predictable connections). In hub-and-spoke networks
+      #   with explicit bootstrap-to-relay, mDNS usually provides little value and can be turned off.
+      result = self.__run_command(
+        ["ipfs", "config", "--json", "Discovery.MDNS.Enabled", "false"]
+      )
+      return result
+
+    def __set_reprovider_strategy(self):
+      # Reprovider.Strategy: "all" vs "pinned" vs "pinned+mfs"
+      # Controls what content this node periodically re-announces ("reprovides") into the DHT (CID → provider records).
+      # - "all": advertise *everything* in the local blockstore (includes transient cache) → can be very expensive/noisy.
+      # - "pinned": advertise only content explicitly pinned (the data you intend to keep/serve) → usually the best default.
+      # - "pinned+mfs": advertise pinned content plus the current MFS tree (IPFS's mutable filesystem workspace) → use if
+      #   your app relies on MFS state being discoverable. Prefer avoiding "all" unless you truly want to advertise cache.
+      result = self.__run_command(
+        ["ipfs", "config", "--json", "Reprovider.Strategy", f'"{IPFSCt.REPROVIDER_STRATEGY}"']
       )
       return result
 
@@ -2704,9 +2738,11 @@ class R1FSEngine:
           #######        END OF CLEANUP PHASE        ########
           ###################################################
           self.__set_reprovider_interval()
+          self.__set_reprovider_strategy()
           self.__disable_auto_tls()
-          self.__set_routing_type_dht()
+          self.__set_routing_type()
           self.__disable_ws_transport()
+          self.__disable_mdns_discovery()
           self.__bootstrap_add(self.__ipfs_relay)
           self.P("Starting IPFS daemon in background...")
           subprocess.Popen(["ipfs", "daemon", "--enable-gc", "--migrate=true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
