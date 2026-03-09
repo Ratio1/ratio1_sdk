@@ -2738,6 +2738,7 @@ class R1FSEngine:
           #######        END OF CLEANUP PHASE        ########
           ###################################################
           self.__set_reprovider_interval()
+          self.__set_reprovider_strategy()
           self.__disable_auto_tls()
           self.__set_routing_type()
           self.__disable_ws_transport()
