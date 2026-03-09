@@ -87,12 +87,30 @@ def loop_processing(plugin: CustomPluginTemplate):
   # Check users' watched wallets and notify if any node is offline
   if plugin.obj_cache.get(watched_wallets_loops_delay_cache_key) == 10:
     alert_changes = False
+    offline_reminder_hours = [1, 6, 12, 24]
     watched_wallets = plugin.obj_cache.get(watched_wallets_cache_key)
     offline_node_min_seens = plugin.cfg_offline_node_min_seens
+
+    def get_due_reminder_hours(elapsed_seconds, last_notified_hours):
+      elapsed_hours = elapsed_seconds / 3600
+      due_hours = 0
+
+      for target_hours in offline_reminder_hours:
+        if elapsed_hours >= target_hours and target_hours > last_notified_hours:
+          due_hours = target_hours
+
+      if elapsed_hours >= 24:
+        recurring_hours = (int(elapsed_hours) // 24) * 24
+        if recurring_hours > last_notified_hours:
+          due_hours = max(due_hours, recurring_hours)
+
+      return due_hours
+
     if watched_wallets is not None:
       for user, wallets in watched_wallets.items():
         new_online_nodes = []
         new_offline_nodes = []
+        offline_reminder_nodes = []
         for wallet in wallets:
           wallet_nodes = plugin.bc.get_wallet_nodes(wallet)
           for node in wallet_nodes:
@@ -106,7 +124,7 @@ def loop_processing(plugin: CustomPluginTemplate):
             if node_is_online:
               if node_cache_value is not None:
                 # Node was previously offline
-                if node_cache_value >= offline_node_min_seens:
+                if node_cache_value["initial_alert_sent"] or node_cache_value["last_notified_hours"] > 0:
                   # If we had notified the user, we notify them that the node is back online
                   new_online_nodes.append(node)
                 plugin.obj_cache[alert_cache_key][node_alert_cache_key] = None
@@ -114,19 +132,39 @@ def loop_processing(plugin: CustomPluginTemplate):
             else:
               # Node is offline
               if node_cache_value is None:
-                plugin.obj_cache[alert_cache_key][node_alert_cache_key] = 1
+                node_cache_value = {
+                  "seen_count": 1,
+                  "first_offline_ts": plugin.time(),
+                  "initial_alert_sent": False,
+                  "last_notified_hours": 0,
+                }
+                plugin.obj_cache[alert_cache_key][node_alert_cache_key] = node_cache_value
                 alert_changes = True
                 if offline_node_min_seens == 1:
                   # We need to notify the user
                   new_offline_nodes.append(node)
-              elif node_cache_value < offline_node_min_seens:
-                # The node was already offline but we have not notified the user yet
-                new_value = node_cache_value + 1
-                plugin.obj_cache[alert_cache_key][node_alert_cache_key] = new_value
+                  node_cache_value["initial_alert_sent"] = True
+              else:
+                # The node was already offline
+                node_cache_value["seen_count"] += 1
                 alert_changes = True
-                if new_value >= offline_node_min_seens:
+                if not node_cache_value["initial_alert_sent"] and node_cache_value["seen_count"] >= offline_node_min_seens:
                   # We need to notify the user
                   new_offline_nodes.append(node)
+                  node_cache_value["initial_alert_sent"] = True
+
+                if node_cache_value["initial_alert_sent"]:
+                  elapsed_seconds = max(0, plugin.time() - node_cache_value["first_offline_ts"])
+                  due_reminder_hours = get_due_reminder_hours(
+                    elapsed_seconds=elapsed_seconds,
+                    last_notified_hours=node_cache_value["last_notified_hours"],
+                  )
+                  if due_reminder_hours > 0:
+                    offline_reminder_nodes.append((node, due_reminder_hours))
+                    node_cache_value["last_notified_hours"] = due_reminder_hours
+                    alert_changes = True
+
+                plugin.obj_cache[alert_cache_key][node_alert_cache_key] = node_cache_value
           # endfor wallet_nodes
         # endfor wallets
         if len(new_online_nodes) > 0:
@@ -148,6 +186,23 @@ def loop_processing(plugin: CustomPluginTemplate):
             message += "Please check your nodes status."
           plugin.send_message_to_user(user_id=user, text=message)
         # endif new_offline_nodes
+        if len(offline_reminder_nodes) > 0:
+          if len(offline_reminder_nodes) == 1:
+            node, reminder_hours = offline_reminder_nodes[0]
+            message = (
+              f"🚨⚠️ Reminder: Node {plugin.netmon.network_node_eeid(plugin.bc.eth_addr_to_internal_addr(node))} "
+              f"({node}) has been offline for {reminder_hours} hours. Please check your node status."
+            )
+          else:
+            message = "🚨⚠️ Reminder: The following nodes are still offline:\n"
+            for node, reminder_hours in offline_reminder_nodes:
+              message += (
+                f"- {plugin.netmon.network_node_eeid(plugin.bc.eth_addr_to_internal_addr(node))} "
+                f"({node}) for {reminder_hours} hours\n"
+              )
+            message += "Please check your nodes status."
+          plugin.send_message_to_user(user_id=user, text=message)
+        # endif offline_reminder_nodes
       # endfor user, wallets
       if alert_changes:
         plugin.diskapi_save_pickle_to_data(plugin.obj_cache.get(alert_cache_key), diskapi_alerts_file_name)
