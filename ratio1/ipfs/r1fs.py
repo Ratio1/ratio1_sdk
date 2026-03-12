@@ -993,6 +993,128 @@ class R1FSEngine:
       success = "success" in combined or "already connected" in combined
       return success, output, errors
 
+    def __swarm_disconnect(self, target, timeout=10):
+      """
+      Attempt an ``ipfs swarm disconnect`` without treating failures as fatal.
+
+      Parameters
+      ----------
+      target : str
+          Peer multiaddr or peer id to disconnect from.
+      timeout : int, optional
+          Command timeout in seconds.
+
+      Returns
+      -------
+      tuple[bool, str, str]
+          Success flag, stdout, and stderr from the command.
+      """
+      output, errors = self.__run_command(
+        ["ipfs", "swarm", "disconnect", target],
+        raise_on_error=False,
+        return_errors=True,
+        timeout=timeout,
+      )
+      combined = " ".join(part for part in (output, errors) if part).lower()
+      success = "disconnect" in combined or "success" in combined or "not connected" in combined
+      return success, output, errors
+
+    def __peer_uses_multiaddr(self, peer_lines, multiaddr):
+      """
+      Check whether a peer is currently connected through an exact multiaddr.
+
+      Parameters
+      ----------
+      peer_lines : list[str]
+          Output lines from ``ipfs swarm peers``.
+      multiaddr : str
+          Expected peer multiaddr.
+
+      Returns
+      -------
+      bool
+          ``True`` when the exact multiaddr is present in ``peer_lines``.
+      """
+      return multiaddr in (peer_lines or [])
+
+    def __wait_for_peer_disconnect(self, peer_id, timeout=5, step=0.5):
+      """
+      Wait until a peer id disappears from ``ipfs swarm peers``.
+
+      Parameters
+      ----------
+      peer_id : str
+          Peer id to wait for.
+      timeout : int, optional
+          Maximum wait in seconds.
+      step : float, optional
+          Poll interval in seconds.
+
+      Returns
+      -------
+      bool
+          ``True`` when the peer is no longer present in swarm peers.
+      """
+      waited = 0.0
+      while waited < timeout:
+        peer_lines = self._get_swarm_peers()
+        if not any(peer_id in line for line in peer_lines):
+          return True
+        time.sleep(step)
+        waited += step
+      return False
+
+    def __prove_samehost_relay_path(self, relay_info, local_multiaddr):
+      """
+      Prove that the relay is reachable through the local gateway multiaddr.
+
+      The proof must show an active swarm peer connection on the exact local
+      multiaddr after disconnecting any existing relay connection. This avoids
+      accepting a stale/public relay connection as evidence that the local path
+      works.
+
+      Parameters
+      ----------
+      relay_info : dict
+          Parsed relay metadata from :meth:`__parse_multiaddr`.
+      local_multiaddr : str
+          Candidate local-gateway relay multiaddr.
+
+      Returns
+      -------
+      tuple[bool, str]
+          Proof success flag and a short diagnostic message.
+      """
+      peer_id = relay_info["peer_id"]
+      public_multiaddrs = []
+      if relay_info.get("ip4"):
+        public_multiaddrs.append(self.__build_peer_multiaddr("ip4", relay_info["ip4"], relay_info["tcp_port"], peer_id))
+      if relay_info.get("ip6"):
+        public_multiaddrs.append(self.__build_peer_multiaddr("ip6", relay_info["ip6"], relay_info["tcp_port"], peer_id))
+
+      # Disconnect any existing relay session so a subsequent success must come
+      # from the specific local multiaddr under test.
+      self.__swarm_disconnect(peer_id, timeout=5)
+      for public_multiaddr in public_multiaddrs:
+        self.__swarm_disconnect(public_multiaddr, timeout=5)
+      self.__swarm_disconnect(local_multiaddr, timeout=5)
+      self.__wait_for_peer_disconnect(peer_id, timeout=5, step=0.5)
+
+      success, output, errors = self.__swarm_connect(local_multiaddr, timeout=5)
+      if not success:
+        reconnect_target = public_multiaddrs[0] if public_multiaddrs else self.__ipfs_relay
+        self.__swarm_connect(reconnect_target, timeout=5)
+        return False, errors or output or "local connect failed"
+
+      peer_lines = self._get_swarm_peers()
+      if self.__peer_uses_multiaddr(peer_lines, local_multiaddr):
+        return True, "connected through local multiaddr"
+
+      reconnect_target = public_multiaddrs[0] if public_multiaddrs else self.__ipfs_relay
+      self.__swarm_disconnect(peer_id, timeout=5)
+      self.__swarm_connect(reconnect_target, timeout=5)
+      return False, "relay peer did not reappear on the expected local multiaddr"
+
     def __reset_connection_state(self):
       """
       Clear connection-derived state before a daemon restart.
@@ -1166,7 +1288,7 @@ class R1FSEngine:
         self.Pd("Skipping same-host relay proof due to recent negative result cache.")
         return False
 
-      success, _, errors = self.__swarm_connect(local_multiaddr, timeout=5)
+      success, proof_reason = self.__prove_samehost_relay_path(relay_info, local_multiaddr)
       if not success:
         self.__write_samehost_fix_marker({
           "peer_id": relay_info.get("peer_id"),
@@ -1177,7 +1299,7 @@ class R1FSEngine:
           "status": "negative",
           "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         })
-        self.Pd(f"Same-host relay workaround proof failed for {local_multiaddr}: {errors}")
+        self.Pd(f"Same-host relay workaround proof failed for {local_multiaddr}: {proof_reason}")
         return False
 
       local_bootstrap_changed = False
