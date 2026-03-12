@@ -1094,7 +1094,6 @@ class R1FSEngine:
 
       # Disconnect any existing relay session so a subsequent success must come
       # from the specific local multiaddr under test.
-      self.__swarm_disconnect(peer_id, timeout=5)
       for public_multiaddr in public_multiaddrs:
         self.__swarm_disconnect(public_multiaddr, timeout=5)
       self.__swarm_disconnect(local_multiaddr, timeout=5)
@@ -1111,7 +1110,9 @@ class R1FSEngine:
         return True, "connected through local multiaddr"
 
       reconnect_target = public_multiaddrs[0] if public_multiaddrs else self.__ipfs_relay
-      self.__swarm_disconnect(peer_id, timeout=5)
+      for public_multiaddr in public_multiaddrs:
+        self.__swarm_disconnect(public_multiaddr, timeout=5)
+      self.__swarm_disconnect(local_multiaddr, timeout=5)
       self.__swarm_connect(reconnect_target, timeout=5)
       return False, "relay peer did not reappear on the expected local multiaddr"
 
