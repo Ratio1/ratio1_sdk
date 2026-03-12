@@ -53,7 +53,7 @@ Documentation url: https://docs.ipfs.tech/reference/kubo/cli/#ipfs
 """
 import subprocess
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import base64
 import time
 import os
@@ -68,13 +68,15 @@ import ssl
 from requests.auth import HTTPBasicAuth
 import tempfile
 import random
+import ipaddress
+import signal
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 DEFAULT_SECRET = "ratio1"
 DEFAULT_FILENAME_JSON = "data.json"
 
-from threading import Lock
+from threading import RLock
 
 __VER__ = "0.2.2"
 
@@ -88,11 +90,14 @@ class IPFSCt:
   EE_IPFS_RELAY_API_KEY = "EE_IPFS_RELAY_API"
   EE_IPFS_API_KEY_BASE64_KEY = "EE_IPFS_API_KEY_BASE64"
   EE_IPFS_CERTIFICATE_BASE64_KEY = "EE_IPFS_CERTIFICATE_BASE64"
+  EE_R1FS_SAMEHOST_RELAY_FIX = "EE_R1FS_SAMEHOST_RELAY_FIX"
   R1FS_DOWNLOADS = "ipfs_downloads"
   R1FS_UPLOADS = "ipfs_uploads"
   CACHE_ROOT = "_local_cache"
   TEMP_DOWNLOAD = os.path.join(f"./{CACHE_ROOT}/_output", R1FS_DOWNLOADS)
   TEMP_UPLOAD = os.path.join(f"./{CACHE_ROOT}/_output", R1FS_UPLOADS)
+  SAMEHOST_FIX_MARKER = ".r1fs_samehost_relay_fix.json"
+  SAMEHOST_FIX_NEGATIVE_TTL_SECONDS = 3600
   
   TIMEOUT = 90 # seconds
   # The reprovide operation is very heavy and should be done infrequently.
@@ -156,7 +161,10 @@ def require_ipfs_started(method):
 
 class R1FSEngine:
   
-  _lock: Lock = Lock()
+  # __new__ holds this lock while constructing and starting the singleton instance.
+  # Startup may re-enter code paths that need the same class-level guard, so this
+  # must stay re-entrant to avoid self-deadlocking the initializing thread.
+  _lock: RLock = RLock()
   __instances = {}
 
   def __new__(
@@ -247,6 +255,8 @@ class R1FSEngine:
       self.__uploads_dir = uploads_dir    
       self.__debug = debug
       self.__relay_check_cnt = 0
+      self.__peers = []
+      self.__samehost_fix_attempted = False
       
       self.startup()
       return
@@ -549,6 +559,654 @@ class R1FSEngine:
         ["ipfs", "bootstrap", "add", ipfs_relay]
       )
       return result
+
+    def __set_config_json(self, key, value):
+      """
+      Set a JSON-valued IPFS config key.
+
+      Parameters
+      ----------
+      key : str
+          IPFS config key path understood by ``ipfs config --json``.
+      value : any
+          JSON-serializable value to persist.
+
+      Returns
+      -------
+      str
+          Raw stdout returned by the ``ipfs config`` command.
+      """
+      return self.__run_command(
+        ["ipfs", "config", "--json", key, json.dumps(value, separators=(",", ":"))]
+      )
+
+    def __get_config_json(self, key, default=None):
+      """
+      Read and decode a JSON-valued IPFS config key.
+
+      Parameters
+      ----------
+      key : str
+          IPFS config key path understood by ``ipfs config --json``.
+      default : any, optional
+          Value returned when the key cannot be read or parsed.
+
+      Returns
+      -------
+      any
+          Decoded JSON value or ``default`` when reading/parsing fails.
+      """
+      if default is None:
+        default = []
+      output = self.__run_command(
+        ["ipfs", "config", "--json", key],
+        raise_on_error=False,
+        show_logs=False,
+      )
+      if not output:
+        return list(default) if isinstance(default, list) else default
+      try:
+        return json.loads(output)
+      except Exception:
+        self.P(f"Failed to parse config key {key}: {output}", color='r')
+        return list(default) if isinstance(default, list) else default
+
+    def __get_bootstrap_list(self):
+      """
+      Return the current bootstrap peer list.
+
+      Returns
+      -------
+      list[str]
+          Bootstrap multiaddrs currently configured in the local IPFS repo.
+      """
+      output = self.__run_command(
+        ["ipfs", "bootstrap", "list"],
+        raise_on_error=False,
+        show_logs=False,
+      )
+      if not output:
+        return []
+      return [line.strip() for line in output.splitlines() if line.strip()]
+
+    def __ensure_bootstrap_entry(self, multiaddr):
+      """
+      Ensure a bootstrap multiaddr exists exactly once.
+
+      Parameters
+      ----------
+      multiaddr : str
+          Bootstrap peer multiaddr to add when missing.
+
+      Returns
+      -------
+      bool
+          ``True`` when the bootstrap entry was added, ``False`` when it was
+          already present.
+      """
+      bootstraps = self.__get_bootstrap_list()
+      if multiaddr in bootstraps:
+        return False
+      self.__bootstrap_add(multiaddr)
+      return True
+
+    def __merge_unique_values(self, existing, additions):
+      """
+      Append missing values while preserving original order.
+
+      Parameters
+      ----------
+      existing : list
+          Existing ordered values.
+      additions : list
+          Candidate values to append when not already present.
+
+      Returns
+      -------
+      tuple[list, bool]
+          Updated ordered list and a flag indicating whether any new value was
+          appended.
+      """
+      merged = list(existing or [])
+      changed = False
+      for value in additions or []:
+        if value and value not in merged:
+          merged.append(value)
+          changed = True
+      return merged, changed
+
+    def __parse_multiaddr(self, multiaddr):
+      """
+      Extract the relay addressing fields needed by the workaround.
+
+      Parameters
+      ----------
+      multiaddr : str
+          Relay multiaddr such as ``/ip4/<ip>/tcp/<port>/p2p/<peer_id>``.
+
+      Returns
+      -------
+      dict or None
+          Parsed relay metadata or ``None`` when the input does not contain the
+          minimum fields required by the workaround.
+      """
+      if not multiaddr or not isinstance(multiaddr, str):
+        return None
+      parts = [part for part in multiaddr.split("/") if part]
+      parsed = {
+        "multiaddr": multiaddr,
+        "ip4": None,
+        "ip6": None,
+        "tcp_port": None,
+        "peer_id": None,
+      }
+      idx = 0
+      while idx < len(parts):
+        token = parts[idx]
+        next_part = parts[idx + 1] if idx + 1 < len(parts) else None
+        if token == "ip4":
+          parsed["ip4"] = next_part
+          idx += 2
+          continue
+        if token == "ip6":
+          parsed["ip6"] = next_part
+          idx += 2
+          continue
+        if token == "tcp":
+          parsed["tcp_port"] = next_part
+          idx += 2
+          continue
+        if token in {"p2p", "ipfs"}:
+          parsed["peer_id"] = next_part
+          idx += 2
+          continue
+        idx += 1
+      if not parsed["tcp_port"] or not parsed["peer_id"]:
+        return None
+      return parsed
+
+    def __build_peer_multiaddr(self, ip_version, host, port, peer_id):
+      """
+      Build a peer multiaddr from normalized parts.
+
+      Parameters
+      ----------
+      ip_version : str
+          Multiaddr IP token, usually ``ip4`` or ``ip6``.
+      host : str
+          Peer host or IP literal.
+      port : str
+          TCP port.
+      peer_id : str
+          IPFS peer id.
+
+      Returns
+      -------
+      str
+          Peer multiaddr.
+      """
+      return f"/{ip_version}/{host}/tcp/{port}/p2p/{peer_id}"
+
+    def __samehost_fix_enabled(self):
+      """
+      Determine whether the same-host workaround should run.
+
+      Returns
+      -------
+      bool
+          ``True`` by default. Only explicit false-like env values disable the
+          workaround.
+      """
+      value = os.getenv(IPFSCt.EE_R1FS_SAMEHOST_RELAY_FIX)
+      if value is None:
+        return True
+      return str(value).strip().lower() not in {"0", "false", "no", "off"}
+
+    def __get_default_gateway(self):
+      """
+      Discover the container default gateway from ``ip route``.
+
+      Returns
+      -------
+      str or None
+          Default gateway IP string or ``None`` when it cannot be determined.
+      """
+      output = self.__run_command(
+        ["ip", "route"],
+        raise_on_error=False,
+        show_logs=False,
+        timeout=5,
+      )
+      if not output:
+        return None
+      for line in output.splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 3 and parts[0] == "default":
+          try:
+            via_idx = parts.index("via")
+            return parts[via_idx + 1]
+          except Exception:
+            continue
+      return None
+
+    def __build_addr_filters(self, relay_info):
+      """
+      Build addrfilter entries that block the relay public addresses.
+
+      Parameters
+      ----------
+      relay_info : dict
+          Parsed relay metadata from :meth:`__parse_multiaddr`.
+
+      Returns
+      -------
+      list[str]
+          Addrfilter entries for the relay public IPs.
+      """
+      filters = []
+      if relay_info.get("ip4"):
+        filters.append(f"/ip4/{relay_info['ip4']}/ipcidr/32")
+      if relay_info.get("ip6"):
+        filters.append(f"/ip6/{relay_info['ip6']}/ipcidr/128")
+      return filters
+
+    def __has_all_values(self, existing, required):
+      """
+      Check whether every required value is already present.
+
+      Parameters
+      ----------
+      existing : list
+          Existing values.
+      required : list
+          Values that must be present.
+
+      Returns
+      -------
+      bool
+          ``True`` when all required values are already contained in
+          ``existing``.
+      """
+      existing_values = set(existing or [])
+      return all(value in existing_values for value in (required or []) if value)
+
+    def __get_samehost_fix_marker_path(self):
+      """
+      Return the marker path used by the same-host workaround.
+
+      Returns
+      -------
+      str
+          Absolute marker path inside the active IPFS repo.
+      """
+      return os.path.join(self.__ipfs_home, IPFSCt.SAMEHOST_FIX_MARKER)
+
+    def __read_samehost_fix_marker(self):
+      """
+      Read the persisted same-host workaround marker.
+
+      Returns
+      -------
+      dict or None
+          Marker payload or ``None`` when the marker is missing or invalid.
+      """
+      marker_path = self.__get_samehost_fix_marker_path()
+      if not os.path.isfile(marker_path):
+        return None
+      try:
+        with open(marker_path, "r") as fd:
+          return json.load(fd)
+      except Exception as e:
+        self.P(f"Failed to read same-host relay marker: {e}", color='r')
+        return None
+
+    def __write_samehost_fix_marker(self, marker):
+      """
+      Persist the same-host workaround marker.
+
+      Parameters
+      ----------
+      marker : dict
+          Marker payload describing the last successful or cached-negative
+          same-host decision.
+      """
+      marker_path = self.__get_samehost_fix_marker_path()
+      with open(marker_path, "w") as fd:
+        json.dump(marker, fd, indent=2, sort_keys=True)
+
+    def __marker_matches_samehost_fix(self, marker, relay_info, gateway):
+      """
+      Check whether a marker describes the current relay/gateway tuple.
+
+      Parameters
+      ----------
+      marker : dict
+          Persisted marker payload.
+      relay_info : dict
+          Parsed relay metadata from :meth:`__parse_multiaddr`.
+      gateway : str
+          Current container default gateway.
+
+      Returns
+      -------
+      bool
+          ``True`` when the marker matches the current same-host decision
+          inputs.
+      """
+      if not isinstance(marker, dict):
+        return False
+      return (
+        marker.get("peer_id") == relay_info.get("peer_id") and
+        marker.get("relay_ip4") == relay_info.get("ip4") and
+        marker.get("relay_ip6") == relay_info.get("ip6") and
+        marker.get("gateway") == gateway
+      )
+
+    def __get_marker_status(self, marker):
+      """
+      Return the stored marker status.
+
+      Parameters
+      ----------
+      marker : dict
+          Persisted marker payload.
+
+      Returns
+      -------
+      str or None
+          Marker status or ``None`` when unavailable.
+      """
+      if not isinstance(marker, dict):
+        return None
+      return marker.get("status")
+
+    def __parse_marker_timestamp(self, marker):
+      """
+      Parse the marker timestamp as an aware UTC datetime.
+
+      Parameters
+      ----------
+      marker : dict
+          Persisted marker payload.
+
+      Returns
+      -------
+      datetime or None
+          Parsed timestamp or ``None`` when missing/invalid.
+      """
+      if not isinstance(marker, dict):
+        return None
+      timestamp = marker.get("timestamp")
+      if not timestamp:
+        return None
+      try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+      except Exception:
+        return None
+
+    def __is_negative_marker_fresh(self, marker):
+      """
+      Check whether a cached negative proof result is still usable.
+
+      Parameters
+      ----------
+      marker : dict
+          Persisted marker payload.
+
+      Returns
+      -------
+      bool
+          ``True`` when the marker represents a recent failed proof for the
+          current relay/gateway tuple.
+      """
+      if self.__get_marker_status(marker) != "negative":
+        return False
+      marker_time = self.__parse_marker_timestamp(marker)
+      if marker_time is None:
+        return False
+      age_seconds = (datetime.now(timezone.utc) - marker_time).total_seconds()
+      return age_seconds >= 0 and age_seconds < IPFSCt.SAMEHOST_FIX_NEGATIVE_TTL_SECONDS
+
+    def __swarm_connect(self, multiaddr, timeout=IPFSCt.TIMEOUT):
+      """
+      Attempt an ``ipfs swarm connect`` and normalize success detection.
+
+      Parameters
+      ----------
+      multiaddr : str
+          Peer multiaddr to connect to.
+      timeout : int, optional
+          Command timeout in seconds.
+
+      Returns
+      -------
+      tuple[bool, str, str]
+          Success flag, stdout, and stderr from the command.
+      """
+      output, errors = self.__run_command(
+        ["ipfs", "swarm", "connect", multiaddr],
+        raise_on_error=False,
+        return_errors=True,
+        timeout=timeout,
+      )
+      combined = " ".join(part for part in (output, errors) if part).lower()
+      success = "success" in combined or "already connected" in combined
+      return success, output, errors
+
+    def __reset_connection_state(self):
+      """
+      Clear connection-derived state before a daemon restart.
+      """
+      self.__ipfs_started = False
+      self.__connected_at = None
+      self.__peers = []
+
+    def __shutdown_daemon(self, timeout=20):
+      """
+      Stop the local IPFS daemon.
+
+      Parameters
+      ----------
+      timeout : int, optional
+          Grace period in seconds before falling back to signaling daemon PIDs.
+
+      Returns
+      -------
+      bool
+          ``True`` when the daemon is observed stopped.
+      """
+      if not self.is_ipfs_daemon_running():
+        return True
+      self.__run_command(
+        ["ipfs", "shutdown"],
+        raise_on_error=False,
+        timeout=10,
+      )
+      waited = 0
+      while waited < timeout:
+        if not self.is_ipfs_daemon_running():
+          return True
+        time.sleep(1)
+        waited += 1
+
+      pid_output = self.__run_command(
+        ["pgrep", "-f", "ipfs daemon"],
+        raise_on_error=False,
+        show_logs=False,
+        timeout=5,
+      )
+      if pid_output:
+        for pid_text in pid_output.splitlines():
+          try:
+            os.kill(int(pid_text.strip()), signal.SIGINT)
+          except Exception:
+            continue
+      waited = 0
+      while waited < 5:
+        if not self.is_ipfs_daemon_running():
+          return True
+        time.sleep(1)
+        waited += 1
+      return not self.is_ipfs_daemon_running()
+
+    def __start_daemon(self, max_attempts=10, sleep_time=2):
+      """
+      Start the local IPFS daemon and wait for its API to respond.
+
+      Parameters
+      ----------
+      max_attempts : int, optional
+          Number of health-check attempts.
+      sleep_time : int, optional
+          Delay in seconds between health checks.
+
+      Returns
+      -------
+      bool
+          ``True`` when the daemon becomes reachable.
+      """
+      self.P("Starting IPFS daemon in background...")
+      subprocess.Popen(
+        ["ipfs", "daemon", "--enable-gc", "--migrate=true"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+      )
+      for attempt in range(max_attempts):
+        ipfs_daemon_running = self.is_ipfs_daemon_running()
+        if ipfs_daemon_running:
+          self.P("IPFS daemon started successfully.", color='g')
+          return True
+        self.P(f"Check {attempt + 1}/{max_attempts} IPFS running: {ipfs_daemon_running}", color='r')
+        time.sleep(sleep_time)
+      return False
+
+    def __restart_daemon(self):
+      """
+      Restart the local IPFS daemon after config changes.
+
+      Returns
+      -------
+      bool
+          ``True`` when the daemon was stopped and started successfully.
+      """
+      self.P("Restarting IPFS daemon to apply same-host relay workaround...", color='m')
+      self.__reset_connection_state()
+      if not self.__shutdown_daemon():
+        self.P("Failed to stop IPFS daemon cleanly.", color='r')
+        return False
+      if not self.__start_daemon():
+        self.P("Failed to restart IPFS daemon after applying workaround.", color='r')
+        return False
+      return True
+
+    def __maybe_apply_samehost_relay_workaround(self):
+      """
+      Reconcile same-host relay bootstrap/filter state.
+
+      The workaround is intended for edge-node containers running on the same
+      host as the relay. It uses three progressively more expensive checks:
+
+      1. Marker + live config fast path.
+      2. Bounded negative-cache skip for recent failed proofs.
+      3. Proof connect to the container gateway before mutating config.
+
+      Returns
+      -------
+      bool
+          ``True`` when config changes required a daemon restart, otherwise
+          ``False``.
+      """
+      if self.__samehost_fix_attempted:
+        return False
+      self.__samehost_fix_attempted = True
+
+      if not self.__samehost_fix_enabled():
+        self.Pd("Same-host relay workaround disabled.")
+        return False
+
+      relay_info = self.__parse_multiaddr(self.__ipfs_relay)
+      if relay_info is None:
+        self.P("Same-host relay workaround skipped: could not parse relay multiaddr.", color='r')
+        return False
+
+      gateway = self.__get_default_gateway()
+      if not gateway:
+        self.P("Same-host relay workaround skipped: could not determine container gateway.", color='r')
+        return False
+
+      try:
+        ipaddress.ip_address(gateway)
+      except ValueError:
+        self.P(f"Same-host relay workaround skipped: invalid gateway {gateway}.", color='r')
+        return False
+
+      local_multiaddr = self.__build_peer_multiaddr(
+        "ip4",
+        gateway,
+        relay_info["tcp_port"],
+        relay_info["peer_id"],
+      )
+
+      marker = self.__read_samehost_fix_marker()
+      marker_matches = self.__marker_matches_samehost_fix(marker, relay_info, gateway)
+      addr_filters = self.__get_config_json("Swarm.AddrFilters", default=[])
+      desired_filters = self.__build_addr_filters(relay_info)
+      bootstraps = self.__get_bootstrap_list()
+      bootstrap_matches = local_multiaddr in bootstraps
+      filters_match = self.__has_all_values(addr_filters, desired_filters)
+      # Fast path: when both marker and repo config already match the desired
+      # same-host state, avoid any extra proof-connect or restart work.
+      if marker_matches and bootstrap_matches and filters_match:
+        self.Pd("Same-host relay workaround already applied and config is in sync.")
+        return False
+      # Negative cache: off-host nodes can repeatedly fail the local gateway
+      # proof; cache that result for a short TTL to avoid paying the timeout on
+      # every process restart.
+      if marker_matches and self.__is_negative_marker_fresh(marker):
+        self.Pd("Skipping same-host relay proof due to recent negative result cache.")
+        return False
+
+      success, _, errors = self.__swarm_connect(local_multiaddr, timeout=5)
+      if not success:
+        self.__write_samehost_fix_marker({
+          "peer_id": relay_info.get("peer_id"),
+          "relay_ip4": relay_info.get("ip4"),
+          "relay_ip6": relay_info.get("ip6"),
+          "gateway": gateway,
+          "local_multiaddr": local_multiaddr,
+          "status": "negative",
+          "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        })
+        self.Pd(f"Same-host relay workaround proof failed for {local_multiaddr}: {errors}")
+        return False
+
+      local_bootstrap_changed = False
+      if not bootstrap_matches:
+        local_bootstrap_changed = self.__ensure_bootstrap_entry(local_multiaddr)
+      merged_filters, filters_changed = self.__merge_unique_values(addr_filters, desired_filters)
+      if filters_changed:
+        self.__set_config_json("Swarm.AddrFilters", merged_filters)
+
+      new_marker = {
+        "peer_id": relay_info.get("peer_id"),
+        "relay_ip4": relay_info.get("ip4"),
+        "relay_ip6": relay_info.get("ip6"),
+        "gateway": gateway,
+        "local_multiaddr": local_multiaddr,
+        "status": "applied",
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+      }
+      if not marker_matches or filters_changed:
+        self.__write_samehost_fix_marker(new_marker)
+
+      if not filters_changed:
+        if local_bootstrap_changed:
+          self.P("Re-added local bootstrap for same-host relay workaround.", color='g')
+        else:
+          self.Pd("Same-host relay workaround already applied for this relay.")
+        return False
+
+      return self.__restart_daemon()
 
     # PUBLIC COMMAND
     def get_ipfs_id_data(self) -> dict:
@@ -2569,11 +3227,37 @@ class R1FSEngine:
       ipfs_certificate_path: str = None,
     ) -> bool:
       """
-      This method initializes the IPFS repository if needed, connects to a relay, and starts the daemon.
+      Initialize the local IPFS repo and attach it to the configured relay.
       TODO: (Vitalii) Split this into smaller methods.
+
+      Parameters
+      ----------
+      base64_swarm_key : str, optional
+          Base64-encoded swarm key. Falls back to
+          ``EE_SWARM_KEY_CONTENT_BASE64`` when omitted.
+      ipfs_relay : str, optional
+          Relay multiaddr. Falls back to ``EE_IPFS_RELAY`` when omitted.
+      ipfs_relay_api : str, optional
+          Relay API endpoint. Falls back to ``EE_IPFS_RELAY_API`` when omitted.
+      ipfs_api_key_username : str, optional
+          Relay API username. Decoded from ``EE_IPFS_API_KEY_BASE64`` when
+          omitted.
+      ipfs_api_key_password : str, optional
+          Relay API password. Decoded from ``EE_IPFS_API_KEY_BASE64`` when
+          omitted.
+      ipfs_certificate_path : str, optional
+          TLS certificate file path. Materialized from
+          ``EE_IPFS_CERTIFICATE_BASE64`` when omitted.
+
+      Returns
+      -------
+      bool
+          ``True`` when the daemon is running and connected to the relay,
+          otherwise ``False``.
       """
       if self.ipfs_started:
         return
+      self.__samehost_fix_attempted = False
       
       self.P("Starting R1FS...", color='m')
       
@@ -2744,19 +3428,7 @@ class R1FSEngine:
           self.__disable_ws_transport()
           self.__disable_mdns_discovery()
           self.__bootstrap_add(self.__ipfs_relay)
-          self.P("Starting IPFS daemon in background...")
-          subprocess.Popen(["ipfs", "daemon", "--enable-gc", "--migrate=true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-          max_attempts = 10
-          sleep_time = 2
-          for attempt in range(max_attempts):
-            ipfs_daemon_running = self.is_ipfs_daemon_running()
-            if ipfs_daemon_running:
-              self.P("IPFS daemon started successfully.", color='g')
-              break
-            else:
-              self.P(f"Check {attempt + 1}/{max_attempts} IPFS running: {ipfs_daemon_running}", color='r')
-              time.sleep(sleep_time)
-          #end for
+          ipfs_daemon_running = self.__start_daemon()
           if not ipfs_daemon_running:
             self.P("Failed to start IPFS daemon after multiple attempts.", color='r')
             return False
@@ -2783,6 +3455,7 @@ class R1FSEngine:
             self.P("No relay connection found in swarm peers.", color='r')
             self.__ipfs_started = False
           #end if relay_found
+        # endif at least 1 swarm peer
         
         if not self.__ipfs_started:
           msg =  f"Connecting to R1FS relay"
@@ -2802,6 +3475,24 @@ class R1FSEngine:
             self._check_and_record_relay_connection(debug=True)
           else:
             self.P("Relay connection result did not indicate success.", color='r')
+        # endif ipfs not started
+
+        if self.__ipfs_started and self.__maybe_apply_samehost_relay_workaround():
+          self.P("Reconnecting to relay after same-host relay workaround restart...", color='m')
+          my_id = self.__get_id()
+          relay_found = self._check_and_record_relay_connection(debug=True)
+          if not relay_found:
+            success, output, errors = self.__swarm_connect(ipfs_relay)
+            if not success:
+              self.P(f"Error reconnecting to relay after restart: {errors or output}", color='r')
+              self.__ipfs_started = False
+            else:
+              self.__ipfs_started = True
+              self._check_and_record_relay_connection(debug=True)
+          else:
+            self.__ipfs_started = True
+          if self.__ipfs_started:
+            self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
       except Exception as e:
         self.P(f"Error connecting to relay: {e}", color='r')
       #end try
