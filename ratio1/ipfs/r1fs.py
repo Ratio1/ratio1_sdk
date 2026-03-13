@@ -639,7 +639,10 @@ class R1FSEngine:
       if not output:
         return list(default) if isinstance(default, list) else default
       try:
-        return json.loads(output)
+        parsed = json.loads(output)
+        if parsed is None:
+          return list(default) if isinstance(default, list) else default
+        return parsed
       except Exception:
         self.P(f"Failed to parse config key {key}: {output}", color='r')
         return list(default) if isinstance(default, list) else default
