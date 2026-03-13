@@ -90,6 +90,11 @@ class IPFSCt:
   EE_IPFS_RELAY_API_KEY = "EE_IPFS_RELAY_API"
   EE_IPFS_API_KEY_BASE64_KEY = "EE_IPFS_API_KEY_BASE64"
   EE_IPFS_CERTIFICATE_BASE64_KEY = "EE_IPFS_CERTIFICATE_BASE64"
+  # This workaround was introduced to prefer the host-local relay path for
+  # containers running on the same machine as the relay. In testing, the local
+  # path proved good enough for peer connectivity but not consistently safe for
+  # block transfer, so it remains opt-in until a stronger data-plane proof is
+  # implemented.
   EE_R1FS_SAMEHOST_RELAY_FIX = "EE_R1FS_SAMEHOST_RELAY_FIX"
   R1FS_DOWNLOADS = "ipfs_downloads"
   R1FS_UPLOADS = "ipfs_uploads"
@@ -441,32 +446,36 @@ class R1FSEngine:
       """
       log_func = self.P if debug else self.Pd
       relay_found = False
+      relay_info = self.__parse_multiaddr(self.__ipfs_relay)
+      relay_peer_id = relay_info["peer_id"] if relay_info is not None else None
       try:
         if self.connected_at is not None:
           # Already connected, lets see if last check was recent enough:
           elapsed_time = time.time() - self.connected_at
           if elapsed_time < max_check_age:
             relay_found = True
-            log_func(f"Relay check #{self.__relay_check_cnt}: Already connected to relay peer for {elapsed_time:.1f}s, skipping check.")
+            log_func(f"Relay check #{self.__relay_check_cnt}: relay peer already recorded for {elapsed_time:.1f}s; skipping recheck.")
             # If we are connected and the last check was recent enough, return True:
           else:
-            log_func(f"Relay check #{self.__relay_check_cnt}: Last connection check was {elapsed_time:.1f}s ago, checking again...")
+            log_func(f"Relay check #{self.__relay_check_cnt}: last relay check is {elapsed_time:.1f}s old; rechecking swarm peers.")
             # If we are connected but the last check was too long ago, check again:
           #end if needs recheck or not
         #end if connected_at is not None
         if not relay_found:         
           self.__relay_check_cnt += 1
-          log_func(f"Relay check #{self.__relay_check_cnt}: Checking IPFS relay connection and swarm peers...")
+          log_func(f"Relay check #{self.__relay_check_cnt}: scanning swarm peers for relay peer id.")
           peer_lines = self._get_swarm_peers()
           if len(peer_lines) > 0:
-            log_func(f"Relay check  #{self.__relay_check_cnt}: {len(peer_lines)} swarm peers.")
+            log_func(f"Relay check #{self.__relay_check_cnt}: found {len(peer_lines)} swarm peer(s).")
             self.__peers = peer_lines
             for line in peer_lines:
-              # If the line contains the relay peer ID, we consider ourselves connected:
-              if self.__ipfs_relay in line:
+              # After the workaround is applied, the relay may appear through the
+              # local-gateway multiaddr instead of its public address. Matching by
+              # peer id keeps the connection check valid in both states.
+              if relay_peer_id and relay_peer_id in line:
                 # Record the time if not already set
                 relay_found = True
-                log_func(f"Relay check #{self.__relay_check_cnt}: Relay ok: {line.strip()}")
+                log_func(f"Relay check #{self.__relay_check_cnt}: relay peer present on {line.strip()}")
                 break
               #end if
             #end for
@@ -477,22 +486,24 @@ class R1FSEngine:
                 # If we found the relay peer and connected_at was not set, set it now:
                 self.__connected_at = time.time()
               str_connected = self.logger.time_to_str(self.connected_at)
-              self.P(f"Relay check #{self.__relay_check_cnt}: Connected to relay peer recorded at {str_connected}.")
+              self.P(f"Relay check #{self.__relay_check_cnt}: relay connection recorded at {str_connected}.")
             else:              
               # TODO: maybe add first & last connected time
               # self.__connected_at = None # this is already None or the first connection
-              log_func("Relay check #{}: FAIL: relay {} not found in swarm peers:\n{}".format(
-                self.__relay_check_cnt, self.__ipfs_relay.split('/')[2],
+              log_func("Relay check #{}: relay peer {} not present in swarm peers:\n{}".format(
+                self.__relay_check_cnt, relay_peer_id or self.__ipfs_relay.split('/')[2],
                 json.dumps(peer_lines, indent=2)
                 ), color='r'\
               )
             #end if relay_found or not
+          else:
+            log_func(f"Relay check #{self.__relay_check_cnt}: swarm peer list is empty.", color='r')
           #end if len(peer_lines) > 0
       except subprocess.TimeoutExpired:
-        self.P(f"Relay check #{self.__relay_check_cnt}: Timeout checking swarm peers.", color='r')
+        self.P(f"Relay check #{self.__relay_check_cnt}: timed out while reading swarm peers.", color='r')
         relay_found = False
       except Exception as e:
-        self.P(f"Relay check #{self.__relay_check_cnt}: Error checking swarm peers: {e}", color='r')
+        self.P(f"Relay check #{self.__relay_check_cnt}: failed to inspect swarm peers: {e}", color='r')
         relay_found = False
       #end try
       return relay_found
@@ -559,6 +570,28 @@ class R1FSEngine:
         ["ipfs", "bootstrap", "add", ipfs_relay]
       )
       return result
+
+    def __bootstrap_remove(self, multiaddr):
+      """
+      Remove a bootstrap multiaddr when present.
+
+      Parameters
+      ----------
+      multiaddr : str
+          Bootstrap peer multiaddr to remove.
+
+      Returns
+      -------
+      bool
+          ``True`` when the remove command reported success.
+      """
+      output, errors = self.__run_command(
+        ["ipfs", "bootstrap", "rm", multiaddr],
+        raise_on_error=False,
+        return_errors=True,
+      )
+      combined = " ".join(part for part in (output, errors) if part).lower()
+      return "removed" in combined or "deleted" in combined
 
     def __set_config_json(self, key, value):
       """
@@ -754,13 +787,14 @@ class R1FSEngine:
       Returns
       -------
       bool
-          ``True`` by default. Only explicit false-like env values disable the
-          workaround.
+          ``True`` only when the environment explicitly enables the workaround.
+          The fix is currently opt-in because the local same-host path can pass
+          control-plane checks while still failing block transfer.
       """
       value = os.getenv(IPFSCt.EE_R1FS_SAMEHOST_RELAY_FIX)
       if value is None:
-        return True
-      return str(value).strip().lower() not in {"0", "false", "no", "off"}
+        return False
+      return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     def __get_default_gateway(self):
       """
@@ -873,6 +907,15 @@ class R1FSEngine:
       marker_path = self.__get_samehost_fix_marker_path()
       with open(marker_path, "w") as fd:
         json.dump(marker, fd, indent=2, sort_keys=True)
+
+    def __delete_samehost_fix_marker(self):
+      """
+      Remove the persisted same-host workaround marker when present.
+      """
+      marker_path = self.__get_samehost_fix_marker_path()
+      if os.path.isfile(marker_path):
+        os.remove(marker_path)
+      return
 
     def __marker_matches_samehost_fix(self, marker, relay_info, gateway):
       """
@@ -1099,6 +1142,10 @@ class R1FSEngine:
       self.__swarm_disconnect(local_multiaddr, timeout=5)
       self.__wait_for_peer_disconnect(peer_id, timeout=5, step=0.5)
 
+      self.P(
+        f"Same-host relay check: probing local gateway path {local_multiaddr} for relay peer {peer_id}.",
+        color='d',
+      )
       success, output, errors = self.__swarm_connect(local_multiaddr, timeout=5)
       if not success:
         reconnect_target = public_multiaddrs[0] if public_multiaddrs else self.__ipfs_relay
@@ -1107,6 +1154,7 @@ class R1FSEngine:
 
       peer_lines = self._get_swarm_peers()
       if self.__peer_uses_multiaddr(peer_lines, local_multiaddr):
+        self.P(f"Same-host relay check: relay peer confirmed on local path {local_multiaddr}.", color='g')
         return True, "connected through local multiaddr"
 
       reconnect_target = public_multiaddrs[0] if public_multiaddrs else self.__ipfs_relay
@@ -1222,6 +1270,54 @@ class R1FSEngine:
         return False
       return True
 
+    def __cleanup_samehost_relay_workaround(self):
+      """
+      Remove previously applied same-host workaround state from the repo.
+
+      Returns
+      -------
+      bool
+          ``True`` when repo config was changed, otherwise ``False``.
+      """
+      relay_info = self.__parse_multiaddr(self.__ipfs_relay)
+      if relay_info is None:
+        return False
+
+      gateway = self.__get_default_gateway()
+      local_multiaddr = None
+      if gateway:
+        try:
+          ipaddress.ip_address(gateway)
+          local_multiaddr = self.__build_peer_multiaddr(
+            "ip4",
+            gateway,
+            relay_info["tcp_port"],
+            relay_info["peer_id"],
+          )
+        except ValueError:
+          local_multiaddr = None
+
+      changed = False
+      if local_multiaddr and local_multiaddr in self.__get_bootstrap_list():
+        if self.__bootstrap_remove(local_multiaddr):
+          self.P(f"Same-host relay workaround cleanup: removed local bootstrap {local_multiaddr}.", color='g')
+          changed = True
+
+      addr_filters = self.__get_config_json("Swarm.AddrFilters", default=[])
+      desired_filters = set(self.__build_addr_filters(relay_info))
+      cleaned_filters = [value for value in addr_filters if value not in desired_filters]
+      if cleaned_filters != addr_filters:
+        self.__set_config_json("Swarm.AddrFilters", cleaned_filters)
+        self.P("Same-host relay workaround cleanup: removed local-path addrfilters from repo config.", color='g')
+        changed = True
+
+      marker = self.__read_samehost_fix_marker()
+      if marker is not None:
+        self.__delete_samehost_fix_marker()
+        self.Pd("Same-host relay workaround cleanup: removed persisted marker.")
+
+      return changed
+
     def __maybe_apply_samehost_relay_workaround(self):
       """
       Reconcile same-host relay bootstrap/filter state.
@@ -1244,23 +1340,24 @@ class R1FSEngine:
       self.__samehost_fix_attempted = True
 
       if not self.__samehost_fix_enabled():
-        self.Pd("Same-host relay workaround disabled.")
+        self.Pd("Same-host relay workaround: disabled by environment.")
+        self.__cleanup_samehost_relay_workaround()
         return False
 
       relay_info = self.__parse_multiaddr(self.__ipfs_relay)
       if relay_info is None:
-        self.P("Same-host relay workaround skipped: could not parse relay multiaddr.", color='r')
+        self.P("Same-host relay workaround: skipped because relay multiaddr could not be parsed.", color='r')
         return False
 
       gateway = self.__get_default_gateway()
       if not gateway:
-        self.P("Same-host relay workaround skipped: could not determine container gateway.", color='r')
+        self.P("Same-host relay workaround: skipped because the container gateway could not be determined.", color='r')
         return False
 
       try:
         ipaddress.ip_address(gateway)
       except ValueError:
-        self.P(f"Same-host relay workaround skipped: invalid gateway {gateway}.", color='r')
+        self.P(f"Same-host relay workaround: skipped because gateway {gateway} is invalid.", color='r')
         return False
 
       local_multiaddr = self.__build_peer_multiaddr(
@@ -1280,13 +1377,13 @@ class R1FSEngine:
       # Fast path: when both marker and repo config already match the desired
       # same-host state, avoid any extra proof-connect or restart work.
       if marker_matches and bootstrap_matches and filters_match:
-        self.Pd("Same-host relay workaround already applied and config is in sync.")
+        self.Pd("Same-host relay workaround: marker and repo config already match; nothing to do.")
         return False
       # Negative cache: off-host nodes can repeatedly fail the local gateway
       # proof; cache that result for a short TTL to avoid paying the timeout on
       # every process restart.
       if marker_matches and self.__is_negative_marker_fresh(marker):
-        self.Pd("Skipping same-host relay proof due to recent negative result cache.")
+        self.Pd("Same-host relay workaround: recent negative proof cached for this relay/gateway; skipping probe.")
         return False
 
       success, proof_reason = self.__prove_samehost_relay_path(relay_info, local_multiaddr)
@@ -1300,7 +1397,7 @@ class R1FSEngine:
           "status": "negative",
           "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         })
-        self.Pd(f"Same-host relay workaround proof failed for {local_multiaddr}: {proof_reason}")
+        self.P(f"Same-host relay workaround: local gateway path not usable ({proof_reason}); keeping public relay path.", color='d')
         return False
 
       local_bootstrap_changed = False
@@ -1324,11 +1421,17 @@ class R1FSEngine:
 
       if not filters_changed:
         if local_bootstrap_changed:
-          self.P("Re-added local bootstrap for same-host relay workaround.", color='g')
+          self.P(f"Same-host relay workaround: restored local bootstrap {local_multiaddr}; restart not required.", color='g')
         else:
-          self.Pd("Same-host relay workaround already applied for this relay.")
+          self.Pd("Same-host relay workaround: proof succeeded but config changes were already present.")
         return False
 
+      self.P(
+        "Same-host relay workaround: applying addrfilters {} and restarting daemon.".format(
+          json.dumps(desired_filters)
+        ),
+        color='m',
+      )
       return self.__restart_daemon()
 
     # PUBLIC COMMAND
@@ -3498,6 +3601,8 @@ class R1FSEngine:
       else:
         self.P(f"IPFS repository already initialized in {config_path}.", color='g')
 
+      if not self.__samehost_fix_enabled():
+        self.__cleanup_samehost_relay_workaround()
 
       # Check if daemon is already running by attempting to get the node id.
       try:
