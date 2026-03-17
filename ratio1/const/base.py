@@ -20,6 +20,7 @@ class BCctbase:
   SIGN      = 'EE_SIGN'
   SENDER    = 'EE_SENDER'
   HASH      = 'EE_HASH'
+  SIGN_CANON_V = 'SIGN_CANON_V'
   
   ETH_SIGN  = 'EE_ETH_SIGN'
   ETH_SENDER= 'EE_ETH_SENDER'
@@ -96,6 +97,7 @@ class BCct:
   SIGN        = BCctbase.SIGN
   SENDER      = BCctbase.SENDER
   HASH        = BCctbase.HASH
+  SIGN_CANON_V = BCctbase.SIGN_CANON_V
   ETH_SIGN    = BCctbase.ETH_SIGN
   ETH_SENDER  = BCctbase.ETH_SENDER
   
