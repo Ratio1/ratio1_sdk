@@ -53,6 +53,7 @@
 - Webapp pipelines: `WebappPipeline` extracts `APP_URL` or `NGROK_URL` from payloads; supports tunnel engines `ngrok` and `cloudflare`.
 - Deeploy (remote app deployment): `GenericSession` signs and sends Deeploy API requests for container apps, custom code, and Telegram bots; API base URLs come from EVM network config (`EE_DEEPLOY_API_URL`).
 - IPFS/R1FS: `R1FSEngine` manages uploads/downloads via IPFS relay; key envs include `EE_IPFS_RELAY`, `EE_SWARM_KEY_CONTENT_BASE64`, `EE_IPFS_RELAY_API`, and cert/credentials; uses `_local_cache/_output` for transfers.
+- R1FS startup workaround (2026-03): `R1FSEngine.maybe_start_ipfs()` includes an opt-in same-host relay workaround gated by `EE_R1FS_SAMEHOST_RELAY_FIX`; it proves same-host reachability by disconnecting any existing relay session, dialing the container-gateway relay multiaddr, and requiring `ipfs swarm peers` to show the relay on that exact local multiaddr before applying filters/bootstrap changes. It persists a marker in `${IPFS_PATH}/.r1fs_samehost_relay_fix.json`, merges `Swarm.AddrFilters`, re-adds a local bootstrap entry, and performs a controlled daemon restart only when config changes require it. The same marker file also caches recent negative proof results for the same relay/gateway tuple so off-host containers can skip repeated proof attempts for a bounded TTL. The workaround is currently disabled by default because local-path control-plane success did not reliably imply successful block transfer.
 - CLI and config: `r1ctl` uses argparse and `CLI_COMMANDS`; user config stored in `~/.ratio1/config`; `reset_config` copies `.env` when present; alias default is `R1SDK` (`EE_SDK_ALIAS`).
 - Payload helpers: `Payload` extends dict and can decode base64 images via `get_images_as_np` and `get_images_as_PIL`.
 - Logger persistence (2026-02): `BaseLogger` uses asynchronous append-only persistence with a bounded writer queue/thread; producer path enqueues deltas via tracked indexes (`start_idx`/`end_idx`) instead of synchronous full-file rewrites; flush policy is configurable (`idle_seconds`, buffered line threshold, immediate error flush), optional repeat suppression exists, and telemetry is exposed via `get_log_writer_telemetry` (queue depth/high watermark, dropped lines, write latency p50/p95).
@@ -67,4 +68,9 @@
 - 2026-02-06: Added logger throughput architecture updates (async append writer, flush policy, telemetry, CI benchmark mode).
 - 2026-02-06: Added deterministic logger quality-check mode (50-thread/200-line minimum persistence verification).
 - 2026-02-06: Documented logger queue-full fallback semantics and idle-trigger flush nuance in living architecture memory.
+- 2026-03-11: Documented the feature-gated R1FS same-host relay workaround, marker file, bootstrap/filter merge behavior, and controlled daemon restart path.
+- 2026-03-11: Updated the R1FS same-host relay workaround contract to assume container runtime and default to enabled unless explicitly disabled.
+- 2026-03-12: Added bounded negative caching for failed same-host relay proofs to avoid repeated startup delays on off-host containers.
+- 2026-03-12: Tightened same-host relay proof semantics to require disconnect + reconnect on the exact local multiaddr before filters are applied.
+- 2026-03-13: Reverted the R1FS same-host relay workaround to opt-in by default after testing showed local-path peer connectivity could still fail block transfer.
 - (add new entries here)
