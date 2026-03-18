@@ -1471,6 +1471,7 @@ class R1FSEngine:
       Logs the command and its result. If verbose is enabled,
       prints command details. Raises an exception on error if raise_on_error is True.
       """
+      result = None
       failed = False
       output = ""
       errors = ""
@@ -1498,7 +1499,7 @@ class R1FSEngine:
         if raise_on_error:
           raise Exception(msg) from e
       
-      if result.returncode != 0:
+      if result is not None and result.returncode != 0:
         errors = result.stderr.strip()
         failed = True
         if show_logs:
