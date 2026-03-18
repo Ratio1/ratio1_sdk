@@ -4,7 +4,7 @@ ex27_payload_capture.py
 
 Capture a bounded passive sample of Ratio1 mainnet traffic from the SDK callback
 surface, store sanitized per-message measurements under `_local_cache`, and
-generate `PAYLOADS_SDK_RESULTS.md` in the repo root.
+generate `_todo/PAYLOADS_SDK_RESULTS.md`.
 
 This tutorial only listens. It does not create pipelines, send commands, or
 modify remote node configuration. The SDK still performs its normal connection
@@ -20,10 +20,12 @@ Re-analyze an existing capture:
 from __future__ import annotations
 
 import argparse
+import json
 import shlex
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
@@ -50,13 +52,13 @@ from tutorials.payload_capture_utils import (  # noqa: E402
 DEFAULT_SECONDS = 60
 DEFAULT_MAX_MESSAGES = 2500
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "_local_cache" / "payload_capture"
-DEFAULT_RESULTS_PATH = REPO_ROOT / "PAYLOADS_SDK_RESULTS.md"
+DEFAULT_RESULTS_PATH = REPO_ROOT / "_todo" / "PAYLOADS_SDK_RESULTS.md"
 TUTORIAL_PATH = Path("tutorials/ex27_payload_capture.py")
 
 
 def parse_args() -> argparse.Namespace:
   parser = argparse.ArgumentParser(
-    description="Passively capture bounded SDK-visible mainnet traffic and generate PAYLOADS_SDK_RESULTS.md.",
+    description="Passively capture bounded SDK-visible mainnet traffic and generate _todo/PAYLOADS_SDK_RESULTS.md.",
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog=(
       "Examples:\n"
@@ -115,6 +117,23 @@ def git_revision() -> str:
 
 def exact_command() -> str:
   return "python " + " ".join(shlex.quote(arg) for arg in sys.argv)
+
+
+def capture_command_from_args(args: argparse.Namespace) -> str:
+  command = ["python", str(TUTORIAL_PATH)]
+  if args.seconds != DEFAULT_SECONDS:
+    command.extend(["--seconds", str(args.seconds)])
+  if args.max_messages != DEFAULT_MAX_MESSAGES:
+    command.extend(["--max-messages", str(args.max_messages)])
+  if args.large_field_threshold != LARGE_FIELD_THRESHOLD_BYTES:
+    command.extend(["--large-field-threshold", str(args.large_field_threshold)])
+  if Path(args.output_dir) != DEFAULT_OUTPUT_DIR:
+    command.extend(["--output-dir", args.output_dir])
+  if Path(args.results_path) != DEFAULT_RESULTS_PATH:
+    command.extend(["--results-path", args.results_path])
+  if args.session_name != "sdk-payload-capture":
+    command.extend(["--session-name", args.session_name])
+  return " ".join(shlex.quote(part) for part in command)
 
 
 class CaptureCollector:
@@ -275,6 +294,72 @@ def analyze_capture(rows: list[dict], metadata: dict, results_path: Path) -> dic
   return summary
 
 
+def infer_capture_timing(rows: list[dict]) -> dict[str, str | float | None]:
+  timestamps = []
+  for row in rows:
+    received_at = row.get("received_at")
+    if not isinstance(received_at, str):
+      continue
+    try:
+      timestamps.append(datetime.fromisoformat(received_at))
+    except ValueError:
+      continue
+
+  if not timestamps:
+    return {
+      "capture_started_at": "from-artifact",
+      "capture_finished_at": "from-artifact",
+      "capture_elapsed_seconds": 0.0,
+    }
+
+  started_at = min(timestamps)
+  finished_at = max(timestamps)
+  return {
+    "capture_started_at": started_at.isoformat(),
+    "capture_finished_at": finished_at.isoformat(),
+    "capture_elapsed_seconds": round(max((finished_at - started_at).total_seconds(), 0.0), 2),
+  }
+
+
+def load_existing_summary_metadata(summary_file: Path) -> dict | None:
+  if not summary_file.exists():
+    return None
+  try:
+    with summary_file.open(encoding="utf-8") as fh:
+      data = json.load(fh)
+  except Exception:
+    return None
+  metadata = data.get("metadata")
+  if isinstance(metadata, dict):
+    return metadata
+  return None
+
+
+def has_valid_capture_metadata(metadata: dict | None) -> bool:
+  if not isinstance(metadata, dict):
+    return False
+  if float(metadata.get("capture_elapsed_seconds") or 0.0) <= 0:
+    return False
+  capture_command = metadata.get("capture_command")
+  if isinstance(capture_command, str) and "--analyze-only" in capture_command:
+    return False
+  return True
+
+
+def reconstruct_capture_metadata(args: argparse.Namespace, rows: list[dict]) -> dict:
+  metadata = metadata_template(args)
+  metadata.update(infer_capture_timing(rows))
+  metadata["capture_command"] = capture_command_from_args(args)
+  elapsed_seconds = float(metadata.get("capture_elapsed_seconds") or 0.0)
+  if len(rows) >= args.max_messages:
+    metadata["stop_reason"] = "max-messages"
+  elif elapsed_seconds >= max(args.seconds - 5, 0):
+    metadata["stop_reason"] = "time-window"
+  else:
+    metadata["stop_reason"] = "reconstructed-from-artifact"
+  return metadata
+
+
 def analyze_only(args: argparse.Namespace, results_path: Path) -> dict:
   if not args.capture_file:
     raise ValueError("--capture-file is required with --analyze-only")
@@ -282,12 +367,14 @@ def analyze_only(args: argparse.Namespace, results_path: Path) -> dict:
   if not capture_file.is_absolute():
     capture_file = REPO_ROOT / capture_file
   rows = load_jsonl(capture_file)
-  metadata = metadata_template(args)
-  metadata["capture_started_at"] = "from-artifact"
-  metadata["capture_finished_at"] = "from-artifact"
-  metadata["stop_reason"] = "analyze-only"
-  metadata["capture_file"] = str(capture_file.relative_to(REPO_ROOT))
   summary_file = capture_file.with_name(capture_file.stem + "_summary.json")
+  existing_metadata = load_existing_summary_metadata(summary_file)
+  if has_valid_capture_metadata(existing_metadata):
+    metadata = metadata_template(args)
+    metadata.update(existing_metadata)
+  else:
+    metadata = reconstruct_capture_metadata(args, rows)
+  metadata["capture_file"] = str(capture_file.relative_to(REPO_ROOT))
   metadata["summary_file"] = str(summary_file.relative_to(REPO_ROOT))
   return analyze_capture(rows, metadata, results_path)
 

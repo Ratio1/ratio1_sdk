@@ -52,6 +52,7 @@
 - `ratio1/logging/`: logger core, mixins, upload, and download helpers
 - `ratio1/utils/`: config, dotenv, comm, and oracle helpers
 - `tutorials/`: runnable examples and deployment patterns
+- `_todo/`: planning markdowns, generated result markdowns, and other durable task artifacts that should not live at the repo root
 - `xperimental/logger/`: logger stress and CI benchmark harness
 - `README.md`: high-level overview and quick start
 - `r1ctl.MD`: CLI manual
@@ -77,6 +78,7 @@
 - Do not rename or repurpose public CLI commands, environment variables, payload keys, topic names, or exported SDK symbols without updating docs, tutorials, and this file in the same change.
 - Do not run destructive node-management commands or live deployment flows as part of routine verification.
 - Preserve operator safety. Smoke tests must prefer parser construction, imports, static verification, and dry-run style checks over live-network commands.
+- Keep planning-only markdowns and generated result markdowns under `_todo/`. Do not add new root-level task or results markdowns unless the task explicitly requires an exception.
 - Treat `README.md`, `r1ctl.MD`, `pyproject.toml`, and `ratio1/cli/` as a sync set for CLI naming and entrypoint changes.
 - Treat `ratio1/_ver.py`, `ratio1/__init__.py`, and `pyproject.toml` as a sync set for version changes.
 - Changes to message routing, encryption metadata, whitelist semantics, Deeploy request shapes, R1FS/IPFS bootstrap logic, or incident semantics require critic review before handoff.
@@ -403,6 +405,13 @@ actor_to_docs_handoff:
   - Validated fix or guardrail: treat `README.md`, `r1ctl.MD`, `pyproject.toml`, and `ratio1/cli/` as a sync set and rerun the naming grep on every CLI-doc change
   - Evidence: repo grep during this AGENTS update
   - Follow-up: decide whether the repo supports dual naming intentionally or should fully converge on `r1ctl`
+- 2026-03-18
+  - Area: task and result markdown placement
+  - Failure or false-positive pattern: planning docs and generated result markdowns can drift into the repo root, leaving `_todo/` incomplete and making task artifacts harder to find
+  - Rollback hazard: future agents rerun or update the wrong markdown path and silently recreate root-level files the repo is trying to retire
+  - Validated fix or guardrail: keep planning-only markdowns and generated result markdowns under `_todo/`, and point tutorial defaults there when they emit durable markdown artifacts
+  - Evidence: local repo state showed `_todo/PAYLOADS_SDK.md` and `_todo/TODOs.md` while the payload capture tutorial still defaulted to `PAYLOADS_SDK_RESULTS.md` at the repo root
+  - Follow-up: align any remaining durable result markdown generators with the `_todo/` convention when they are touched
 
 ## Key Entry Points
 - `ratio1/__init__.py`: exports `Session`, `Pipeline`, `Instance`, `CustomPluginTemplate`, presets, version, and helpers
@@ -427,6 +436,7 @@ actor_to_docs_handoff:
 - CLI smoke-test side effect (2026-03): `ratio1.cli.cli:main()` calls `maybe_init_config()` before parsing commands, so even `-h` can create config and cache directories under `HOME`; parser smoke tests should import `build_parser()` instead of executing `main()`.
 - Payload helpers: `Payload` extends `dict` and can decode base64 images via `get_images_as_np` and `get_images_as_PIL`.
 - Heartbeat callback expansion (2026-03): heartbeat v2 messages keep `ENCODED_DATA` and also merge the decompressed heartbeat body into the same callback dict in `GenericSession.__on_heartbeat()`, so callback-level size measurements double-count that section relative to raw wire unless `ENCODED_DATA` is excluded explicitly.
+- Durable task artifacts (2026-03): planning-only markdowns and generated result markdowns belong under `_todo/`; capture tutorials or analysis scripts that emit durable markdown reports should default there instead of the repo root.
 - Logger persistence (2026-02): `BaseLogger` uses asynchronous append-only persistence with a bounded writer queue and thread; producer path enqueues deltas via tracked indexes (`start_idx` and `end_idx`) instead of synchronous full-file rewrites; flush policy is configurable (`idle_seconds`, buffered line threshold, immediate error flush), optional repeat suppression exists, and telemetry is exposed via `get_log_writer_telemetry` (queue depth or high watermark, dropped lines, write latency p50 and p95).
 - Logger benchmarking: `xperimental/logger/logger_tester.py` runs deterministic threaded stress tests and emits timestamped stage reports and metrics; includes optional CI pass or fail mode via `--ci` and a deterministic post-run quality check that validates at least `50` threads x `200` lines (`THREAD-{idx}-LINE-{line}`) are fully persisted in log file(s).
 - Logger durability and backpressure edge behavior (2026-02): `_enqueue_save_task` can call `_save_log` synchronously when `force=True` and the writer queue is full (critical-path durability fallback); non-forced queue overflow increments dropped-line telemetry and advances enqueue cursors (lines are counted as dropped, not retried).
@@ -449,3 +459,4 @@ actor_to_docs_handoff:
 - 2026-03-17: Added A2A-style task contracts, required handoff envelopes, single-agent loop rules, actor-critic workflow, agent cards, worked examples, and lessons-learned templates.
 - 2026-03-17: Recorded CLI smoke-test side effects, release-version drift checks, and the current `nepctl` vs `r1ctl` documentation risk.
 - 2026-03-18: Documented the heartbeat v2 callback expansion behavior so SDK-side payload-size analyses do not treat retained `ENCODED_DATA` as pure wire cost.
+- 2026-03-18: Recorded the `_todo/` convention for planning and result markdowns and aligned the SDK payload capture tutorial to emit its result markdown there by default.

@@ -256,6 +256,18 @@ def format_bytes(num_bytes: int) -> str:
   return f"{num_bytes}B"
 
 
+def format_bytes_per_second(num_bytes_per_second: float) -> str:
+  units = ["B/s", "KB/s", "MB/s", "GB/s"]
+  value = float(num_bytes_per_second)
+  for unit in units:
+    if value < 1024 or unit == units[-1]:
+      if unit == "B/s":
+        return f"{int(value)}{unit}"
+      return f"{value:.1f}{unit}"
+    value /= 1024.0
+  return f"{num_bytes_per_second:.1f}B/s"
+
+
 def build_row(
   *,
   callback_type: str,
@@ -767,9 +779,20 @@ def required_answers(summary: dict[str, Any]) -> list[str]:
 def render_results_markdown(summary: dict[str, Any]) -> str:
   metadata = summary["metadata"]
   total_bytes = max(summary["total_bytes"], 1)
+  elapsed_seconds = float(metadata.get("capture_elapsed_seconds") or 0.0)
   candidates = candidate_rows(summary)
   findings = executive_findings(summary)
   answers = required_answers(summary)
+
+  def format_byte_rate(num_bytes: int) -> str:
+    if elapsed_seconds <= 0:
+      return "n/a"
+    return format_bytes_per_second(num_bytes / elapsed_seconds)
+
+  def format_message_rate(message_count: int) -> str:
+    if elapsed_seconds <= 0:
+      return "n/a"
+    return f"{message_count / elapsed_seconds:.2f}"
 
   class_rows = [
     (
@@ -810,6 +833,19 @@ def render_results_markdown(summary: dict[str, Any]) -> str:
     )
     for row in summary["field_table"][:TOP_N]
   ]
+  bandwidth_rows = [
+    (
+      row["message_class"],
+      format_byte_rate(row["total_bytes"]),
+      format_message_rate(row["count"]),
+      f"{row['total_bytes'] / total_bytes:.1%}",
+    )
+    for row in summary["class_table"][:10]
+  ]
+  avg_bytes_per_message = int(summary["total_bytes"] / max(summary["total_messages"], 1))
+  diagnostic_bytes = summary["family_tables"]["diagnostic_fields"]["total_bytes"]
+  current_network_row = next((row for row in summary["field_table"] if row["field"] == "CURRENT_NETWORK"), None)
+  encoded_row = next((row for row in summary["field_table"] if row["field"] == "ENCODED_DATA"), None)
 
   family_sections = []
   family_labels = [
@@ -895,6 +931,18 @@ def render_results_markdown(summary: dict[str, Any]) -> str:
     "",
     "## Answers To Required Questions",
     *[f"- {item}" for item in answers],
+    "",
+    "## Protocol Bandwidth Evaluation",
+    f"- Average observed callback-visible throughput: `{format_byte_rate(summary['total_bytes'])}` ({format_bytes(int(summary['total_bytes'] * 60 / elapsed_seconds))}/min)" if elapsed_seconds > 0 else "- Average observed callback-visible throughput: `n/a`",
+    f"- Average observed message rate: `{format_message_rate(summary['total_messages'])} msg/s` with `{avg_bytes_per_message}` bytes/message" if elapsed_seconds > 0 else f"- Average observed message rate: `n/a` with `{avg_bytes_per_message}` bytes/message",
+    f"- Heartbeat diagnostic field family alone sustained `{format_byte_rate(diagnostic_bytes)}` ({diagnostic_bytes / total_bytes:.1%} of observed bytes)",
+    f"- `CURRENT_NETWORK` sustained `{format_byte_rate(current_network_row['total_bytes'] if current_network_row else 0)}` and remains the clearest snapshot-bandwidth driver",
+    f"- `ENCODED_DATA` sustained `{format_byte_rate(encoded_row['total_bytes'] if encoded_row else 0)}` in the SDK callback view; treat it as analysis/logging overhead unless raw-wire evidence shows the same duplication on the broker side",
+    "",
+    make_table(
+      bandwidth_rows,
+      ["message class", "avg bytes/s", "avg msg/s", "byte share"],
+    ),
     "",
     "## Byte Distribution",
     make_table(
