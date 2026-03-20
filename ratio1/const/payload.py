@@ -239,8 +239,30 @@ class PAYLOAD_DATA:
   @staticmethod
   def maybe_encode_netmon_payload(full_payload: dict, log=None) -> dict:
     """
-    Compress the NET_MON business body into a heartbeat-style envelope while
-    preserving transport and routing fields at the top level.
+    Encode a NET_MON payload into the v2 wire format when possible.
+
+    Parameters
+    ----------
+    full_payload : dict
+      Candidate NET_MON payload already shaped like the normal wire dictionary.
+    log : object, optional
+      Logger-like object that must provide ``compress_text`` for the heartbeat
+      zlib+base64 codec used by the NETMON compression plan.
+
+    Returns
+    -------
+    dict
+      The original payload when encoding is not applicable, or a new payload
+      where ``EE_*`` and routing keys remain top-level and the NET_MON business
+      body is moved into ``ENCODED_DATA`` under ``NETMON_VERSION='v2'``.
+
+    Notes
+    -----
+    The helper is intentionally conservative:
+    - non-dict inputs are returned unchanged
+    - already-encoded v2 payloads are returned unchanged
+    - serialization or compression capability failures fall back to the
+      original payload instead of raising
     """
     if not isinstance(full_payload, dict):
       return full_payload
@@ -303,8 +325,31 @@ class PAYLOAD_DATA:
   @staticmethod
   def maybe_decode_netmon_payload(full_payload: dict, log=None) -> dict:
     """
-    Expand a compressed NET_MON payload in place when it uses the v2 envelope.
-    Returns the original dict unchanged for non-v2 payloads or decode failures.
+    Expand a NET_MON v2 payload back to the legacy business dictionary shape.
+
+    Parameters
+    ----------
+    full_payload : dict
+      Incoming payload dictionary that may contain ``NETMON_VERSION='v2'`` and
+      heartbeat-style ``ENCODED_DATA``.
+    log : object, optional
+      Logger-like object that must provide ``decompress_text`` for the shared
+      zlib+base64 decode path.
+
+    Returns
+    -------
+    dict
+      The same dictionary instance after an in-place merge of the decoded body,
+      or the unchanged dictionary when the payload is not a NET_MON v2 message
+      or the body cannot be decoded safely.
+
+    Notes
+    -----
+    The helper is idempotent and fail-closed:
+    - if ``CURRENT_NETWORK`` is already a dictionary, no work is done
+    - malformed compressed bodies are ignored instead of raising
+    - downstream readers continue to decide whether the normalized payload is
+      valid for NET_MON handling
     """
     if not isinstance(full_payload, dict):
       return full_payload
