@@ -1011,6 +1011,7 @@ class GenericSession(BaseDecentrAIObject):
         sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
         path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None, None, None, None])
         ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
+        dict_msg = PAYLOAD_DATA.maybe_decode_netmon_payload(dict_msg, log=self.log)
         current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK, {})        
         if current_network:
           # received valid netmon current network          
