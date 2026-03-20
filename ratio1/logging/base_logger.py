@@ -372,7 +372,34 @@ class BaseLogger(object):
       the list of packages as list of str, a full text to show or a dict of name:ver.
 
     """
-    import pkg_resources
+    try:
+      import pkg_resources
+      raw_packs = [x for x in pkg_resources.working_set]
+      lst_pack_ver = [(x.key, x.version) for x in raw_packs]
+    except ModuleNotFoundError:
+      from importlib import metadata as importlib_metadata
+      import re
+
+      def normalize_package_name(name):
+        if not isinstance(name, str):
+          return ''
+        return re.sub(r"[-_.]+", "-", name).lower()
+
+      lst_pack_ver = []
+      for dist in importlib_metadata.distributions():
+        dist_name = None
+        try:
+          dist_name = dist.metadata.get('Name')
+        except Exception:
+          dist_name = None
+        dist_name = normalize_package_name(dist_name or getattr(dist, 'name', None) or '')
+        dist_version = getattr(dist, 'version', None)
+        if dist_name and isinstance(dist_version, str):
+          lst_pack_ver.append((dist_name, dist_version))
+
+      # Keep the latest discovered version for duplicate normalized names.
+      lst_pack_ver = sorted(set(lst_pack_ver), key=lambda x: x[0])
+
     def ver_to_int(version, package=None):
       comps = version.split('.')
       val = 0
@@ -387,10 +414,8 @@ class BaseLogger(object):
         BaseLogger.print_color("Failed to convert version '{}' to int for package `{}`, version so far: {}".format(version, package, val), color='r')
       return val    
     
-    raw_packs = [x for x in pkg_resources.working_set]
-    maxlen = max([len(x.key) for x in raw_packs]) + 1
-    lst_pack_ver = [(x.key, x.version) for x in raw_packs]
     lst_pack_ver = sorted(lst_pack_ver, key=lambda x:x[0])
+    maxlen = max([len(x[0]) for x in lst_pack_ver]) + 1 if len(lst_pack_ver) > 0 else 1
     dct_packs = OrderedDict(lst_pack_ver)
     
     if len(mandatory) > 0:      
