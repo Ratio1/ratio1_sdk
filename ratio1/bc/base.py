@@ -329,6 +329,7 @@ class BaseBlockEngine(
   """
   SIGN_CANON_V_LEGACY = "v1"
   SIGN_CANON_V_CURRENT = "v2"
+  SIGN_CANON_V_UNVERSIONED = "unversioned"
 
   _lock: Lock = Lock()
   _whitelist_lock : Lock = Lock()
@@ -389,6 +390,7 @@ class BaseBlockEngine(
       "total": {
         self.SIGN_CANON_V_CURRENT: 0,
         self.SIGN_CANON_V_LEGACY: 0,
+        self.SIGN_CANON_V_UNVERSIONED: 0,
       },
       "by_sender": {},
     }
@@ -1246,7 +1248,13 @@ class BaseBlockEngine(
     return fn
   
   
-  def _generate_data_for_hash(self, dct_data, replace_nan=True, encoder_cls=None):
+  def _generate_data_for_hash(
+      self,
+      dct_data,
+      replace_nan=True,
+      encoder_cls=None,
+      include_sign_canon=False,
+    ):
     """
     Build the canonical JSON string used for hashing/signing.
 
@@ -1258,6 +1266,8 @@ class BaseBlockEngine(
         If True, replace NaN/Inf with None before serialization.
     encoder_cls : type, optional
         JSONEncoder class to use for serialization.
+    include_sign_canon : bool, optional
+        If True, keep `SIGN_CANON_V` in the hashed payload.
 
     Returns
     -------
@@ -1273,6 +1283,8 @@ class BaseBlockEngine(
       dct_only_data = {k:dct_data[k] for k in dct_data if k not in ALL_NON_DATA_FIELDS}
     else:
       dct_only_data = {k:dct_data[k] for k in dct_data if k not in NO_ETH_NON_DATA_FIELDS}
+    if include_sign_canon and BCct.SIGN_CANON_V in dct_data:
+      dct_only_data[BCct.SIGN_CANON_V] = dct_data[BCct.SIGN_CANON_V]
     #endif
     str_data = self._dict_to_json(
       dct_only_data, 
@@ -1314,7 +1326,14 @@ class BaseBlockEngine(
     return str_data
     
   
-  def compute_hash(self, dct_data, return_all=False, replace_nan=True, encoder_cls=None):
+  def compute_hash(
+      self,
+      dct_data,
+      return_all=False,
+      replace_nan=True,
+      encoder_cls=None,
+      include_sign_canon=False,
+    ):
     """
     Computes the hash of a dict object
 
@@ -1331,6 +1350,9 @@ class BaseBlockEngine(
     
     encoder_cls : type, optional
       JSONEncoder class to use for serialization.
+    include_sign_canon : bool, optional
+      If True, keep `SIGN_CANON_V` in the hashed payload. This only affects
+      hash/signature reconstruction; it does not add the field to `dct_data`.
 
     Returns
     -------
@@ -1343,7 +1365,8 @@ class BaseBlockEngine(
     str_data = self._generate_data_for_hash(
       dct_data,
       replace_nan=replace_nan,
-      encoder_cls=encoder_cls
+      encoder_cls=encoder_cls,
+      include_sign_canon=include_sign_canon,
     )
     bdata = bytes(str_data, 'utf-8')
     bin_hexdigest, hexdigest = self._compute_hash(bdata)
@@ -1362,7 +1385,16 @@ class BaseBlockEngine(
     sender_address : str or None
         Address used for per-sender accounting. If None, uses "UNKNOWN".
     canon_version : str or None
-        Canonicalization version used ("v1" or "v2").
+        Canonicalization bucket used (for example "v1", "v2", or
+        "unversioned").
+
+    Notes
+    -----
+    Stats buckets are verification outcomes, not always wire versions.
+    In particular, ``unversioned`` means the payload did not
+    include `SIGN_CANON_V` and verified on the first pass using the current
+    encoder without hashing `SIGN_CANON_V`. It must not be interpreted as an
+    explicit `v2` message.
     """
     if canon_version is None:
       return
@@ -1378,6 +1410,7 @@ class BaseBlockEngine(
         {
           self.SIGN_CANON_V_CURRENT: 0,
           self.SIGN_CANON_V_LEGACY: 0,
+          self.SIGN_CANON_V_UNVERSIONED: 0,
         }
       )
       sender_stats[canon_version] = sender_stats.get(canon_version, 0) + 1
@@ -1442,8 +1475,18 @@ class BaseBlockEngine(
 
     Notes
     -----
-    Adds `SIGN_CANON_V` to the dict (if missing) to mark the
-    canonicalization version used for signing when `add_data=True`.
+    Adds `SIGN_CANON_V` to the dict before hashing when `add_data=True`.
+    `v2` signs the field as part of the payload so older SDKs, which hash
+    unknown fields, can still verify the message.
+    Only `v1` and `v2` are accepted as explicit canon versions. Any other
+    value raises `ValueError` to avoid producing signatures that `verify()`
+    would later reject as unknown.
+    `add_data` controls whether signature metadata is written back to
+    `dct_data`; it does not by itself decide whether `SIGN_CANON_V` is part
+    of the hashed payload. That is controlled by the canon version contract.
+    When `add_data=False` and `v2` signing is requested, a working copy is
+    created only if needed so `SIGN_CANON_V` can still be part of the hash
+    without mutating the caller's payload.
 
     Returns
     -------
@@ -1457,10 +1500,26 @@ class BaseBlockEngine(
     result = None
     assert isinstance(dct_data, dict), "Cannot sign on non-dict data"
     
+    sign_canon_v = dct_data.get(BCct.SIGN_CANON_V, self.SIGN_CANON_V_CURRENT)
+    if sign_canon_v not in (self.SIGN_CANON_V_CURRENT, self.SIGN_CANON_V_LEGACY):
+      raise ValueError("Unknown signing canon version: {}".format(sign_canon_v))
+    include_sign_canon = sign_canon_v == self.SIGN_CANON_V_CURRENT
+    dct_to_sign = dct_data
+    if include_sign_canon and BCct.SIGN_CANON_V not in dct_data:
+      if add_data:
+        dct_data[BCct.SIGN_CANON_V] = sign_canon_v
+      else:
+        # Stage SIGN_CANON_V for hashing without mutating the caller payload.
+        dct_to_sign = deepcopy(dct_data)
+        dct_to_sign[BCct.SIGN_CANON_V] = sign_canon_v
+    elif add_data and BCct.SIGN_CANON_V not in dct_data:
+      dct_data[BCct.SIGN_CANON_V] = sign_canon_v
+
     bdata, bin_hexdigest, hexdigest = self.compute_hash(
-      dct_data, 
-      return_all=True, 
+      dct_to_sign,
+      return_all=True,
       replace_nan=replace_nan,
+      include_sign_canon=include_sign_canon,
     )
     text_data = bdata.decode()
     if use_digest:
@@ -1471,8 +1530,6 @@ class BaseBlockEngine(
       # now populate dict
       dct_data[BCct.SIGN] = result
       dct_data[BCct.SENDER] = self.address
-      if BCct.SIGN_CANON_V not in dct_data:
-        dct_data[BCct.SIGN_CANON_V] = self.SIGN_CANON_V_CURRENT
       
       if self._eth_enabled:
         dct_data[BCct.ETH_SENDER] = self.eth_address
@@ -1528,11 +1585,16 @@ class BaseBlockEngine(
     
     Notes
     -----
-    If `SIGN_CANON_V` is missing, verification attempts the current
-    canonicalization first, then falls back to the legacy variant.
+    If `SIGN_CANON_V` is missing, verification attempts the current encoder
+    without hashing `SIGN_CANON_V` first, then falls back to the legacy
+    variant.
     If `SIGN_CANON_V` is present, only the specified version is used.
     For unversioned payloads, a deepcopy is used for hashing to avoid
     mutating the input dict during the dual attempt.
+    Verification stats for unversioned payloads use the ``unversioned``
+    bucket when the first attempt succeeds.
+    That bucket identifies a successful reconstruction path, not an explicit
+    signed wire version.
 
     Returns
     -------
@@ -1591,13 +1653,20 @@ class BaseBlockEngine(
         return verify_msg
       return verify_msg.ok
 
-    def _verify_with_encoder(dct_for_hash, encoder_cls, pk, bsignature):
+    def _verify_with_encoder(
+        dct_for_hash,
+        encoder_cls,
+        pk,
+        bsignature,
+        include_sign_canon=False,
+      ):
       try:
         bdata_json, bin_hexdigest, hexdigest = self.compute_hash(
           dct_for_hash,
           return_all=True,
           replace_nan=replace_nan,
           encoder_cls=encoder_cls,
+          include_sign_canon=include_sign_canon,
         )
       except Exception as exc:
         _verify_msg = VerifyMessage()
@@ -1640,14 +1709,20 @@ class BaseBlockEngine(
       dct_for_hash = deepcopy(dct_data)
       verify_msg = _verify_with_encoder(dct_for_hash, _ComplexJsonEncoder, pk, bsignature)
       if verify_msg.valid:
-        used_canon_v = self.SIGN_CANON_V_CURRENT
+        used_canon_v = self.SIGN_CANON_V_UNVERSIONED
       else:
         verify_msg_legacy = _verify_with_encoder(dct_for_hash, _LegacyComplexJsonEncoder, pk, bsignature)
         verify_msg = verify_msg_legacy
         if verify_msg.valid:
           used_canon_v = self.SIGN_CANON_V_LEGACY
     elif sign_canon_v == self.SIGN_CANON_V_CURRENT:
-      verify_msg = _verify_with_encoder(dct_for_hash, _ComplexJsonEncoder, pk, bsignature)
+      verify_msg = _verify_with_encoder(
+        dct_for_hash,
+        _ComplexJsonEncoder,
+        pk,
+        bsignature,
+        include_sign_canon=True,
+      )
       if verify_msg.valid:
         used_canon_v = self.SIGN_CANON_V_CURRENT
     elif sign_canon_v == self.SIGN_CANON_V_LEGACY:

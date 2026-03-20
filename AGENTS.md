@@ -47,6 +47,7 @@
 - Formatting: payloads can specify `EE_FORMATTER`; decoding is via `IOFormatterWrapper` with plugin locations (default `plugins.io_formatters`).
 - Comms channels: topics are defined by `CONFIG_CHANNEL`, `CTRL_CHANNEL`, `NOTIF_CHANNEL`, `PAYLOADS_CHANNEL`; `root_topic` formats templates (code default `naeural`, override via `EE_ROOT_TOPIC`; docs mention `ratio1` so verify when editing); `SUBTOPIC` can be `address` or `alias`.
 - Encryption/signing: `DefaultBlockEngine` is `BaseBCEllipticCurveEngine` (ECDSA secp256k1); payloads can be signed and AES-GCM encrypted; multi-recipient encryption is supported; encryption metadata uses `EE_IS_ENCRYPTED` and `EE_ENCRYPTED_DATA`.
+- Signing canon versioning (2026-03): signed payloads may include `SIGN_CANON_V`; `v2` means `SIGN_CANON_V` is part of the signed/hash-reconstructed payload so older SDKs, which hash unknown fields as data, can still verify newer messages. Legacy `v1` remains supported. If `SIGN_CANON_V` is missing, verification first tries the current encoder without hashing `SIGN_CANON_V`, then falls back to legacy `v1`. Verification stats buckets currently track `v1`, `v2`, and `unversioned`, where `unversioned` is a verification-path bucket rather than an explicit wire version. Cross-version signing compatibility checks live in `xperimental/sign/test_sign2.py` and `xperimental/sign/test_sign_release_matrix.py`.
 - dAuth auto-configuration: `dauth_autocomplete` POSTs to dAuth URL (from `EE_DAUTH_URL` or EVM network defaults) with signed payload; may populate `EE_*` env keys and whitelist addresses; requests use explicit timeouts.
 - Node discovery and permissions: heartbeats/netconfig update `_dct_can_send_to_node`; only whitelisted or un-secured nodes are allowed; net-config requests are sent to `admin_pipeline` + `NET_CONFIG_MONITOR` and throttled by `SDK_NETCONFIG_REQUEST_DELAY` (300s).
 - Pipeline and instance config: configs are normalized to uppercase; pipeline config embeds `PLUGINS`; `attach_*` flows use heartbeat-provided config; command flows are via `COMMANDS.*` and notifications resolve `Transaction` responses.
@@ -73,4 +74,5 @@
 - 2026-03-12: Added bounded negative caching for failed same-host relay proofs to avoid repeated startup delays on off-host containers.
 - 2026-03-12: Tightened same-host relay proof semantics to require disconnect + reconnect on the exact local multiaddr before filters are applied.
 - 2026-03-13: Reverted the R1FS same-host relay workaround to opt-in by default after testing showed local-path peer connectivity could still fail block transfer.
+- 2026-03-19: Documented signing canon version contract (`v1`/`v2`), unversioned fallback verification, stats buckets, and cross-version compatibility test coverage.
 - (add new entries here)
