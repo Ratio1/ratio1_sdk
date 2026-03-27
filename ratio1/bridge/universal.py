@@ -42,6 +42,10 @@ Run the bridge while another client connects to the local port:
 
 Run a single bridge directly as a foreground process:
 
+``r1bridge --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432``
+
+Module execution remains available as a fallback:
+
 ``python3 -m ratio1.bridge.universal --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432``
 
 -------
@@ -818,15 +822,15 @@ def parse_args() -> argparse.Namespace:
   --------
   Run a long-lived PostgreSQL bridge:
 
-  ``python3 -m ratio1.bridge.universal --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432``
+  ``r1bridge --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432``
 
   Run a bridge on the first free local port above ``30000``:
 
-  ``python3 -m ratio1.bridge.universal --name postgres_bridge --hostname example-tunnel.ratio1.link``
+  ``r1bridge --name postgres_bridge --hostname example-tunnel.ratio1.link``
 
   Run a short-lived bridge for a smoke test:
 
-  ``python3 -m ratio1.bridge.universal --name bolt_bridge --hostname example-tunnel.ratio1.link --local-port 57687 --duration-seconds 5``
+  ``r1bridge --name bolt_bridge --hostname example-tunnel.ratio1.link --local-port 57687 --duration-seconds 5``
   """
   parser = argparse.ArgumentParser(
     description=(
@@ -865,7 +869,7 @@ def main() -> int:
 
   Examples
   --------
-  >>> # python3 -m ratio1.bridge.universal --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432
+  >>> # r1bridge --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432
   """
   args = parse_args()
   bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache")
