@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ratio1"
-version = "3.5.21"
+version = "3.5.22"
 authors = [
   { name="Andrei Ionut Damian", email="andrei.damian@ratio1.ai" },
   { name="Cristan Bleotiu", email="cristian.bleotiu@ratio1.ai" },
@@ -27,7 +27,8 @@ dependencies = [
   "cryptography>=39.0.0",
   "python-dateutil",
   "pyaml",
-  "web3>=7.0.0"
+  "web3>=7.0.0",
+  "websocket-client"
 ]
 
 [project.urls]

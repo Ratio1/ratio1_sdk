@@ -19,32 +19,30 @@ Examples
 --------
 Create a bridge object that can later be entered as a context manager:
 
->>> from pathlib import Path
+>>> from ratio1.logging import Logger
+>>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
 >>> bridge = UniversalBridgeServer(
 ...   name="postgres_bridge",
 ...   hostname="example-tunnel.ratio1.link",
 ...   local_port=55432,
-...   run_ts="260327_080712",
-...   raw_logs_dir=Path("clients/_logs/raw"),
+...   log=bridge_log,
 ... )
 >>> bridge.local_port
 55432
 
 Run the bridge while another client connects to the local port:
 
->>> from pathlib import Path
 >>> with UniversalBridgeServer(
 ...   name="bolt_bridge",
 ...   hostname="example-tunnel.ratio1.link",
 ...   local_port=57687,
-...   run_ts="260327_080712",
-...   raw_logs_dir=Path("clients/_logs/raw"),
+...   log=bridge_log,
 ... ) as running_bridge:
 ...   running_bridge.raise_if_failed()
 
 Run a single bridge directly as a foreground process:
 
-``python3 shared/src/tunnel_common/universal.py --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432 --run-ts demo_run --raw-logs-dir clients/_logs/raw``
+``python3 -m ratio1.bridge.universal --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432``
 
 -------
 
@@ -59,76 +57,19 @@ import socket
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from importlib import import_module
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from ratio1.logging import Logger
 
-RESET = "\033[0m"
-COLORS = {
-  "blue": "\033[34m",
-  "cyan": "\033[36m",
-  "green": "\033[32m",
-  "red": "\033[31m",
-  "yellow": "\033[33m",
-}
 LOCALHOST = "127.0.0.1"
 BUFFER_SIZE = 64 * 1024
+MIN_DYNAMIC_LOCAL_PORT = 30_001
+MAX_LOCAL_PORT = 65_535
 WEBSOCKET_INSTALL_HINT = (
   "missing websocket dependency. Install websocket-client in the active Python environment."
 )
-
-
-def colorize(message: str, color: str) -> str:
-  """Wrap a message in an ANSI color code.
-
-  Parameters
-  ----------
-  message:
-    Plain log message to colorize.
-  color:
-    Symbolic color name from :data:`COLORS`.
-
-  Returns
-  -------
-  str
-    The formatted message. Unknown colors leave the message unmodified.
-
-  Examples
-  --------
-  >>> colorize("bridge ready", "green").endswith(RESET)
-  True
-  >>> colorize("plain", "missing")
-  'plain'
-  """
-  return f"{COLORS.get(color, '')}{message}{RESET if color in COLORS else ''}"
-
-
-def format_line(scope: str, message: str) -> str:
-  """Return a timestamped log line.
-
-  Parameters
-  ----------
-  scope:
-    Short subsystem name that will appear in square brackets.
-  message:
-    Human-readable log message.
-
-  Returns
-  -------
-  str
-    UTC timestamped line suitable for console and file logging.
-
-  Examples
-  --------
-  >>> line = format_line("bridge", "listening")
-  >>> "[bridge] listening" in line
-  True
-  """
-  timestamp = datetime.now(timezone.utc).isoformat()
-  return f"[{timestamp}] [{scope}] {message}"
 
 
 def get_websocket_module() -> ModuleType:
@@ -308,36 +249,51 @@ def close_websocket_quietly(ws: Any) -> None:
     pass
 
 
-def ensure_port_available(port: int) -> None:
-  """Fail early if the selected local bridge port is already in use.
+def bind_listener_socket(local_port: int | None) -> tuple[socket.socket, int]:
+  """Bind the bridge listener to a fixed or automatically selected local port.
 
   Parameters
   ----------
-  port:
-    Local TCP port that the bridge intends to bind.
+  local_port:
+    Requested localhost TCP port. When ``None``, the helper scans upward from
+    :data:`MIN_DYNAMIC_LOCAL_PORT` and binds the first free port it finds.
 
   Returns
   -------
-  None
-    This helper succeeds silently when the port is available.
+  tuple[socket.socket, int]
+    Bound listener socket and the concrete bound port.
 
   Raises
   ------
   RuntimeError
-    Raised when the port is already bound by another process.
+    Raised when the fixed port is already bound or no free dynamic port exists
+    above the configured floor.
 
   Examples
   --------
-  >>> ensure_port_available(6553)
+  >>> listener, port = bind_listener_socket(None)
+  >>> port >= MIN_DYNAMIC_LOCAL_PORT
+  True
+  >>> listener.close()
   """
-  with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-      # Bind a short-lived probe socket so failures happen before the real
-      # listener thread is started.
-      probe.bind((LOCALHOST, port))
-    except OSError as exc:
-      raise RuntimeError(f"local port {port} is already in use") from exc
+  listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+  candidate_ports = [local_port] if local_port is not None else range(MIN_DYNAMIC_LOCAL_PORT, MAX_LOCAL_PORT + 1)
+  try:
+    for candidate_port in candidate_ports:
+      try:
+        listener.bind((LOCALHOST, candidate_port))
+        listener.listen(5)
+        # A short timeout keeps accept() interruptible so shutdown is responsive.
+        listener.settimeout(1)
+        return listener, candidate_port
+      except OSError as exc:
+        if local_port is not None:
+          raise RuntimeError(f"local port {local_port} is already in use") from exc
+    raise RuntimeError(f"no free local port found above {MIN_DYNAMIC_LOCAL_PORT - 1}")
+  except Exception:
+    close_socket_quietly(listener)
+    raise
 
 
 @dataclass
@@ -351,13 +307,10 @@ class UniversalBridgeServer:
   hostname:
     Public Cloudflare Tunnel hostname for the published TCP application.
   local_port:
-    Localhost TCP port on which the bridge should listen.
-  run_ts:
-    Run identifier used to make raw log file names unique and traceable.
-  raw_logs_dir:
-    Directory where bridge log files should be written.
-  log_color:
-    ANSI color name for this bridge instance's log lines.
+    Localhost TCP port on which the bridge should listen. When ``None``, the
+    bridge binds the first free local port above ``30000``.
+  log:
+    SDK logger instance owned by the caller and used for bridge lifecycle logs.
 
   Attributes
   ----------
@@ -369,8 +322,6 @@ class UniversalBridgeServer:
     Process-wide stop signal shared by the accept loop and per-client pumps.
   error:
     First terminal error observed by the bridge, if any.
-  log_path:
-    Concrete path of the raw log file for this bridge instance.
 
   Notes
   -----
@@ -380,23 +331,21 @@ class UniversalBridgeServer:
 
   Examples
   --------
-  >>> from pathlib import Path
+  >>> from ratio1.logging import Logger
+  >>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
   >>> with UniversalBridgeServer(
   ...   name="postgres_bridge",
   ...   hostname="example-tunnel.ratio1.link",
   ...   local_port=55432,
-  ...   run_ts="260327_080712",
-  ...   raw_logs_dir=Path("clients/_logs/raw"),
+  ...   log=bridge_log,
   ... ) as bridge:
   ...   bridge.raise_if_failed()
   """
 
   name: str
   hostname: str
-  local_port: int
-  run_ts: str
-  raw_logs_dir: Path
-  log_color: str = "cyan"
+  local_port: int | None
+  log: Logger
 
   def __post_init__(self) -> None:
     """Initialize runtime-only attributes after dataclass field assignment.
@@ -413,56 +362,55 @@ class UniversalBridgeServer:
 
     Examples
     --------
-    >>> from pathlib import Path
+    >>> from ratio1.logging import Logger
+    >>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
     >>> bridge = UniversalBridgeServer(
     ...   name="demo",
     ...   hostname="example-tunnel.ratio1.link",
-    ...   local_port=55432,
-    ...   run_ts="run",
-    ...   raw_logs_dir=Path("logs"),
+    ...   local_port=None,
+    ...   log=bridge_log,
     ... )
     >>> bridge.listener is None
     True
     """
+    if not hasattr(self.log, "P"):
+      raise TypeError("log must be an initialized SDK Logger-like object exposing P()")
+    if self.local_port is not None and not (0 < self.local_port <= MAX_LOCAL_PORT):
+      raise ValueError(f"local_port must be between 1 and {MAX_LOCAL_PORT} when provided")
     self.listener: socket.socket | None = None
     self.server_thread: threading.Thread | None = None
     self.stop_event = threading.Event()
     self.error: Exception | None = None
     self.error_lock = threading.Lock()
-    self.log_path = self.raw_logs_dir / f"{self.run_ts}_{self.name}.log"
     # Handler threads are tracked so shutdown waits for in-flight sessions.
     self.handler_threads: list[threading.Thread] = []
 
-  def log(self, message: str) -> None:
-    """Append one bridge log line to the raw log file.
+  def _emit(self, message: str) -> None:
+    """Emit one bridge log line through the caller-owned SDK logger.
 
     Parameters
     ----------
     message:
-      Human-readable message body without timestamp or scope prefix.
+      Human-readable message body without the bridge-name prefix.
 
     Returns
     -------
     None
-      This helper writes directly to disk.
+      This helper delegates logging to the injected SDK logger.
 
     Examples
     --------
-    >>> from pathlib import Path
+    >>> from ratio1.logging import Logger
+    >>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
     >>> bridge = UniversalBridgeServer(
     ...   name="demo",
     ...   hostname="example-tunnel.ratio1.link",
     ...   local_port=55432,
-    ...   run_ts="run",
-    ...   raw_logs_dir=Path("logs"),
+    ...   log=bridge_log,
     ... )
-    >>> bridge.log("example message")
+    >>> bridge._emit("example message")
     """
-    # Ensure the directory exists even when the first log entry is an error.
-    self.raw_logs_dir.mkdir(parents=True, exist_ok=True)
-    line = format_line(self.name, message)
-    with self.log_path.open("a", encoding="utf-8") as handle:
-      handle.write(colorize(line, self.log_color) + "\n")
+    self.log.P(f"[{self.name}] {message}")
 
   def __enter__(self) -> "UniversalBridgeServer":
     """Start the local listener and return the running bridge.
@@ -480,30 +428,25 @@ class UniversalBridgeServer:
 
     Examples
     --------
-    >>> from pathlib import Path
+    >>> from ratio1.logging import Logger
+    >>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
     >>> bridge = UniversalBridgeServer(
     ...   name="demo",
     ...   hostname="example-tunnel.ratio1.link",
     ...   local_port=55432,
-    ...   run_ts="run",
-    ...   raw_logs_dir=Path("logs"),
+    ...   log=bridge_log,
     ... )
     >>> entered = bridge.__enter__()
     >>> entered is bridge
     True
     >>> bridge.__exit__(None, None, None)
     """
-    ensure_port_available(self.local_port)
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind((LOCALHOST, self.local_port))
-    listener.listen(5)
-    # A short timeout keeps accept() interruptible so shutdown is responsive.
-    listener.settimeout(1)
+    listener, bound_port = bind_listener_socket(self.local_port)
+    self.local_port = bound_port
     self.listener = listener
     self.server_thread = threading.Thread(target=self._serve, name=f"bridge-{self.name}", daemon=True)
     self.server_thread.start()
-    self.log(f"listening on {LOCALHOST}:{self.local_port} for hostname {self.hostname}")
+    self._emit(f"listening on {LOCALHOST}:{self.local_port} for hostname {self.hostname}")
     # Probe the port before returning so callers can launch clients immediately.
     wait_for_local_port(self.local_port, timeout_seconds=5)
     return self
@@ -527,13 +470,13 @@ class UniversalBridgeServer:
 
     Examples
     --------
-    >>> from pathlib import Path
+    >>> from ratio1.logging import Logger
+    >>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
     >>> bridge = UniversalBridgeServer(
     ...   name="demo",
     ...   hostname="example-tunnel.ratio1.link",
     ...   local_port=55432,
-    ...   run_ts="run",
-    ...   raw_logs_dir=Path("logs"),
+    ...   log=bridge_log,
     ... )
     >>> _ = bridge.__enter__()
     >>> bridge.__exit__(None, None, None)
@@ -561,13 +504,13 @@ class UniversalBridgeServer:
 
     Examples
     --------
-    >>> from pathlib import Path
+    >>> from ratio1.logging import Logger
+    >>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
     >>> bridge = UniversalBridgeServer(
     ...   name="demo",
     ...   hostname="example-tunnel.ratio1.link",
     ...   local_port=55432,
-    ...   run_ts="run",
-    ...   raw_logs_dir=Path("logs"),
+    ...   log=bridge_log,
     ... )
     >>> bridge.raise_if_failed()
     """
@@ -594,13 +537,13 @@ class UniversalBridgeServer:
 
     Examples
     --------
-    >>> from pathlib import Path
+    >>> from ratio1.logging import Logger
+    >>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
     >>> bridge = UniversalBridgeServer(
     ...   name="demo",
     ...   hostname="example-tunnel.ratio1.link",
     ...   local_port=55432,
-    ...   run_ts="run",
-    ...   raw_logs_dir=Path("logs"),
+    ...   log=bridge_log,
     ... )
     >>> bridge._set_error(RuntimeError("boom"))
     >>> isinstance(bridge.error, RuntimeError)
@@ -610,7 +553,7 @@ class UniversalBridgeServer:
       # Preserve the first meaningful failure and ignore follow-on cleanup noise.
       if self.error is None:
         self.error = exc
-        self.log(f"bridge error: {exc}")
+        self._emit(f"bridge error: {exc}")
 
   def _serve(self) -> None:
     """Accept local TCP clients and dispatch a handler thread per connection.
@@ -669,21 +612,21 @@ class UniversalBridgeServer:
     Returns
     -------
     None
-      Convenience wrapper around :meth:`log`.
+      Convenience wrapper around :meth:`_emit`.
 
     Examples
     --------
-    >>> from pathlib import Path
+    >>> from ratio1.logging import Logger
+    >>> bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache", silent=True)
     >>> bridge = UniversalBridgeServer(
     ...   name="demo",
     ...   hostname="example-tunnel.ratio1.link",
     ...   local_port=55432,
-    ...   run_ts="run",
-    ...   raw_logs_dir=Path("logs"),
+    ...   log=bridge_log,
     ... )
     >>> bridge._log_client_issue(("127.0.0.1", 12345), "closed")
     """
-    self.log(f"client {address[0]}:{address[1]} issue: {message}")
+    self._emit(f"client {address[0]}:{address[1]} issue: {message}")
 
   def _handle_client(self, client_socket: socket.socket, address: tuple[str, int]) -> None:
     """Bridge one accepted local client to one Cloudflare WebSocket session.
@@ -717,7 +660,7 @@ class UniversalBridgeServer:
     # This event coordinates shutdown between the two per-direction stream pumps.
     local_stop = threading.Event()
     try:
-      self.log(f"accepted client {address[0]}:{address[1]}")
+      self._emit(f"accepted client {address[0]}:{address[1]}")
       client_socket.settimeout(1)
       headers = [f"{key}: {value}" for key, value in build_access_headers().items()]
 
@@ -797,7 +740,7 @@ class UniversalBridgeServer:
         ws.send(data, opcode=websocket.ABNF.OPCODE_BINARY)
     except Exception as exc:
       if not self.stop_event.is_set() and not stop_event.is_set():
-        self.log(f"socket-to-websocket client stream ended: {exc}")
+        self._emit(f"socket-to-websocket client stream ended: {exc}")
     finally:
       stop_event.set()
 
@@ -857,7 +800,7 @@ class UniversalBridgeServer:
       return
     except Exception as exc:
       if not self.stop_event.is_set() and not stop_event.is_set():
-        self.log(f"websocket-to-socket client stream ended: {exc}")
+        self._emit(f"websocket-to-socket client stream ended: {exc}")
     finally:
       stop_event.set()
 
@@ -869,17 +812,21 @@ def parse_args() -> argparse.Namespace:
   -------
   argparse.Namespace
     Parsed arguments describing the public tunnel hostname, local listener,
-    and logging configuration for one bridge instance.
+    and optional finite run duration for one bridge instance.
 
   Examples
   --------
   Run a long-lived PostgreSQL bridge:
 
-  ``python3 shared/src/tunnel_common/universal.py --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432 --run-ts demo_run --raw-logs-dir clients/_logs/raw``
+  ``python3 -m ratio1.bridge.universal --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432``
+
+  Run a bridge on the first free local port above ``30000``:
+
+  ``python3 -m ratio1.bridge.universal --name postgres_bridge --hostname example-tunnel.ratio1.link``
 
   Run a short-lived bridge for a smoke test:
 
-  ``python3 shared/src/tunnel_common/universal.py --name bolt_bridge --hostname example-tunnel.ratio1.link --local-port 57687 --run-ts demo_run --raw-logs-dir clients/_logs/raw --duration-seconds 5``
+  ``python3 -m ratio1.bridge.universal --name bolt_bridge --hostname example-tunnel.ratio1.link --local-port 57687 --duration-seconds 5``
   """
   parser = argparse.ArgumentParser(
     description=(
@@ -889,10 +836,11 @@ def parse_args() -> argparse.Namespace:
   )
   parser.add_argument("--name", required=True, help="human-readable bridge name for logs and thread labels")
   parser.add_argument("--hostname", required=True, help="public Cloudflare Tunnel hostname for the TCP application")
-  parser.add_argument("--local-port", required=True, type=int, help="localhost TCP port to bind")
-  parser.add_argument("--run-ts", required=True, help="run identifier used in raw log file names")
-  parser.add_argument("--raw-logs-dir", required=True, type=Path, help="directory where bridge log files will be written")
-  parser.add_argument("--log-color", default="cyan", help="ANSI log color name to use for file log lines")
+  parser.add_argument(
+    "--local-port",
+    type=int,
+    help=f"optional localhost TCP port to bind; default is first free port above {MIN_DYNAMIC_LOCAL_PORT - 1}",
+  )
   parser.add_argument(
     "--duration-seconds",
     type=int,
@@ -917,16 +865,15 @@ def main() -> int:
 
   Examples
   --------
-  >>> # python3 shared/src/tunnel_common/universal.py --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432 --run-ts demo_run --raw-logs-dir clients/_logs/raw
+  >>> # python3 -m ratio1.bridge.universal --name postgres_bridge --hostname example-tunnel.ratio1.link --local-port 55432
   """
   args = parse_args()
+  bridge_log = Logger("BRIDGE", base_folder=".", app_folder="_local_cache")
   bridge = UniversalBridgeServer(
     name=args.name,
     hostname=args.hostname,
     local_port=args.local_port,
-    run_ts=args.run_ts,
-    raw_logs_dir=args.raw_logs_dir,
-    log_color=args.log_color,
+    log=bridge_log,
   )
 
   try:
@@ -945,7 +892,7 @@ def main() -> int:
         bridge.raise_if_failed()
         time.sleep(1)
   except KeyboardInterrupt:
-    bridge.log("received interrupt, stopping bridge")
+    bridge._emit("received interrupt, stopping bridge")
     return 0
 
 
