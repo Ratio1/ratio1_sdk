@@ -78,11 +78,13 @@ class GenericSession(BaseDecentrAIObject):
           "TOPIC": "{}/notif"
       },
       "PAYLOADS_CHANNEL": {
-          "TOPIC": "{}/payloads"
+          "TOPIC": "{}/payloads",
+          "TARGETED_TOPIC": "{}/{}/payloads"
       },
       "QOS": 0,
       "CERT_PATH": None,
-      "SUBTOPIC:": "address",  # or "alias"
+      "DISABLE_ADDRESSED_PAYLOAD_SUBS": False,
+      "SUBTOPIC": "address",  # or "alias"
   }
 
 
@@ -357,6 +359,19 @@ class GenericSession(BaseDecentrAIObject):
   
 
   def startup(self):        
+    """
+    Start the session runtime and finalize the communication configuration.
+
+    Notes
+    -----
+    This method starts the blockchain engine, applies root-topic templating to
+    both broadcast and targeted topic definitions, and then fills any remaining
+    communication settings from arguments, environment variables, or defaults.
+
+    Returns
+    -------
+    None
+    """
 
     # TODO: needs refactoring - suboptimal design
     # start the blockchain engine assuming config is already set
@@ -392,10 +407,12 @@ class GenericSession(BaseDecentrAIObject):
 
     if self.comms_root_topic is not None:
       for key in self._config.keys():
-        if isinstance(self._config[key], dict) and 'TOPIC' in self._config[key]:
-          if isinstance(self._config[key]["TOPIC"], str) and self._config[key]["TOPIC"].startswith("{}"):
-            nr_empty = self._config[key]["TOPIC"].count("{}")
-            self._config[key]["TOPIC"] = self._config[key]["TOPIC"].format(self.comms_root_topic, *(["{}"] * (nr_empty - 1)))
+        if isinstance(self._config[key], dict):
+          for topic_key in ["TOPIC", "TARGETED_TOPIC"]:
+            topic_value = self._config[key].get(topic_key)
+            if isinstance(topic_value, str) and topic_value.startswith("{}"):
+              nr_empty = topic_value.count("{}")
+              self._config[key][topic_key] = topic_value.format(self.comms_root_topic, *(["{}"] * (nr_empty - 1)))
     # end if root_topic
 
     
@@ -1629,36 +1646,50 @@ class GenericSession(BaseDecentrAIObject):
     
     def __fill_config(self, host, port, user, pwd, secured, subtopic):
       """
-      Fill the configuration dictionary with the ceredentials provided when creating this instance.
+      Fill the communication configuration with credentials and transport settings.
 
+      The explicit values provided when creating the session are considered first,
+      then the relevant environment variables are checked, and finally any values
+      already present in the session configuration are reused.
 
       Parameters
       ----------
       host : str
           The hostname of the server.
-          Can be retrieved from the environment variables AIXP_HOSTNAME, AIXP_HOST
-          
+          Can be retrieved from the environment variables AIXP_HOSTNAME,
+          AIXP_HOST, EE_HOSTNAME, EE_HOST, and EE_MQTT_HOST.
       port : int
           The port.
-          Can be retrieved from the environment variable AIXP_PORT
-          
+          Can be retrieved from the environment variables AIXP_PORT, EE_PORT,
+          and EE_MQTT_PORT.
       user : str
           The user name.
-          Can be retrieved from the environment variables AIXP_USERNAME, AIXP_USER
-          
+          Can be retrieved from the environment variables AIXP_USERNAME,
+          AIXP_USER, EE_USERNAME, EE_USER, and EE_MQTT_USER.
       pwd : str
           The password.
-          Can be retrieved from the environment variables AIXP_PASSWORD, AIXP_PASS, AIXP_PWD
-
+          Can be retrieved from the environment variables AIXP_PASSWORD,
+          AIXP_PASS, AIXP_PWD, EE_PASSWORD, EE_PASS, EE_PWD, and EE_MQTT.
+      secured : bool or str
+          Transport security preference. When unset, the method falls back to the
+          corresponding environment variables or the existing config value.
       subtopic : str
-          The subtopic mode(if the subtopic will be the node address or the node alias in case of specific channel).
-          Can be retrieved from the environment variables EE_SUBTOPIC
+          The subtopic mode (whether formatted topics use the node address or the
+          node alias in specific channels).
+          Can be retrieved from the environment variables EE_SUBTOPIC and
+          EE_MQTT_SUBTOPIC.
 
       Raises
       ------
       ValueError
-          Missing credentials
-      """      
+          Missing required connection credentials.
+
+      Notes
+      -----
+      This method also applies the addressed-payload subscription rollout flag
+      from `EE_DISABLE_ADDRESSED_PAYLOAD_SUBS` and ensures `EE_ID` and `EE_ADDR`
+      are present in the final config.
+      """
 
 
       possible_user_values = [
@@ -1766,6 +1797,13 @@ class GenericSession(BaseDecentrAIObject):
       subtopic = next((x for x in possible_subtopic_values if x is not None), None)
       if subtopic is not None and self._config.get(comm_ct.SUBTOPIC, None) is None:
         self._config[comm_ct.SUBTOPIC] = subtopic
+
+      disable_addressed_payload_subs = os.getenv(ENVIRONMENT.EE_DISABLE_ADDRESSED_PAYLOAD_SUBS)
+      if disable_addressed_payload_subs is not None:
+        self._config[comm_ct.DISABLE_ADDRESSED_PAYLOAD_SUBS] = str(disable_addressed_payload_subs).strip().upper() in ['TRUE', '1', 'YES']
+
+      self._config.setdefault(comm_ct.EE_ID, self.name)
+      self._config.setdefault(comm_ct.EE_ADDR, self.bc_engine.address)
 
       return
 
