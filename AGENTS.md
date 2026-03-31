@@ -101,6 +101,12 @@
 - Manual validation plan is required, but not automatically runnable, for changes in `core-session`, `blockchain-auth`, `ipfs-r1fs`, or `plugins-deploy` that alter real network behavior.
 - A valid handoff must state which commands were run, what evidence was reviewed, and what could not be verified safely.
 
+## Python Coding Contract
+- Match the repository's 2-space indentation for Python code and keep implementations production-grade rather than prototype-grade.
+- Any modified, created, or refactored Python code must include clear, extended NumPy-style docstrings on touched classes, functions, and methods.
+- Add descriptive inline comments for non-trivial control flow, state transitions, network-safety branches, serialization logic, and other contract-sensitive code paths.
+- Prefer explicit helper names and branch structure over terse cleverness when network behavior, auth state, or payload compatibility is involved.
+
 ## Single-Agent Loop
 - Required loop for bounded solo work: `plan -> implement -> test -> critique -> revise -> verify`.
 - Rules for the loop:
