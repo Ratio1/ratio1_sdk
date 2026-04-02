@@ -89,22 +89,20 @@ class MQTTWrapper(BaseCommWrapper):
     return self._config.get(COMMS.CERT_PATH)
 
   def get_recv_channel_def(self):
+    """
+    Return the MQTT receive channel definition with all subscribed topics.
+
+    Returns
+    -------
+    dict or None
+      Receive channel configuration containing the concrete list of MQTT topics,
+      or `None` when no receive channel is configured.
+    """
     if self.recv_channel_name is None:
       return
 
     cfg = self._config[self.recv_channel_name].copy()
-    topic = cfg[COMMS.TOPIC]
-    lst_topics = []
-    if "{}" in topic:
-      # A list of values is retrieved in order for the `alias`
-      # subtopic mode to also listen on the queues based on address.
-      subtopic_values = self.get_subtopic_values()
-      for subtopic_value in subtopic_values:
-        if subtopic_value is not None:
-          lst_topics.append(topic.format(subtopic_value))
-      # endfor subtopic_values
-    else:
-      lst_topics.append(topic)
+    lst_topics = self.get_recv_channel_topics()
 
     if len(lst_topics) == 0:
       raise ValueError("ERROR! No topics to subscribe to")

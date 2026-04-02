@@ -144,11 +144,70 @@ class BaseCommWrapper(object):
   def cfg_subtopic(self):
     return self._config.get(COMMS.SUBTOPIC, COMMS.DEFAULT_SUBTOPIC_VALUE)
 
+  @property
+  def cfg_disable_addressed_payload_subs(self):
+    """
+    Return whether addressed payload subscriptions are disabled.
+
+    Returns
+    -------
+    bool
+      `True` when only the broadcast payload topic should be subscribed.
+    """
+    val = self._config.get(COMMS.DISABLE_ADDRESSED_PAYLOAD_SUBS, False)
+    if isinstance(val, str):
+      val = val.strip().upper() in ["1", "TRUE", "YES"]
+    return bool(val)
+
   def get_subtopic_values(self):
     if self.cfg_subtopic == 'alias':
       # This is done in order for alias to still work with addresses
       return [self.cfg_node_id, self.cfg_node_addr]
     return [self.cfg_node_addr]
+
+  def _expand_channel_topic(self, topic, subtopic_values=None):
+    """
+    Expand a channel topic template into one or many concrete topics.
+
+    Parameters
+    ----------
+    topic : str
+      Topic template or fixed topic string.
+    subtopic_values : list, optional
+      Explicit subtopic values used to expand templated topics. When omitted,
+      the wrapper's default subtopic values are used.
+
+    Returns
+    -------
+    list of str
+      Concrete topic names ready for subscription.
+    """
+    if "{}" not in topic:
+      return [topic]
+    if subtopic_values is None:
+      subtopic_values = self.get_subtopic_values()
+    return [topic.format(value) for value in subtopic_values if value is not None]
+
+  def get_recv_channel_topics(self):
+    """
+    Return all topics that should be subscribed for the configured receive channel.
+
+    Returns
+    -------
+    list of str
+      Ordered unique topic names including the broadcast topic and, when
+      enabled, the addressed payload topic for this node.
+    """
+    if self.recv_channel_name is None:
+      return []
+
+    cfg = self._config[self.recv_channel_name].copy()
+    topics = self._expand_channel_topic(cfg[COMMS.TOPIC])
+    targeted_topic = cfg.get(COMMS.TARGETED_TOPIC)
+    if targeted_topic and not self.cfg_disable_addressed_payload_subs:
+      topics.extend(self._expand_channel_topic(targeted_topic, subtopic_values=[self.cfg_node_addr]))
+    # Preserve first-seen topic order while removing duplicates.
+    return list(dict.fromkeys(topics))
 
   @property
   def channel_key(self):
@@ -176,26 +235,32 @@ class BaseCommWrapper(object):
 
   def get_send_channel_def(self, send_to=None):
     """
-    Returns the channel definition for the sender
+    Return the resolved channel definition for the sender.
+
     Parameters
     ----------
     send_to : str, optional
+      Explicit subtopic value used to format the send channel. When provided and
+      the channel defines `TARGETED_TOPIC`, the targeted topic template is used.
 
     Returns
     -------
-    dict or None : The channel definition or None if the channel is not defined.
+    dict or None
+      The resolved channel definition, or `None` if the sender channel is not
+      configured.
     """
     if self.send_channel_name is None:
       return
 
     cfg = self._config[self.send_channel_name].copy()
-    extracted_channel = self.extract_channel_from_config(cfg)
+    resolved_send_to = send_to if send_to is not None else self._send_to
+    if resolved_send_to is not None and cfg.get(COMMS.TARGETED_TOPIC) is not None:
+      extracted_channel = cfg[COMMS.TARGETED_TOPIC]
+    else:
+      extracted_channel = self.extract_channel_from_config(cfg)
     if "{}" in extracted_channel:
-      if send_to is not None:
-        extracted_channel = extracted_channel.format(send_to)
-      # TODO: ._send_to seems to be necessary only for the amqp wrapper
-      elif self._send_to is not None:
-        extracted_channel = extracted_channel.format(self._send_to)
+      if resolved_send_to is not None:
+        extracted_channel = extracted_channel.format(resolved_send_to)
     # endif check for {}
 
     assert "{}" not in extracted_channel

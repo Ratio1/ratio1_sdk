@@ -101,6 +101,12 @@
 - Manual validation plan is required, but not automatically runnable, for changes in `core-session`, `blockchain-auth`, `ipfs-r1fs`, or `plugins-deploy` that alter real network behavior.
 - A valid handoff must state which commands were run, what evidence was reviewed, and what could not be verified safely.
 
+## Python Coding Contract
+- Match the repository's 2-space indentation for Python code and keep implementations production-grade rather than prototype-grade.
+- Any modified, created, or refactored Python code must include clear, extended NumPy-style docstrings on touched classes, functions, and methods.
+- Add descriptive inline comments for non-trivial control flow, state transitions, network-safety branches, serialization logic, and other contract-sensitive code paths.
+- Prefer explicit helper names and branch structure over terse cleverness when network behavior, auth state, or payload compatibility is involved.
+
 ## Single-Agent Loop
 - Required loop for bounded solo work: `plan -> implement -> test -> critique -> revise -> verify`.
 - Rules for the loop:
@@ -426,6 +432,8 @@ actor_to_docs_handoff:
 - Comms channels: topics are defined by `CONFIG_CHANNEL`, `CTRL_CHANNEL`, `NOTIF_CHANNEL`, `PAYLOADS_CHANNEL`; `root_topic` formats templates (code default `naeural`, override via `EE_ROOT_TOPIC`; docs mention `ratio1` so verify when editing); `SUBTOPIC` can be `address` or `alias`.
 - Encryption/signing: `DefaultBlockEngine` is `BaseBCEllipticCurveEngine` (ECDSA secp256k1); payloads can be signed and AES-GCM encrypted; multi-recipient encryption is supported; encryption metadata uses `EE_IS_ENCRYPTED` and `EE_ENCRYPTED_DATA`.
 - Signing canon versioning (2026-03): signed payloads may include `SIGN_CANON_V`; `v2` means `SIGN_CANON_V` is part of the signed/hash-reconstructed payload so older SDKs, which hash unknown fields as data, can still verify newer messages. Legacy `v1` remains supported. If `SIGN_CANON_V` is missing, verification first tries the current encoder without hashing `SIGN_CANON_V`, then falls back to legacy `v1`. Verification stats buckets currently track `v1`, `v2`, and `unversioned`, where `unversioned` is a verification-path bucket rather than an explicit wire version. Cross-version signing compatibility checks live in `xperimental/sign/test_sign2.py` and `xperimental/sign/test_sign_release_matrix.py`.
+- Addressed payload routing (2026-03): payload channels should define `TARGETED_TOPIC` or another addressed topic template; if SDK payload sends carry `EE_DESTINATION` but the active payload channel has only a fixed broadcast topic, the SDK now downgrades that send to one broadcast publish instead of emitting the same payload once per destination onto the broadcast topic. `EE_DISABLE_ADDRESSED_PAYLOAD_SUBS` remains the receive-side rollout flag.
+- Encryption and signing: `DefaultBlockEngine` is `BaseBCEllipticCurveEngine` (ECDSA secp256k1); payloads can be signed and AES-GCM encrypted; multi-recipient encryption is supported; encryption metadata uses `EE_IS_ENCRYPTED` and `EE_ENCRYPTED_DATA`.
 - dAuth auto-configuration: `dauth_autocomplete` POSTs to dAuth URL (from `EE_DAUTH_URL` or EVM network defaults) with signed payload; may populate `EE_*` env keys and whitelist addresses; requests use explicit timeouts.
 - Node discovery and permissions: heartbeats and netconfig update `_dct_can_send_to_node`; only whitelisted or unsecured nodes are allowed; net-config requests are sent to `admin_pipeline` plus `NET_CONFIG_MONITOR` and throttled by `SDK_NETCONFIG_REQUEST_DELAY` (`300s`).
 - Pipeline and instance config: configs are normalized to uppercase; pipeline config embeds `PLUGINS`; `attach_*` flows use heartbeat-provided config; command flows are via `COMMANDS.*` and notifications resolve `Transaction` responses.
@@ -462,4 +470,4 @@ actor_to_docs_handoff:
 - 2026-03-18: Documented the heartbeat v2 callback expansion behavior so SDK-side payload-size analyses do not treat retained `ENCODED_DATA` as pure wire cost.
 - 2026-03-18: Recorded the `_todo/` convention for planning and result markdowns and aligned the SDK payload capture tutorial to emit its result markdown there by default.
 - 2026-03-19: Documented signing canon version contract (`v1`/`v2`), unversioned fallback verification, stats buckets, and cross-version compatibility test coverage.
-
+- 2026-03-31: Documented the addressed-payload routing safeguard and the receive-side rollout flag so config drift cannot silently fan out duplicate broadcast publishes.
