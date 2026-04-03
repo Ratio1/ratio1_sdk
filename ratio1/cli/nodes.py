@@ -200,17 +200,23 @@ def get_comms(args):
 def get_apps(args):
   """
   Shows the apps running on a given node, if the client is allowed on that node.
+
   Parameters
   ----------
   args : argparse.Namespace
       Arguments passed to the function.
 
+  Returns
+  -------
+  None
+      Prints the discovered application view for the requested nodes.
   """
   verbose = args.verbose
   node = args.node
   show_full = args.full
   as_json = args.json
   owner = args.owner
+  timeout = float(args.timeout) if args.timeout is not None else 15
   wide = args.wide
 
   # 1. Init session
@@ -221,7 +227,7 @@ def get_apps(args):
   
   res = sess.get_nodes_apps(
     node=node, owner=owner, show_full=show_full, 
-    as_json=as_json, as_df=not as_json
+    as_json=as_json, as_df=not as_json, timeout=timeout
   )
   if res is not None:
     network = sess.bc_engine.evm_network

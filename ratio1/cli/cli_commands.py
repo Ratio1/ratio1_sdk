@@ -77,6 +77,7 @@ CLI_COMMANDS = {
             "params": {
                 "--node": "The ETH address or the specific address of the node to get the apps from",
                 "--owner" : "Get the apps for a particular owner/initiator",
+                "--timeout": "Maximum seconds to wait for node presence and config collection",
                 "--full": "Include admin apps (flag)",
                 "--json": "Output the entire JSON config of applications (flag)",
                 "--wide": "Display all available information (flag)",

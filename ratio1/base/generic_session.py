@@ -689,7 +689,7 @@ class GenericSession(BaseDecentrAIObject):
       self._send_payload(msg_to_send)
       return
 
-    def __request_pipelines_from_net_config_monitor(self, node_addr=None):
+    def __request_pipelines_from_net_config_monitor(self, node_addr=None, force=False):
       """
       Request the pipelines for a node sending the payload to the 
       the net-config monitor plugin instance of that given node or nodes.
@@ -700,6 +700,9 @@ class GenericSession(BaseDecentrAIObject):
       node_addr : str or list (optional)
           The address or list of the edge node(s) that sent the message.
           If None, the request will be sent to all nodes that are allowed to receive messages.
+      force : bool, optional
+          If `True`, bypass the passive refresh throttle and immediately request
+          pipeline configurations from the selected nodes. Defaults to `False`.
           
       OBSERVATION: 
         This method should be called without node_addr(s) as it will get all the known peered nodes
@@ -724,8 +727,10 @@ class GenericSession(BaseDecentrAIObject):
       if isinstance(node_addr, str):
         node_addr = [node_addr]
       
-      # now we filter only the nodes that have not been requested recently
-      node_addr = [x for x in node_addr if self.__needs_netconfig_request(x)]
+      # Explicit fetch paths such as `get apps` should bypass the background
+      # throttle so they do not wait for the next passive refresh window.
+      if not force:
+        node_addr = [x for x in node_addr if self.__needs_netconfig_request(x)]
                   
       if len(node_addr) > 0:
         dest = [
@@ -2708,8 +2713,12 @@ class GenericSession(BaseDecentrAIObject):
           The address or name of the ratio1 Edge Protocol edge node.
       timeout : int, optional
           The timeout, by default 15
+      verbose : bool, optional
+          If `True`, print progress logs while waiting. Defaults to `True`.
       attempt_additional_requests : bool, optional
-          If True, will attempt to send additional requests to the node to get the configurations, by default True
+          If `True`, request the node configuration immediately when it is not
+          yet cached and retry once again after half of the timeout. Defaults to
+          `True`.
 
       Returns
       -------
@@ -2719,18 +2728,29 @@ class GenericSession(BaseDecentrAIObject):
       short_addr = self._shorten_addr(node)
       self.P("Waiting for node '{}' to have its configurations loaded...".format(short_addr))
 
+      node_addr = self.__get_node_address(node)
+      if node_addr is None:
+        self.P(f"Cannot request configurations for unknown node '{node}'.", color='r')
+        return False
+
       _start = tm()
       found = self.check_node_config_received(node)
       additional_request_sent = False
       request_time_thr = timeout / 2
+      if not found and attempt_additional_requests:
+        try:
+          # Send one explicit request right away for interactive queries instead
+          # of relying on a delayed passive refresh.
+          self.__request_pipelines_from_net_config_monitor(node_addr, force=True)
+        except Exception as e:
+          self.P(f"Failed to request configurations of node '{node_addr}': {e}", color='r')
       while (tm() - _start) < timeout and not found:
         sleep(0.1)
         found = self.check_node_config_received(node)
         if not found and not additional_request_sent and (tm() - _start) > request_time_thr and attempt_additional_requests:
           try:
             self.P("Re-requesting configurations of node '{}'...".format(short_addr), show=True)
-            node_addr = self.__get_node_address(node)
-            self.__request_pipelines_from_net_config_monitor(node_addr)
+            self.__request_pipelines_from_net_config_monitor(node_addr, force=True)
             additional_request_sent = True
           except Exception as e:
             self.P(f"Failed to re-request configurations of node '{node_addr}': {e}", color='r')
@@ -5089,7 +5109,8 @@ class GenericSession(BaseDecentrAIObject):
     show_full=False, 
     as_json=False, 
     show_errors=False, 
-    as_df=False
+    as_df=False,
+    timeout=15,
   ):
     """
     Get the workload status of a node.
@@ -5114,6 +5135,9 @@ class GenericSession(BaseDecentrAIObject):
     
     as_df : bool, optional  
         If True, will return the result as a Pandas DataFrame. Defaults to False.
+    timeout : float, optional
+        Maximum seconds to wait for node discovery when a specific node is
+        requested and for per-node configuration collection. Defaults to 15.
  
 
     Returns
@@ -5125,29 +5149,39 @@ class GenericSession(BaseDecentrAIObject):
         
         
     """
-    lst_plugin_instance_data = []    
+    lst_plugin_instance_data = []
     if node is None:
       nodes = self.get_active_nodes()
+      # Start config collection for the current active snapshot in parallel so
+      # slow nodes do not lose the head start while the CLI loops over them.
+      if len(nodes) > 0:
+        self.__request_pipelines_from_net_config_monitor(nodes, force=True)
     else:
       nodes = [node]
     found_nodes = []
-    for node in nodes:
-      short_addr = self._shorten_addr(node)      
-      # 2. Wait for node to appear online    
-      node_found = self.wait_for_node(node)
+    wait_for_online = node is not None
+    for current_node in nodes:
+      short_addr = self._shorten_addr(current_node)
+      node_found = True
+      if wait_for_online:
+        # Only the explicit single-node path needs an online wait. Multi-node
+        # discovery already starts from `get_active_nodes()`.
+        node_found = self.wait_for_node(current_node, timeout=timeout)
       if node_found:
-        found_nodes.append(node)
+        found_nodes.append(current_node)
+      else:
+        continue
       
       # 3. Check if the node is peered with the client
-      is_allowed = self.is_peered(node)
+      is_allowed = self.is_peered(current_node)
       if not is_allowed:
         if show_errors:
           log_with_color(f"Node {short_addr} is not peered with this client. Skipping..", color='r')
         continue
       
       # 4. Wait for node to send the configuration.
-      self.wait_for_node_configs(node)
-      apps = self.get_active_pipelines(node)
+      self.wait_for_node_configs(current_node, timeout=timeout)
+      apps = self.get_active_pipelines(current_node)
       if apps is None:
         if show_errors:
           log_with_color(f"No apps found on node {short_addr}. Client might not be authorized", color='r')
@@ -5185,8 +5219,8 @@ class GenericSession(BaseDecentrAIObject):
             last_probe = self.date_to_readable(last_probe, check_none=True, start_time=start_time)
 
             lst_plugin_instance_data.append({
-              'Node'  : node,
-              'Node Alias'  : self.get_node_alias(node),
+              'Node'  : current_node,
+              'Node Alias'  : self.get_node_alias(current_node),
               'Owner' : pipeline_owner,
               'Owner Alias' : pipeline_alias,
               'App': pipeline_name,
