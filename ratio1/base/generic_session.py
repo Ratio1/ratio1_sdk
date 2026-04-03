@@ -2733,6 +2733,7 @@ class GenericSession(BaseDecentrAIObject):
         self.P(f"Cannot request configurations for unknown node '{node}'.", color='r')
         return False
 
+      node_alias = self.get_node_alias(node_addr=node_addr)
       _start = tm()
       found = self.check_node_config_received(node)
       additional_request_sent = False
@@ -2743,26 +2744,26 @@ class GenericSession(BaseDecentrAIObject):
           # of relying on a delayed passive refresh.
           self.__request_pipelines_from_net_config_monitor(node_addr, force=True)
         except Exception as e:
-          self.P(f"Failed to request configurations of node '{node_addr}': {e}", color='r')
+          self.P(f"Failed to request configurations of node <{node_alias}> '{node_addr}': {e}", color='r')
       while (tm() - _start) < timeout and not found:
         sleep(0.1)
         found = self.check_node_config_received(node)
         if not found and not additional_request_sent and (tm() - _start) > request_time_thr and attempt_additional_requests:
           try:
-            self.P("Re-requesting configurations of node '{}'...".format(short_addr), show=True)
+            self.P("Re-requesting configurations of node <{}> '{}'...".format(node_alias, short_addr), show=True)
             self.__request_pipelines_from_net_config_monitor(node_addr, force=True)
             additional_request_sent = True
           except Exception as e:
-            self.P(f"Failed to re-request configurations of node '{node_addr}': {e}", color='r')
+            self.P(f"Failed to re-request configurations of node <{node_alias}> '{node_addr}': {e}", color='r')
           #end try
         # end if additional request
       # end while
 
       if verbose:
         if found:
-          self.P(f"Received configurations of node '{short_addr}'.")
+          self.P(f"Received configurations of node <{node_alias}> '{short_addr}'.")
         else:
-          self.P(f"Node '{short_addr}' did not send configs in {(tm() - _start)}. Client might not be authorized!", color='r')
+          self.P(f"Node <{node_alias}> '{short_addr}' did not send configs in {(tm() - _start)}. Client might not be authorized!", color='r')
       return found
 
     def check_node_config_received(self, node):
