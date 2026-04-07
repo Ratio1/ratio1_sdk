@@ -25,6 +25,12 @@ def test_endpoints(base_url: str):
   print(f"{'='*60}\n")
 
   # Test 1: Status
+  # Clean up any leftover contexts from previous runs
+  print("--- Setup: Reset test contexts ---")
+  for ctx in ["test1", "test2"]:
+    requests.post(f"{base_url}/reset_context", json={"context": ctx})
+  print("  Done\n")
+
   print("--- Test 1: GET /status ---")
   r = requests.get(f"{base_url}/status")
   print(f"  Response: {r.json()}")
@@ -161,6 +167,15 @@ if __name__ == "__main__":
     session.P(f"Test failed: {e}", color='r')
     import traceback
     traceback.print_exc()
+  finally:
+    # Clean up test data so we don't leave the node dirty
+    session.P("Cleaning up test contexts...")
+    for ctx in ["test1", "test2"]:
+      try:
+        requests.post(f"{url}/reset_context", json={"context": ctx})
+      except Exception:
+        pass
+    session.P("Cleanup done.")
 
   session.run(
     wait=False,
