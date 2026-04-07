@@ -25,12 +25,6 @@ def test_endpoints(base_url: str):
   print(f"{'='*60}\n")
 
   # Test 1: Status
-  # Clean up any leftover contexts from previous runs
-  print("--- Setup: Reset test contexts ---")
-  for ctx in ["test1", "test2"]:
-    requests.post(f"{base_url}/reset_context", json={"context": ctx})
-  print("  Done\n")
-
   print("--- Test 1: GET /status ---")
   r = requests.get(f"{base_url}/status")
   print(f"  Response: {r.json()}")
@@ -140,10 +134,14 @@ def test_endpoints(base_url: str):
 if __name__ == "__main__":
   session = Session(silent=False)
 
-  node = "0xai_A7H8Sp6peXqx7ES_3chDXRnWl-aUfZ07PyY25if-l95m"
-
-  session.P(f"Waiting for node {node}...")
-  session.wait_for_node(node)
+  node = os.environ.get("EE_TARGET_NODE", None)
+  if node is None:
+    session.P("EE_TARGET_NODE not set, waiting for any node...")
+    session.wait_for_any_node()
+    node = session.get_active_nodes()[0]
+  else:
+    session.P(f"Waiting for node {node}...")
+    session.wait_for_node(node)
 
   pipeline, instance = session.create_web_app(
     node=node,
@@ -160,6 +158,14 @@ if __name__ == "__main__":
   # Wait for the webapp to be ready
   session.P("Waiting 15s for plugin to initialize...")
   time.sleep(15)
+
+  # Reset any leftover data from previous runs
+  session.P("Resetting test contexts from previous runs...")
+  for ctx in ["test1", "test2"]:
+    try:
+      requests.post(f"{url}/reset_context", json={"context": ctx})
+    except Exception:
+      pass
 
   try:
     test_endpoints(url)
