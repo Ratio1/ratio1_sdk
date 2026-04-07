@@ -532,8 +532,6 @@ class _EVMMixin:
         return False
       if not self.is_valid_eth_address(expected_signer):
         return False
-      if not hasattr(self, "web3") or self.web3 is None:
-        return False
 
       safe_address = Web3.to_checksum_address(expected_signer)
       prefix = b"\x19Ethereum Signed Message:\n" + str(len(message_hash)).encode("utf-8")
