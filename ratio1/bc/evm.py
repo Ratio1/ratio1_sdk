@@ -45,6 +45,21 @@ else:
 
 
 class _EVMMixin:
+  _SAFE_SIGNATURE_MAGIC_VALUE = b"\x16\x26\xba\x7e"
+  _SAFE_SIGNATURE_ABI = [
+    {
+      "constant": True,
+      "inputs": [
+        {"name": "_hash", "type": "bytes32"},
+        {"name": "_signature", "type": "bytes"},
+      ],
+      "name": "isValidSignature",
+      "outputs": [{"name": "magicValue", "type": "bytes4"}],
+      "payable": False,
+      "stateMutability": "view",
+      "type": "function",
+    }
+  ]
 
   # EVM address methods
   if True:
@@ -426,6 +441,7 @@ class _EVMMixin:
       signature: str, 
       raise_if_error=False,
       no_hash=False,
+      expected_signer: str = None,
     ):
       """
       Verifies an EVM-compatible signature by:
@@ -444,6 +460,11 @@ class _EVMMixin:
         
       signature : str
         The signature in hex form (e.g. "0x1234abcd...").
+      
+      expected_signer : str, optional
+        If provided, verification is considered successful only for this address.
+        If EOA recovery does not match, a Safe EIP-1271 contract check is attempted
+        against this address.
 
       Returns
       -------
@@ -451,30 +472,88 @@ class _EVMMixin:
         The recovered address as a string (in checksum format), or None if verification fails.
       """
       result = None
+      error = None
+      message_hash = None
+      signable_message = None
       try:
-        # 1) Recompute the message hash used at signing time
         if no_hash:
           message_hash = values[0].encode('utf-8')
         else:
           message_hash = self.eth_hash_message(types, values, as_hex=False)
         signable_message = encode_defunct(primitive=message_hash)
-        
-        # 2) Convert the hex signature string into bytes
-        signature_bytes = bytes.fromhex(signature.removeprefix("0x"))
-        
-        # 3) Recover the address from the signature
-        recovered_address = Account.recover_message(signable_message, signature=signature_bytes)
-        
-        result = recovered_address
-
       except Exception as exc:
+        error = exc
+
+      try:
+        signature_bytes = bytes.fromhex(signature.removeprefix("0x"))
+      except Exception as exc:
+        signature_bytes = None
+        error = exc
+
+      if signature_bytes is not None and signable_message is not None:
+        try:
+          recovered_address = Account.recover_message(signable_message, signature=signature_bytes)
+          if expected_signer is None:
+            result = recovered_address
+          elif recovered_address.lower() == expected_signer.lower():
+            result = recovered_address
+          else:
+            error = Exception(
+              "Recovered address {} does not match expected signer {}.".format(
+                recovered_address, expected_signer
+              )
+            )
+        except Exception as exc:
+          error = exc
+
+      if (
+        result is None
+        and expected_signer is not None
+        and signature_bytes is not None
+        and message_hash is not None
+      ):
+        try:
+          if self._eth_verify_safe_signature(
+            expected_signer=expected_signer,
+            message_hash=message_hash,
+            signature_bytes=signature_bytes,
+          ):
+            result = Web3.to_checksum_address(expected_signer)
+          else:
+            error = Exception("Safe EIP-1271 signature verification failed.")
+        except Exception as exc:
+          error = exc
+
+      if result is None:
+        if error is None:
+          error = Exception("Signature verification failed.")
         if raise_if_error:
-          raise exc
-        else:
-          self.P("Signature verification failed: {}".format(exc), color='r')
-        # Any error (e.g., malformed signature, mismatch) leads to failure
-        result = None
+          raise error
+        self.P("Signature verification failed: {}".format(error), color='r')
       return result   
+
+    def _eth_verify_safe_signature(
+      self,
+      expected_signer: str,
+      message_hash: bytes,
+      signature_bytes: bytes,
+    ) -> bool:
+      if EE_VPN_IMPL:
+        return False
+      if not self.is_valid_eth_address(expected_signer):
+        return False
+
+      safe_address = Web3.to_checksum_address(expected_signer)
+      prefix = b"\x19Ethereum Signed Message:\n" + str(len(message_hash)).encode("utf-8")
+      safe_message_hash = keccak(prefix + message_hash)
+      contract = self.web3.eth.contract(address=safe_address, abi=self._SAFE_SIGNATURE_ABI)
+      magic_value = contract.functions.isValidSignature(safe_message_hash, signature_bytes).call()
+
+      if isinstance(magic_value, str):
+        magic_value = bytes.fromhex(magic_value.removeprefix("0x"))
+      else:
+        magic_value = bytes(magic_value)
+      return magic_value[:4] == self._SAFE_SIGNATURE_MAGIC_VALUE
          
 
 
@@ -518,6 +597,7 @@ class _EVMMixin:
       no_hash=False,
       message_prefix: str = "",
       raise_if_error=False,
+      expected_signer: str = None,
     ):
       """
       Verifies the signature of a message by checking if the recovered address matches the expected sender.
@@ -547,6 +627,7 @@ class _EVMMixin:
       values = [message_prefix + text]
       result = self.eth_verify_message_signature(
         values=values, types=types, signature=signature, no_hash=no_hash,
+        expected_signer=expected_signer,
         raise_if_error=raise_if_error
       )
       return result
@@ -607,7 +688,8 @@ class _EVMMixin:
       no_hash=False, 
       message_prefix: str = "",
       indent=0,
-      raise_if_error=False
+      raise_if_error=False,
+      verify_safe: bool = False,
     ):
       """
       Verifies the signature of a payload by checking if the recovered address matches 
@@ -630,6 +712,10 @@ class _EVMMixin:
       
       indent : int, optional
           The indentation level for the JSON string. The default is 0.
+
+      verify_safe : bool, optional
+          If True, when EOA recovery fails or mismatches, an EIP-1271 Safe
+          verification is attempted against `ETH_SENDER`. The default is False.
                   
       Returns
       -------
@@ -656,7 +742,9 @@ class _EVMMixin:
         str_data = self.safe_dict_to_json(_payload, indent=indent)
         result = self.eth_verify_text_signature(
           text=str_data, signature=signature, message_prefix=message_prefix,
-          no_hash=no_hash, raise_if_error=raise_if_error
+          no_hash=no_hash,
+          raise_if_error=raise_if_error,
+          expected_signer=sender if verify_safe else None,
         )
         if result is None or result.lower() != sender.lower():
           if raise_if_error:
