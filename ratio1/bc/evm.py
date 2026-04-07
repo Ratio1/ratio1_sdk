@@ -473,11 +473,16 @@ class _EVMMixin:
       """
       result = None
       error = None
-      if no_hash:
-        message_hash = values[0].encode('utf-8')
-      else:
-        message_hash = self.eth_hash_message(types, values, as_hex=False)
-      signable_message = encode_defunct(primitive=message_hash)
+      message_hash = None
+      signable_message = None
+      try:
+        if no_hash:
+          message_hash = values[0].encode('utf-8')
+        else:
+          message_hash = self.eth_hash_message(types, values, as_hex=False)
+        signable_message = encode_defunct(primitive=message_hash)
+      except Exception as exc:
+        error = exc
 
       try:
         signature_bytes = bytes.fromhex(signature.removeprefix("0x"))
@@ -485,7 +490,7 @@ class _EVMMixin:
         signature_bytes = None
         error = exc
 
-      if signature_bytes is not None:
+      if signature_bytes is not None and signable_message is not None:
         try:
           recovered_address = Account.recover_message(signable_message, signature=signature_bytes)
           if expected_signer is None:
@@ -501,7 +506,12 @@ class _EVMMixin:
         except Exception as exc:
           error = exc
 
-      if result is None and expected_signer is not None and signature_bytes is not None:
+      if (
+        result is None
+        and expected_signer is not None
+        and signature_bytes is not None
+        and message_hash is not None
+      ):
         try:
           if self._eth_verify_safe_signature(
             expected_signer=expected_signer,
