@@ -480,14 +480,17 @@ class BaseCodeChecker:
       # endif can encapsulate code in method
       if exec_code__debug:
         self.__msg("DEBUG EXEC: Encapsulated code: \n{}".format(exec_code__code))
-      exec(exec_code__code) # now we execute the method definition code not the actual method
+      # Use an explicit namespace dict so exec()'s writes are observable on
+      # Python 3.13+ (PEP 667 changed function-scope locals() semantics).
+      exec_code__ns = dict(locals())
+      exec(exec_code__code, globals(), exec_code__ns)
       if exec_code__debug:
-        self.__msg("DEBUG EXEC: locals(): \n{}".format(locals()))
+        self.__msg("DEBUG EXEC: ns: \n{}".format(exec_code__ns))
       for _var in exec_code__result_vars:
-        if _var in locals():
+        if _var in exec_code__ns:
           if exec_code__debug:
-            self.__msg("DEBUG EXEC: Extracting var '{}' from {}".format(_var, locals()))
-          exec_code__result_var = locals().get(_var)
+            self.__msg("DEBUG EXEC: Extracting var '{}' from {}".format(_var, exec_code__ns))
+          exec_code__result_var = exec_code__ns.get(_var)
           has_result = True
           break
       if not has_result:
