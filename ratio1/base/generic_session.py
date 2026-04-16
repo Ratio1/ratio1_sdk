@@ -5106,6 +5106,7 @@ class GenericSession(BaseDecentrAIObject):
   def get_nodes_apps(
     self, 
     node=None, 
+    alias_filter=None,
     owner=None, 
     show_full=False, 
     as_json=False, 
@@ -5121,6 +5122,10 @@ class GenericSession(BaseDecentrAIObject):
 
     node : str, optional
         The address or name of the ratio1 Edge Protocol edge node. Defaults to None.
+
+    alias_filter : str, optional
+        A case-insensitive substring filter applied to node aliases when no
+        explicit node is provided. Defaults to None.
     
     owner : str, optional
         The owner of the apps to filter. Defaults to None.
@@ -5153,6 +5158,17 @@ class GenericSession(BaseDecentrAIObject):
     lst_plugin_instance_data = []
     if node is None:
       nodes = self.get_active_nodes()
+      if alias_filter is not None:
+        # Filter candidate nodes before requesting configurations so the CLI
+        # only waits on nodes whose aliases match the requested substring.
+        nodes = [
+          current_node for current_node in nodes
+          if alias_filter.lower() in str(self.get_node_alias(current_node) or "").lower()
+        ]
+      if len(nodes) == 0:
+        if as_df:
+          return self.log.colored_dataframe(lst_plugin_instance_data, color_condition=lambda x: False)
+        return lst_plugin_instance_data
       # Start config collection for the current active snapshot in parallel so
       # slow nodes do not lose the head start while the CLI loops over them.
       if len(nodes) > 0:

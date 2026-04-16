@@ -80,6 +80,27 @@ Retrieve information about supervisors in the network.
 nepctl get avail <node_eth_address>
 ```
 
+#### `get apps`
+Retrieve the apps running on accessible nodes.
+
+**Options**:
+- `--node`: Query a specific node by address or alias.
+- `--alias`: Query only nodes whose alias contains the provided substring.
+- `--owner`: Restrict results to apps owned by a specific initiator.
+- `--timeout`: Maximum seconds to wait for node presence and config collection.
+- `--full`: Include admin apps.
+- `--json`: Return the raw application configuration payloads.
+- `--wide`: Show the full tabular output.
+
+**Examples**:
+```bash
+# Find apps only on nodes whose alias contains "smart":
+nepctl get apps --alias smart
+
+# Find apps on smart nodes for a specific owner:
+nepctl get apps --alias smart --owner 0xai_...
+```
+
 #### `get avail <node_eth_address>`
 Retrieve availability of the node throughout a range of epochs from the network oracles.
 
@@ -193,4 +214,3 @@ EE_MQTT=<password>
 ## Notes
 - Use `--verbose` or `-v` for detailed output on any command. This can be rather useful for debugging purposes.
 - For help with any command or subcommand, append `-h` (e.g., `nepctl get nodes -h`).
-

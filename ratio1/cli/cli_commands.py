@@ -76,6 +76,7 @@ CLI_COMMANDS = {
             "description": "Get the apps running on a given node, if the client is allowed on that node.",
             "params": {
                 "--node": "The ETH address or the specific address of the node to get the apps from",
+                "--alias": "Filter app discovery to nodes whose alias contains this value",
                 "--owner" : "Get the apps for a particular owner/initiator",
                 "--timeout": "Maximum seconds to wait for node presence and config collection",
                 "--full": "Include admin apps (flag)",

@@ -213,6 +213,7 @@ def get_apps(args):
   """
   verbose = args.verbose
   node = args.node
+  alias_filter = getattr(args, "alias", None)
   show_full = args.full
   as_json = args.json
   owner = args.owner
@@ -226,20 +227,24 @@ def get_apps(args):
   )
   
   res = sess.get_nodes_apps(
-    node=node, owner=owner, show_full=show_full, 
+    node=node, alias_filter=alias_filter, owner=owner, show_full=show_full,
     as_json=as_json, as_df=not as_json, timeout=timeout
   )
   if res is not None:
     network = sess.bc_engine.evm_network
     node_alias = sess.get_node_alias(node) if node else None
+    display_node = node if node is not None else "[All available]"
     if as_json:
       log_with_color(json.dumps(res, indent=2))
     else:
       df_apps = res
       if df_apps.shape[0] == 0:
+        filter_suffix = ""
+        if alias_filter and node is None:
+          filter_suffix = " matching alias '{}'".format(alias_filter)
         log_with_color(
-          "No user apps found on node <{}> '{}' of network '{}'".format(
-            node, node_alias, network            
+          "No user apps found on node <{}> '{}' of network '{}'{}".format(
+            display_node, node_alias, network, filter_suffix
           ), 
           color='r'
         )
@@ -260,13 +265,11 @@ def get_apps(args):
         last_seen_str = "N/A"
         node_status = "N/A"
       #end if node
-      if node == None:
-        node = "[All available]"
       by_owner = f" by owner <{owner}>" if owner else ""    
       log_with_color(f"Ratio1 client v{version}:\n", color='b')
       log_with_color(
         "Apps on <{}> ({}) [Status: {}| Last seen: {}]{}:".format(
-          node, network, node_status, last_seen_str, by_owner
+          display_node, network, node_status, last_seen_str, by_owner
         ), 
         color='b'
       )
