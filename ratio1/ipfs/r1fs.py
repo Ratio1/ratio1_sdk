@@ -103,6 +103,10 @@ class IPFSCt:
   TEMP_UPLOAD = os.path.join(f"./{CACHE_ROOT}/_output", R1FS_UPLOADS)
   SAMEHOST_FIX_MARKER = ".r1fs_samehost_relay_fix.json"
   SAMEHOST_FIX_NEGATIVE_TTL_SECONDS = 3600
+  RELAY_PIN_TIMEOUT_SECONDS = 15
+  RELAY_PIN_RETRY_COUNT = 3
+  RELAY_PIN_RETRY_BACKOFF_SECONDS = 2
+  RELAY_RETRY_QUEUE_LIMIT = 256
   
   TIMEOUT = 90 # seconds
   # The reprovide operation is very heavy and should be done infrequently.
@@ -262,6 +266,9 @@ class R1FSEngine:
       self.__relay_check_cnt = 0
       self.__peers = []
       self.__samehost_fix_attempted = False
+      self.__relay_retry_queue = {}
+      self.__relay_publication_status = {}
+      self.__relay_config_warning_flags = set()
       
       self.startup()
       return
@@ -387,6 +394,19 @@ class R1FSEngine:
     @property
     def downloaded_files(self):
       return self.__downloaded_files
+
+    @property
+    def relay_publication_status(self):
+      """
+      Return the latest local-versus-relay publication state for known CIDs.
+
+      Returns
+      -------
+      dict
+          Mapping of CID to a status dictionary describing local upload and
+          relay-publication state.
+      """
+      return self.__relay_publication_status
         
     @property
     def connected_at(self):
@@ -413,6 +433,338 @@ class R1FSEngine:
           return os.path.join(self.__uploads_dir, fn)
         return os.path.join(self.__uploads_dir, f"{fn}{suffix}")
       return self._get_unique_upload_name(prefix, suffix=suffix)
+
+    def get_upload_status(self, cid: str) -> dict:
+      """
+      Return the tracked upload status for one CID.
+
+      Parameters
+      ----------
+      cid : str
+          CID whose status should be returned.
+
+      Returns
+      -------
+      dict
+          A shallow copy of the tracked status. Empty when the CID has not been
+          seen by the current process.
+      """
+      status = self.__relay_publication_status.get(cid, {})
+      return dict(status)
+
+    def __utc_now_iso(self) -> str:
+      """
+      Return the current UTC timestamp in ISO-8601 form.
+
+      Returns
+      -------
+      str
+          Timestamp suffixed with ``Z``.
+      """
+      return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def __set_upload_status(self, cid: str, **updates):
+      """
+      Merge new upload-status fields for a CID.
+
+      Parameters
+      ----------
+      cid : str
+          CID whose state is being updated.
+      **updates : dict
+          Partial state fields to merge into the existing status entry.
+      """
+      status = dict(self.__relay_publication_status.get(cid, {}))
+      status.update(updates)
+      status["updated_at"] = self.__utc_now_iso()
+      self.__relay_publication_status[cid] = status
+      return
+
+    def __warn_missing_relay_api_config(self, context: str, missing_fields: list):
+      """
+      Emit a one-time warning describing missing relay API configuration.
+
+      Parameters
+      ----------
+      context : str
+          Human-readable operation context such as ``upload`` or
+          ``download self-heal``.
+      missing_fields : list
+          Missing configuration field names.
+      """
+      missing_key = (context, tuple(sorted(missing_fields)))
+      if missing_key in self.__relay_config_warning_flags:
+        return
+      self.__relay_config_warning_flags.add(missing_key)
+      missing = ", ".join(missing_fields)
+      self.P(
+        f"Relay API configuration incomplete for {context}: missing {missing}. "
+        "Local upload/download will continue, but relay publication/self-heal is disabled.",
+        color='r'
+      )
+      return
+
+    def __has_relay_api_config(self, context: str, show_logs: bool = True) -> bool:
+      """
+      Check whether relay API publication can be attempted safely.
+
+      Parameters
+      ----------
+      context : str
+          Human-readable operation context.
+      show_logs : bool, optional
+          Whether to emit warnings when configuration is incomplete.
+
+      Returns
+      -------
+      bool
+          ``True`` when the relay API URL and credentials are available.
+      """
+      missing_fields = []
+      if not self.__ipfs_relay_api:
+        missing_fields.append(IPFSCt.EE_IPFS_RELAY_API_KEY)
+      if not self.__ipfs_api_key_username or not self.__ipfs_api_key_password:
+        missing_fields.append(IPFSCt.EE_IPFS_API_KEY_BASE64_KEY)
+      if missing_fields and show_logs:
+        self.__warn_missing_relay_api_config(context=context, missing_fields=missing_fields)
+      return len(missing_fields) == 0
+
+    def __enqueue_relay_retry(self, cid: str, source_path: str = None, reason: str = None):
+      """
+      Add or refresh a CID in the in-process relay publication retry queue.
+
+      Parameters
+      ----------
+      cid : str
+          CID that still needs relay publication.
+      source_path : str, optional
+          Local source path when known.
+      reason : str, optional
+          Last failure description.
+      """
+      queue_item = dict(self.__relay_retry_queue.get(cid, {}))
+      if not queue_item and len(self.__relay_retry_queue) >= IPFSCt.RELAY_RETRY_QUEUE_LIMIT:
+        oldest_cid = min(
+          self.__relay_retry_queue,
+          key=lambda queued_cid: self.__relay_retry_queue[queued_cid].get("queued_at", ""),
+        )
+        self.__relay_retry_queue.pop(oldest_cid, None)
+        self.P(
+          f"Relay retry queue full. Dropping oldest queued CID {oldest_cid} to keep space for {cid}.",
+          color='r'
+        )
+      queue_item["cid"] = cid
+      if source_path is not None:
+        queue_item["source_path"] = source_path
+      queue_item["queued_at"] = queue_item.get("queued_at", self.__utc_now_iso())
+      queue_item["last_error"] = reason
+      queue_item["attempts"] = int(queue_item.get("attempts", 0))
+      self.__relay_retry_queue[cid] = queue_item
+      self.__set_upload_status(
+        cid,
+        source_path=queue_item.get("source_path"),
+        relay_status="queued",
+        relay_published=False,
+        relay_queue_attempts=queue_item["attempts"],
+        relay_detail=reason,
+        relay_queued_at=queue_item["queued_at"],
+      )
+      return
+
+    def __relay_verify_value(self):
+      """
+      Resolve the TLS verification argument for relay API requests.
+
+      Returns
+      -------
+      str | bool
+          Certificate path when one is configured, otherwise ``True`` to keep
+          requests certificate validation enabled.
+      """
+      return self.__ipfs_certificate_path if self.__ipfs_certificate_path else True
+
+    def __publish_cid_to_relay(
+      self,
+      cid: str,
+      source_path: str = None,
+      context: str = "upload",
+      retries: int = None,
+      timeout: int = None,
+      queue_on_failure: bool = True,
+      show_logs: bool = True,
+      raise_on_error: bool = False,
+    ) -> bool:
+      """
+      Ask the relay API to pin a CID with bounded retries.
+
+      Parameters
+      ----------
+      cid : str
+          CID to publish to the relay.
+      source_path : str, optional
+          Local source path when known.
+      context : str, optional
+          Human-readable context for logs and status updates.
+      retries : int, optional
+          Number of API attempts. Defaults to
+          ``IPFSCt.RELAY_PIN_RETRY_COUNT``.
+      timeout : int, optional
+          Per-attempt request timeout in seconds. Defaults to
+          ``IPFSCt.RELAY_PIN_TIMEOUT_SECONDS``.
+      queue_on_failure : bool, optional
+          Whether to keep failed publications queued for later retries.
+      show_logs : bool, optional
+          Whether to emit status logs.
+      raise_on_error : bool, optional
+          Whether to raise after the final failed attempt.
+
+      Returns
+      -------
+      bool
+          ``True`` when the relay accepted the pin request.
+      """
+      if not self.__has_relay_api_config(context=context, show_logs=show_logs):
+        self.__set_upload_status(
+          cid,
+          source_path=source_path,
+          relay_status="not-configured",
+          relay_published=False,
+          relay_detail="Relay API configuration is missing.",
+        )
+        return False
+
+      retries = retries or IPFSCt.RELAY_PIN_RETRY_COUNT
+      timeout = timeout or IPFSCt.RELAY_PIN_TIMEOUT_SECONDS
+      request_url = f"{self.__ipfs_relay_api}/api/v0/pin/add?arg={cid}"
+      last_error = None
+      for attempt in range(1, retries + 1):
+        self.__set_upload_status(
+          cid,
+          source_path=source_path,
+          relay_status="publishing",
+          relay_published=False,
+          relay_attempts=attempt,
+        )
+        try:
+          response = requests.post(
+            request_url,
+            auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
+            verify=self.__relay_verify_value(),
+            timeout=timeout,
+          )
+          if response.status_code == 200:
+            # Success can come from a first-attempt publish or from a later retry
+            # of an already-queued CID, so remove any stale queue entry if present.
+            self.__relay_retry_queue.pop(cid, None)
+            self.__set_upload_status(
+              cid,
+              source_path=source_path,
+              relay_status="published",
+              relay_published=True,
+              relay_attempts=attempt,
+              relay_detail=f"Relay pin/add accepted during {context}.",
+              relay_last_success_at=self.__utc_now_iso(),
+              relay_queue_attempts=None,
+              relay_queued_at=None,
+            )
+            if show_logs:
+              self.P(f"Relay publication succeeded for {cid} during {context} on attempt {attempt}.", color='g')
+            return True
+          last_error = f"HTTP {response.status_code}: {response.text.strip()}"
+        except requests.Timeout as exc:
+          last_error = f"timed out after {timeout}s: {exc}"
+        except requests.RequestException as exc:
+          last_error = str(exc)
+
+        if show_logs:
+          self.P(
+            f"Relay publication attempt {attempt}/{retries} failed for {cid} during {context}: {last_error}",
+            color='r'
+          )
+        if attempt < retries:
+          time.sleep(IPFSCt.RELAY_PIN_RETRY_BACKOFF_SECONDS * attempt)
+
+      if queue_on_failure:
+        self.__enqueue_relay_retry(cid=cid, source_path=source_path, reason=last_error)
+      else:
+        self.__set_upload_status(
+          cid,
+          source_path=source_path,
+          relay_status="failed",
+          relay_published=False,
+          relay_detail=last_error,
+        )
+      if raise_on_error:
+        raise RuntimeError(f"Failed relay publication for {cid} during {context}: {last_error}")
+      return False
+
+    def __retry_queued_relay_publications(self, context: str, show_logs: bool = True):
+      """
+      Retry any queued relay publications.
+
+      Parameters
+      ----------
+      context : str
+          Human-readable trigger for the retry pass.
+      show_logs : bool, optional
+          Whether to emit logs for queue processing.
+      """
+      if not self.__relay_retry_queue:
+        return
+      queued_items = list(self.__relay_retry_queue.items())
+      if show_logs:
+        self.P(f"Retrying {len(queued_items)} queued relay publication(s) before {context}.", color='m')
+      # This retry pass is synchronous in download-triggered flows, so larger
+      # queues can increase the latency of the request that drains them.
+      for cid, queue_item in queued_items:
+        refreshed_item = dict(self.__relay_retry_queue.get(cid, queue_item))
+        refreshed_item["attempts"] = int(refreshed_item.get("attempts", 0)) + 1
+        self.__relay_retry_queue[cid] = refreshed_item
+        self.__set_upload_status(
+          cid,
+          source_path=refreshed_item.get("source_path"),
+          relay_status="retrying",
+          relay_published=False,
+          relay_queue_attempts=refreshed_item["attempts"],
+          relay_detail=refreshed_item.get("last_error"),
+        )
+        self.__publish_cid_to_relay(
+          cid=cid,
+          source_path=refreshed_item.get("source_path"),
+          context=f"retry queue drain ({context})",
+          queue_on_failure=True,
+          show_logs=show_logs,
+          raise_on_error=False,
+        )
+      return
+
+    def __attempt_download_self_heal(self, cid: str, show_logs: bool = True) -> bool:
+      """
+      Ask the relay to fetch a CID before retrying a failed download.
+
+      Parameters
+      ----------
+      cid : str
+          CID that failed to pin or download locally.
+      show_logs : bool, optional
+          Whether to emit logs.
+
+      Returns
+      -------
+      bool
+          ``True`` when the relay accepted the self-heal request.
+      """
+      self.__retry_queued_relay_publications(context=f"download of {cid}", show_logs=show_logs)
+      return self.__publish_cid_to_relay(
+        cid=cid,
+        source_path=None,
+        context=f"download self-heal for {cid}",
+        retries=2,
+        timeout=IPFSCt.RELAY_PIN_TIMEOUT_SECONDS,
+        queue_on_failure=False,
+        show_logs=show_logs,
+        raise_on_error=False,
+      )
     
 
     def _get_swarm_peers(self):
@@ -1835,6 +2187,15 @@ class R1FSEngine:
       RuntimeError
         If the 'ipfs add' command yields no output.
 
+      Notes
+      -----
+      Upload success is tracked separately from relay publication success. Use
+      :meth:`get_upload_status` when the caller needs to distinguish:
+
+      - local ciphertext upload and local pin success
+      - relay publication success
+      - relay publication queued for retry
+
       Examples
       --------
       >>> cid = engine.add_file("/data/large_model.bin")
@@ -1842,6 +2203,7 @@ class R1FSEngine:
       QmFolder123ABC
       """
       add_time, remove_time, pin_time = 0.0, 0.0, 0.0
+      relay_publish_time = 0.0
       start_time = time.time()
 
       if secret in ["", None]:
@@ -1913,6 +2275,15 @@ class R1FSEngine:
         if not lines:
           raise RuntimeError("No output from 'ipfs add -w -q' for ciphertext.")
         folder_cid = lines[-1].strip()
+        self.__set_upload_status(
+          folder_cid,
+          source_path=file_path,
+          local_upload_succeeded=True,
+          local_pin_succeeded=False,
+          relay_status="pending",
+          relay_published=None,
+          relay_detail="Local IPFS add completed; relay publication pending.",
+        )
       except Exception as e:
         msg = f"Error encrypting file {file_path}: {e}"
         if raise_on_error:
@@ -1928,42 +2299,39 @@ class R1FSEngine:
       remove_time = time.time() - remove_start_time
       
       if folder_cid is not None:
-        # Now we notify the relay (if any) about the new CID
         pin_start_time = time.time()
-        if self.__ipfs_relay_api is not None:
-          #  Notifying the Relay about a new CID.
-          try:
-            request_url = f"{self.__ipfs_relay_api}/api/v0/pin/add?arg={folder_cid}"
-            response = requests.post(request_url,
-                                     auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
-                                     verify=self.__ipfs_certificate_path)
-            if response.status_code == 200:
-              self.Pd(f"Relay successfully notified about CID={folder_cid}.")
-            else:
-              msg = f"Failed to notify relay about CID {folder_cid}: {response.text}"
-              if raise_on_error:
-                raise RuntimeError(msg)
-              else:
-                self.P(msg, color='r')
-            #end if response status code
-          except requests.RequestException as e:
-            msg = f"Error notifying relay about CID {folder_cid}: {e}"
-            if raise_on_error:
-              raise RuntimeError(msg)
-            else:
-              self.P(msg, color='r')
-          #end try
-
         self.__uploaded_files[folder_cid] = file_path
-        # now we pin the folder
-        res = self.__pin_add(folder_cid)
+        relay_publish_start = time.time()
+        self.__publish_cid_to_relay(
+          cid=folder_cid,
+          source_path=file_path,
+          context="upload",
+          queue_on_failure=True,
+          show_logs=show_logs,
+          raise_on_error=False,
+        )
+        relay_publish_time = time.time() - relay_publish_start
+        # Keep the local node pinned even when relay publication is deferred.
+        self.__pin_add(folder_cid)
+        self.__set_upload_status(
+          folder_cid,
+          source_path=file_path,
+          local_pin_succeeded=True,
+          local_pin_completed_at=self.__utc_now_iso(),
+        )
         pin_time = time.time() - pin_start_time
         #end if show_logs
       #end if folder_cid is not None
       total_time = time.time() - start_time
       if show_logs:
+        upload_status = self.get_upload_status(folder_cid) if folder_cid else {}
+        relay_status = upload_status.get("relay_status", "unknown")
         self.P(
-          f"Added file {file_path} as <{folder_cid}> in {total_time:.2f}s: add_time={add_time:.2f}s, remove_time={remove_time:.2f}s, pin_time={pin_time:.2f}s")
+          f"Added file {file_path} as <{folder_cid}> in {total_time:.2f}s: "
+          f"add_time={add_time:.2f}s, remove_time={remove_time:.2f}s, "
+          f"relay_publish_time={relay_publish_time:.2f}s, pin_time={pin_time:.2f}s, "
+          f"relay_status={relay_status}"
+        )
       return folder_cid
 
 
@@ -2047,6 +2415,7 @@ class R1FSEngine:
           if show_logs:
             self.P(msg, color='r')
           return None
+      self.__retry_queued_relay_publications(context=f"download request for {cid}", show_logs=show_logs)
       
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
@@ -2057,13 +2426,23 @@ class R1FSEngine:
         try:
           pin_result = self.__pin_add(cid)
         except Exception as e:
-          msg = f"Error pinning CID {cid}: {e}"
-          if raise_on_error:
-            raise RuntimeError(msg)
+          self.P(f"Initial pin/add failed for {cid}: {e}", color='y')
+          healed = self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
+          if healed:
+            try:
+              pin_result = self.__pin_add(cid)
+            except Exception as retry_error:
+              msg = f"Error pinning CID {cid} after relay self-heal: {retry_error}"
+              if raise_on_error:
+                raise RuntimeError(msg)
+              self.P(msg, color='r')
+              return None
           else:
+            msg = f"Error pinning CID {cid}: {e}"
+            if raise_on_error:
+              raise RuntimeError(msg)
             self.P(msg, color='r')
             return None
-          # end if
         #end try
       #end if pin
 
@@ -2097,12 +2476,34 @@ class R1FSEngine:
       # IPFS get the single ciphertext file
       ipfs_timeout = timeout if timeout else 90  # or IPFSCt.TIMEOUT
       start_time = time.time()
-      self.__run_command(
-        ["ipfs", "get", cid, "-o", local_folder],
-        timeout=ipfs_timeout,
-        raise_on_error=raise_on_error,
-        show_logs=show_logs
-      )
+      download_error = None
+      try:
+        self.__run_command(
+          ["ipfs", "get", cid, "-o", local_folder],
+          timeout=ipfs_timeout,
+          raise_on_error=True,
+          show_logs=show_logs
+        )
+      except Exception as e:
+        download_error = str(e)
+        self.P(f"Initial ipfs get failed for {cid}: {download_error}", color='y')
+        healed = self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
+        if healed:
+          try:
+            self.__run_command(
+              ["ipfs", "get", cid, "-o", local_folder],
+              timeout=ipfs_timeout,
+              raise_on_error=True,
+              show_logs=show_logs
+            )
+            download_error = None
+          except Exception as retry_error:
+            download_error = f"{download_error}; retry after relay self-heal failed: {retry_error}"
+      if download_error is not None:
+        if raise_on_error:
+          raise RuntimeError(f"Failed to download CID {cid}: {download_error}")
+        self.P(f"Failed to download CID {cid}: {download_error}", color='r')
+        return None
       download_elapsed_time = time.time() - start_time
 
       # Expect exactly one file
@@ -2604,6 +3005,8 @@ class R1FSEngine:
         if success:
           self.__uploaded_files.pop(cid, None)
           self.__downloaded_files.pop(cid, None)
+          self.__relay_publication_status.pop(cid, None)
+          self.__relay_retry_queue.pop(cid, None)
 
         return success
 
@@ -3511,6 +3914,12 @@ class R1FSEngine:
         ipfs_relay_api = os.getenv(IPFSCt.EE_IPFS_RELAY_API_KEY)
         if ipfs_relay_api is not None:
           self.P(f"Found env IPFS relay API: {ipfs_relay_api}", color='d')
+        else:
+          self.P(
+            "Relay API endpoint is not configured. Local R1FS uploads will work, "
+            "but fresh CID publication and download self-heal cannot use the relay API.",
+            color='y'
+          )
 
       # Set up IPFS API key username and password.
       if ipfs_api_key_username is None or ipfs_api_key_password is None:
@@ -3523,6 +3932,12 @@ class R1FSEngine:
           ipfs_api_key_password = split_api_key[1]
         except Exception as e:
           self.P(f"An error occurred while extracting IPFS Relay username and password {e}", color='r')
+      if not ipfs_api_key_username or not ipfs_api_key_password:
+        self.P(
+          "Relay API credentials are not configured. Local R1FS uploads will continue, "
+          "but relay publication retries and self-heal are disabled.",
+          color='y'
+        )
 
 
       # Set up certificate
@@ -3539,6 +3954,11 @@ class R1FSEngine:
             raise FileNotFoundError(f"Could not create certificate file : {ipfs_certificate_path}")
         except Exception as e:
           self.P(f"Error reading the certificate file: {e}", color='r')
+      if not ipfs_certificate_path:
+        self.P(
+          "Relay certificate is not configured. Relay API requests will rely on the system trust store.",
+          color='y'
+        )
 
       if not base64_swarm_key or not ipfs_relay:
         self.P("Missing env values EE_SWARM_KEY_CONTENT_BASE64 and EE_IPFS_RELAY.", color='r')
