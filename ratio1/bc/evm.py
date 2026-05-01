@@ -1605,7 +1605,8 @@ class _EVMMixin:
       
       # Estimate gas fees for the token transfer.
       gas_price = w3vars.w3.eth.gas_price  # This fetches the current suggested gas price from the network.
-      estimated_gas = 1_000_000 # Have enough gas to cover all the actions if consensus is reached
+      # Linear in node count covers _cacheNodesForJob + consensus + updateActiveNodes worst case.
+      estimated_gas = 700_000 + 150_000 * len(nodes)
       gas_cost = estimated_gas * gas_price
       # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
       eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
