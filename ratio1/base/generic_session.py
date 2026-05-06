@@ -4470,6 +4470,7 @@ class GenericSession(BaseDecentrAIObject):
       telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
       telegram_bot_name=None,
       telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,
+      instance_id=None,
       **kwargs
     ):
       """
@@ -4505,6 +4506,9 @@ class GenericSession(BaseDecentrAIObject):
           
       telegram_bot_name_env_key : str, optional 
           The environment variable key that holds the Telegram bot name. Defaults to ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY.
+
+      instance_id : str, optional
+          Stable plugin instance id. When omitted, a unique id is generated as before.
           
       Returns
       -------
@@ -4545,7 +4549,7 @@ class GenericSession(BaseDecentrAIObject):
       self.P(f"Creating telegram bot {telegram_bot_name} with token {obfuscated_token}...", color='b')      
       instance = pipeline.create_plugin_instance(
         signature=signature,
-        instance_id=self.log.get_unique_id(),
+        instance_id=instance_id or self.log.get_unique_id(),
         telegram_bot_token=telegram_bot_token,
         telegram_bot_name=telegram_bot_name,
         message_handler=func_base64_code,
