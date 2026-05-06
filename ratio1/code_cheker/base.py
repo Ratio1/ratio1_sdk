@@ -223,20 +223,52 @@ class BaseCodeChecker:
     return code, errors
 
   def _add_line_after_each_line(self, code, codeline='plugin.sleep(0.001)'):
+    """
+    Inject a cooperative sleep inside custom-code loops.
+
+    Parameters
+    ----------
+    code : str
+        Python source code received from a custom-code payload.
+    codeline : str, optional
+        The statement inserted as the first loop-body statement.
+
+    Returns
+    -------
+    str
+        The source code with a cooperative sleep inserted after loop headers.
+
+    Notes
+    -----
+    Custom handlers can contain valid multiline loop headers, for example
+    ``for item in (...):`` split across several lines. The injector must not
+    assume the first line that starts with ``for`` or ``while`` also contains
+    the loop-closing colon.
+    """
     lines = code.splitlines()
     refactor = []
     has_loop = False
+    loop_header_pending = False
     for line in lines:
       rstripped = line.rstrip()
       stripped = line.lstrip()
       is_loop = stripped.startswith(('while ', 'for '))
-      has_loop = has_loop or is_loop
-      if is_loop and rstripped[-1] != ':':
-        parts = line.split(':')
-        if len(parts) > 0:
+      if loop_header_pending:
+        loop_header_pending = not rstripped.endswith(':')
+        has_loop = not loop_header_pending
+      elif is_loop and not rstripped.endswith(':'):
+        parts = line.split(':', 1)
+        if len(parts) > 1:
           line = parts[0] + ': ' + codeline + ';' + parts[1]
           has_loop = False  # loop solved
+        else:
+          loop_header_pending = True
+      elif is_loop:
+        has_loop = True
       elif has_loop and not is_loop:
+        if stripped == '':
+          refactor.append(line)
+          continue
         nspc = len(line) - len(stripped)
         spc = nspc * ' '
         refactor.append(spc + codeline)
@@ -617,10 +649,3 @@ if __name__ == '__main__':
   
   print(some_function(x=9.1, plugin=None))
   print(target.my_func(9.1))
-  
-  
-  
-  
-  
-  
-  
