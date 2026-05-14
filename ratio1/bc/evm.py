@@ -756,6 +756,31 @@ class _EVMMixin:
       return result
       
       
+    @staticmethod
+    def pack_epoch_availabilities(epochs_vals):
+      """
+      Pack per-epoch availability values into the compact bytes payload used by
+      ND/MND reward claim signatures.
+
+      Parameters
+      ----------
+      epochs_vals : list of int
+          Availability values, each in the inclusive range [0, 255].
+
+      Returns
+      -------
+      str
+          Hex string containing one byte per availability value.
+      """
+      packed = bytearray()
+      for val in epochs_vals:
+        int_val = int(val)
+        if int_val < 0 or int_val > 255:
+          raise ValueError(f"Invalid epoch availability value: {val}")
+        packed.append(int_val)
+      return "0x" + packed.hex()
+
+
     def eth_sign_node_epochs(
       self, 
       node, 
@@ -777,6 +802,14 @@ class _EVMMixin:
           
       epochs_vals : list of int
           The values for each epoch.
+
+      Notes
+      -----
+      The signed EVM payload is compact and uses
+      ``node, from_epoch, to_epoch, packed_availabilities``. Epoch ids are
+      still accepted here so callers can keep using the natural oracle range
+      shape while the resulting signature matches the ND/MND packed claim
+      contract payload.
           
       signature_only : bool, optional
           Whether to return only the signature. The default is True.
@@ -789,12 +822,32 @@ class _EVMMixin:
       str
           The signature of the message.
       """
+      if len(epochs) != len(epochs_vals):
+        raise ValueError("Epochs and availability values must have the same length.")
+      if len(epochs) == 0:
+        raise ValueError("At least one epoch is required for signing.")
+      from_epoch = int(epochs[0])
+      to_epoch = int(epochs[-1])
+      packed_availabilities = self.pack_epoch_availabilities(epochs_vals)
       if use_evm_node_addr:
-        types = [ETHVarTypes.ETH_ADDR, ETHVarTypes.ETH_ARRAY_INT, ETHVarTypes.ETH_ARRAY_INT]  
+        types = [
+          ETHVarTypes.ETH_ADDR,
+          ETHVarTypes.ETH_INT,
+          ETHVarTypes.ETH_INT,
+          ETHVarTypes.ETH_BYTES,
+        ]
       else:
-        types = [ETHVarTypes.ETH_STR, ETHVarTypes.ETH_ARRAY_INT, ETHVarTypes.ETH_ARRAY_INT]
-      values = [node, epochs, epochs_vals]
+        types = [
+          ETHVarTypes.ETH_STR,
+          ETHVarTypes.ETH_INT,
+          ETHVarTypes.ETH_INT,
+          ETHVarTypes.ETH_BYTES,
+        ]
+      values = [node, from_epoch, to_epoch, packed_availabilities]
       result = self.eth_sign_message(types, values)
+      result["from_epoch"] = from_epoch
+      result["to_epoch"] = to_epoch
+      result["packed_availabilities"] = packed_availabilities
       if signature_only:
         return result["signature"]
       return result
