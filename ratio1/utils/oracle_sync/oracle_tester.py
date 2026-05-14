@@ -118,6 +118,19 @@ class OracleTester:
         f"\t{self.node_addr_to_alias.get(node_addr)} ({node_addr}): {freq}"
         for node_addr, freq in freq_dict.items()
       ])
+
+    @staticmethod
+    def pack_epoch_availabilities(epoch_vals):
+      """
+      Pack availability values exactly like the reward claim payload expects.
+      """
+      packed = bytearray()
+      for val in epoch_vals or []:
+        int_val = int(val)
+        if int_val < 0 or int_val > 255:
+          raise ValueError(f"Invalid epoch availability value: {val}")
+        packed.append(int_val)
+      return "0x" + packed.hex()
   """END UTILS"""
 
   """RESPONSE HANDLING"""
@@ -149,6 +162,47 @@ class OracleTester:
         current_cert.append(dict_certainty.get(str(epoch_id), 0))
       # endfor epochs
       return current_epochs, current_avails, current_cert, is_valid, min_certainty_prc
+
+    def compute_claim_payload_data(self, result: dict, epochs: list, avails: list, is_valid: bool):
+      """
+      Extract and validate compact reward claim fields returned by the oracle.
+      """
+      from_epoch = result.get("from_epoch")
+      to_epoch = result.get("to_epoch")
+      packed_availabilities = result.get("packed_availabilities")
+      eth_signatures = result.get("eth_signatures")
+      eth_addresses = result.get("eth_addresses")
+      eth_signed_data = result.get("eth_signed_data", {}).get("input")
+
+      errors = []
+      expected_from_epoch = epochs[0] if len(epochs) > 0 else None
+      expected_to_epoch = epochs[-1] if len(epochs) > 0 else None
+      expected_packed_availabilities = self.pack_epoch_availabilities(avails)
+
+      if from_epoch != expected_from_epoch:
+        errors.append(f"from_epoch: {from_epoch} != {expected_from_epoch}")
+      if to_epoch != expected_to_epoch:
+        errors.append(f"to_epoch: {to_epoch} != {expected_to_epoch}")
+      if is_valid:
+        if packed_availabilities != expected_packed_availabilities:
+          errors.append(
+            f"packed_availabilities: {packed_availabilities} != {expected_packed_availabilities}"
+          )
+        if eth_signed_data != ["address", "uint256", "uint256", "bytes"]:
+          errors.append(f"eth_signed_data: {eth_signed_data} != ['address', 'uint256', 'uint256', 'bytes']")
+      if eth_signatures is not None and not isinstance(eth_signatures, list):
+        errors.append(f"eth_signatures is not a list: {type(eth_signatures)}")
+      if eth_addresses is not None and not isinstance(eth_addresses, list):
+        errors.append(f"eth_addresses is not a list: {type(eth_addresses)}")
+
+      return {
+        "from_epoch": from_epoch,
+        "to_epoch": to_epoch,
+        "packed_availabilities": packed_availabilities,
+        "eth_signatures": eth_signatures,
+        "eth_addresses": eth_addresses,
+        "eth_signed_data": eth_signed_data,
+      }, errors
 
     def handle_server_data(
         self, oracle_stats_dict: dict,
@@ -187,6 +241,13 @@ class OracleTester:
       stats_certs = current_stats.get("certs", None)
       stats_is_valid = current_stats.get("is_valid", None)
       stats_min_certainty_prc = current_stats.get("min_certainty_prc", None)
+      current_claim_payload, claim_payload_errors = self.compute_claim_payload_data(
+        result=result,
+        epochs=current_epochs,
+        avails=current_avails,
+        is_valid=is_valid
+      )
+      stats_claim_payload = current_stats.get("claim_payload", None)
       mismatches = []
       if stats_epochs is not None and current_epochs != stats_epochs:
         mismatches.append(f"epochs: {current_epochs} != {stats_epochs}")
@@ -203,6 +264,10 @@ class OracleTester:
       if stats_min_certainty_prc is not None and min_certainty_prc != stats_min_certainty_prc:
         mismatches.append(f"min_certainty_prc: {min_certainty_prc} != {stats_min_certainty_prc}")
       # endif check for mismatch
+      if stats_claim_payload is not None and current_claim_payload != stats_claim_payload:
+        mismatches.append(f"claim_payload: {current_claim_payload} != {stats_claim_payload}")
+      # endif check for mismatch
+      mismatches.extend(claim_payload_errors)
 
       if len(mismatches) > 0:
         current_stats["errors"].append(f"Round {self.request_rounds}: {', '.join(mismatches)}")
@@ -218,6 +283,8 @@ class OracleTester:
           current_stats["is_valid"] = is_valid
         if stats_min_certainty_prc is None:
           current_stats["min_certainty_prc"] = min_certainty_prc
+        if stats_claim_payload is None:
+          current_stats["claim_payload"] = current_claim_payload
       # endif valid data received
       return
 
@@ -475,6 +542,10 @@ class OracleTester:
       msg += f'  Oracle address:  {oracle_addr}\n'
       msg += f'  Oracle ETH addr: {oracle_addr_eth}\n'
       msg += f'  Oracle alias:    {oracle_alias}\n'
+      claim_payload = sender_data.get("claim_payload", {})
+      msg += f'  Claim range:     {claim_payload.get("from_epoch")} -> {claim_payload.get("to_epoch")}\n'
+      msg += f'  Packed bytes:    {len((claim_payload.get("packed_availabilities") or "0x")[2:]) // 2}\n'
+      msg += f'  ETH signatures:  {len(claim_payload.get("eth_signatures") or [])}\n'
       msg += f'  Oracle responses:\n'
       epochs = sender_data.get("epochs", None)
       avails = sender_data.get("avails", None)
@@ -525,6 +596,10 @@ class OracleTester:
           curr_msg += f'\t\t ETH Addr:  {sender_data["eth_addr"]}\n'
           curr_msg += f'\t\t Alias:     {sender_data["alias"]}\n'
           curr_msg += f'\t\t Responses: {frequencies.get(sender, 0)}\n'
+          claim_payload = sender_data.get("claim_payload", {})
+          curr_msg += f'\t\t Claim:     {claim_payload.get("from_epoch")} -> {claim_payload.get("to_epoch")}\n'
+          curr_msg += f'\t\t Packed:    {len((claim_payload.get("packed_availabilities") or "0x")[2:]) // 2} bytes\n'
+          curr_msg += f'\t\t Sigs:      {len(claim_payload.get("eth_signatures") or [])}\n'
           curr_msg += f'\t\t Epochs:    {str_epochs}\n'
           curr_msg += f'\t\t Avails:    {str_avails}\n'
           curr_msg += f'\t\t Certainty: {str_certs}\n'
