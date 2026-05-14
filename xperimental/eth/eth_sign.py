@@ -34,16 +34,18 @@ if __name__ == '__main__' :
   l.P("Node: {}\nNode Eth: {}".format(node, node_eth))
   epochs = [245, 246, 247, 248, 249, 250]
   epochs_vals = [124, 37, 30, 6, 19, 4]
+  from_epoch, to_epoch = eng1.validate_epoch_availability_range(epochs, epochs_vals)
+  packed_availabilities = eng1.pack_epoch_availabilities(epochs_vals)
   USE_ETH_ADDR = True
   
   if USE_ETH_ADDR:  
-    types = ["address", "uint256[]", "uint256[]"]
+    types = ["address", "uint256", "uint256", "bytes"]
     node_data = node_eth
   else:
-    types = ["string", "uint256[]", "uint256[]"]
+    types = ["string", "uint256", "uint256", "bytes"]
     node_data = node
     
-  values = [node_data, epochs, epochs_vals]
+  values = [node_data, from_epoch, to_epoch, packed_availabilities]
   
  
   s2 = eng1.eth_sign_message(types, values)
@@ -55,18 +57,21 @@ if __name__ == '__main__' :
   l.P(f"Results:\n  Signature: {eth_signature}\n  Inputs: {inputs}")
   
   # check if the signature is valid
+  invalid_packed_availabilities = eng2.pack_epoch_availabilities(
+    [124, 37, 30, 6, 19, 1]
+  )
   sender = eng2.eth_check_signature(
-    values=[node_data, epochs, [124, 37, 30, 6, 19, 1]],
+    values=[node_data, from_epoch, to_epoch, invalid_packed_availabilities],
     types=types,
     signature=eth_signature,
   )
   valid = sender == eng1.eth_address
-  l.P(f"Signature from {sender} {'vali' if valid else 'invalid'}", color='g' if valid else 'r')
+  l.P(f"Signature from {sender} {'valid' if valid else 'invalid'}", color='g' if valid else 'r')
   
   sender = eng2.eth_check_signature(
-    values=[node_data, epochs, epochs_vals],
+    values=values,
     types=types,
     signature=eth_signature,
   )
   valid = sender == eng1.eth_address
-  l.P(f"Signature from {sender} {'valid' if valid else 'invalid'}", color='g' if valid else 'r')  
+  l.P(f"Signature from {sender} {'valid' if valid else 'invalid'}", color='g' if valid else 'r')
