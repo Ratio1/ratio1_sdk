@@ -781,6 +781,47 @@ class _EVMMixin:
       return "0x" + packed.hex()
 
 
+    @staticmethod
+    def validate_epoch_availability_range(epochs, epochs_vals):
+      """
+      Validate and normalize the contiguous epoch range used for packed
+      availability signatures.
+
+      Parameters
+      ----------
+      epochs : list of int
+          Epoch identifiers. They must be sorted, contiguous, and gap-free.
+
+      epochs_vals : list of int
+          Availability values corresponding positionally to ``epochs``.
+
+      Returns
+      -------
+      tuple
+          The normalized ``from_epoch`` and ``to_epoch`` values.
+      """
+      if len(epochs) != len(epochs_vals):
+        raise ValueError("Epochs and availability values must have the same length.")
+      if len(epochs) == 0:
+        raise ValueError("At least one epoch is required for signing.")
+
+      normalized_epochs = [int(epoch) for epoch in epochs]
+      from_epoch = normalized_epochs[0]
+      to_epoch = normalized_epochs[-1]
+      expected_len = to_epoch - from_epoch + 1
+      if expected_len != len(epochs_vals):
+        raise ValueError(
+          "Epochs must form a contiguous range matching the availability values."
+        )
+      for index, epoch in enumerate(normalized_epochs):
+        expected_epoch = from_epoch + index
+        if epoch != expected_epoch:
+          raise ValueError(
+            "Epochs must be sorted, contiguous, and gap-free for packed availability signing."
+          )
+      return from_epoch, to_epoch
+
+
     def eth_sign_node_epochs(
       self, 
       node, 
@@ -822,12 +863,7 @@ class _EVMMixin:
       str
           The signature of the message.
       """
-      if len(epochs) != len(epochs_vals):
-        raise ValueError("Epochs and availability values must have the same length.")
-      if len(epochs) == 0:
-        raise ValueError("At least one epoch is required for signing.")
-      from_epoch = int(epochs[0])
-      to_epoch = int(epochs[-1])
+      from_epoch, to_epoch = self.validate_epoch_availability_range(epochs, epochs_vals)
       packed_availabilities = self.pack_epoch_availabilities(epochs_vals)
       if use_evm_node_addr:
         types = [
