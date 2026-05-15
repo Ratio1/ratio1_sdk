@@ -12,6 +12,7 @@ SB_ID = 'SB_ID'  # change to SB_ID = EE_ID post mod from sb to ee
 class ETHVarTypes:
   ETH_ADDR = 'address'
   ETH_INT = 'uint256'
+  ETH_BYTES = 'bytes'
   ETH_STR = 'string'
   ETH_ARRAY_INT = 'uint256[]'
   ETH_ARRAY_STR = 'string[]'
