@@ -1028,6 +1028,54 @@ class BaseBlockEngine(
     # IMPORTANT: we need to use the same dumps_config as before !
     str_data = json.dumps(dct_reload, sort_keys=True, **dumps_config) 
     return str_data
+
+  def compact_canonical_json(self, value):
+    """
+    Serialize a JSON-compatible value with the Deeploy v3 compact contract.
+
+    Parameters
+    ----------
+    value : Any
+        JSON-compatible value to serialize. Dictionaries are serialized with
+        lexicographically sorted string keys, lists keep order, and non-finite
+        numeric values are normalized to ``null`` to mirror ``JSON.stringify``.
+
+    Returns
+    -------
+    str
+        Compact JSON text using UTF-8 characters directly and no insignificant
+        whitespace.
+
+    Notes
+    -----
+    This helper intentionally mirrors the TypeScript
+    ``stringifyCompactCanonicalDeeployValue`` implementation used by
+    ``deeploy-dapp``. It should remain byte-for-byte compatible with that
+    contract because Deeploy v3 signatures bind this text through SHA-256.
+    """
+    def _normalize(item):
+      if isinstance(item, dict):
+        return {str(key): _normalize(item[key]) for key in item}
+      if isinstance(item, (list, tuple)):
+        return [_normalize(elem) for elem in item]
+      if isinstance(item, np.ndarray):
+        return _normalize(item.tolist())
+      if isinstance(item, np.generic):
+        return _normalize(item.item())
+      if isinstance(item, float):
+        if np.isnan(item) or np.isinf(item):
+          return None
+        if item.is_integer():
+          return int(item)
+      return item
+
+    normalized = _normalize(value)
+    return json.dumps(
+      normalized,
+      sort_keys=True,
+      ensure_ascii=False,
+      separators=(',', ':'),
+    )
   
   def _create_new_sk(self):
     """
