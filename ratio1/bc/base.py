@@ -81,6 +81,79 @@ def replace_nan_inf(data, inplace=False):
         current[key] = None
   return d 
 
+
+def compact_canonical_json(value):
+  """
+  Serialize a value as compact canonical JSON for wallet-safe request hashes.
+
+  Parameters
+  ----------
+  value : Any
+      JSON-compatible value to serialize.
+
+  Returns
+  -------
+  str or None
+      Compact canonical JSON string, or None when the value cannot be
+      represented in the JavaScript Deeploy canonicalization contract.
+  """
+  if value is None:
+    return "null"
+
+  if isinstance(value, list):
+    items = []
+    for item in value:
+      serialized_item = compact_canonical_json(item)
+      items.append(serialized_item if serialized_item is not None else "null")
+    return "[{}]".format(",".join(items))
+
+  if isinstance(value, dict):
+    entries = []
+    for key in sorted(value.keys(), key=lambda item: str(item)):
+      serialized_value = compact_canonical_json(value[key])
+      if serialized_value is None:
+        continue
+      # JS object keys are strings; json.dumps then quotes and escapes the key.
+      serialized_key = json.dumps(str(key), ensure_ascii=False, separators=(",", ":"))
+      entries.append("{}:{}".format(serialized_key, serialized_value))
+    return "{{{}}}".format(",".join(entries))
+
+  if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+    return "null"
+
+  try:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+  except (TypeError, ValueError):
+    return None
+
+
+def compact_canonical_sha256(value, excluded_keys=None):
+  """
+  Hash a compact-canonical JSON value with SHA-256.
+
+  Parameters
+  ----------
+  value : Any
+      JSON-compatible value to serialize and hash.
+  excluded_keys : set[str], optional
+      Top-level keys to omit before serializing a dictionary payload.
+
+  Returns
+  -------
+  str
+      Lowercase hexadecimal SHA-256 digest.
+  """
+  if excluded_keys is not None and isinstance(value, dict):
+    value = {
+      key: item
+      for key, item in value.items()
+      if key not in excluded_keys
+    }
+  serialized = compact_canonical_json(value)
+  if serialized is None:
+    serialized = "null"
+  return sha256(serialized.encode("utf-8")).hexdigest()
+
 class _SimpleJsonEncoder(json.JSONEncoder):
   """
   Used to help jsonify numpy arrays or lists that contain numpy data types.
