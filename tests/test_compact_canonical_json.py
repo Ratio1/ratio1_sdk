@@ -20,6 +20,30 @@ class TestCompactCanonicalJson(unittest.TestCase):
       '{"a":{"city":"Iași","greeting":"bună ziua"},"z":[2,null]}',
     )
 
+  def test_compact_canonical_json_stringifies_and_escapes_object_keys(self):
+    value = {
+      2: "two",
+      'a"b\n': "escaped",
+    }
+
+    self.assertEqual(
+      compact_canonical_json(value),
+      '{"2":"two","a\\"b\\n":"escaped"}',
+    )
+
+  def test_compact_canonical_json_handles_unsupported_values_like_javascript(self):
+    unsupported = object()
+
+    self.assertEqual(compact_canonical_json(unsupported), None)
+    self.assertEqual(
+      compact_canonical_json({
+        "keep": 1,
+        "skip": unsupported,
+        "items": [unsupported],
+      }),
+      '{"items":[null],"keep":1}',
+    )
+
   def test_compact_canonical_sha256_matches_deeploy_dapp_fixture(self):
     payload = {
       "nonce": "0xabc",

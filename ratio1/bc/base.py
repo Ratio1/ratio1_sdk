@@ -113,6 +113,7 @@ def compact_canonical_json(value):
       serialized_value = compact_canonical_json(value[key])
       if serialized_value is None:
         continue
+      # JS object keys are strings; json.dumps then quotes and escapes the key.
       serialized_key = json.dumps(str(key), ensure_ascii=False, separators=(",", ":"))
       entries.append("{}:{}".format(serialized_key, serialized_value))
     return "{{{}}}".format(",".join(entries))
