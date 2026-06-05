@@ -132,6 +132,35 @@ class BaseCommWrapper(object):
   def cfg_qos(self):
     return self._config[COMMS.QOS]
 
+  def _normalize_qos(self, qos):
+    """
+    Return a validated MQTT QoS integer.
+
+    Channel-level QoS values can arrive from JSON/env processing as strings.
+    Keep validation close to the transport wrapper so bad rollout values fail
+    before silently changing delivery guarantees.
+    """
+    qos = int(qos)
+    if qos not in [0, 1, 2]:
+      raise ValueError("Invalid MQTT QoS {}. Expected one of 0, 1, 2.".format(qos))
+    return qos
+
+  def get_channel_qos(self, channel_name=None, channel_def=None):
+    """
+    Return effective QoS for a channel.
+
+    A channel-specific ``QOS`` lets heartbeats and commands use different MQTT
+    delivery guarantees while existing configs continue to inherit top-level
+    ``QOS`` unchanged.
+    """
+    if channel_def is None and channel_name is not None:
+      channel_def = self._config.get(channel_name, {})
+    if not isinstance(channel_def, dict):
+      channel_def = {}
+    if COMMS.QOS in channel_def:
+      return self._normalize_qos(channel_def[COMMS.QOS])
+    return self._normalize_qos(self.cfg_qos)
+
   @property
   def cfg_cert_path(self):
     return self._config.get(COMMS.CERT_PATH)
