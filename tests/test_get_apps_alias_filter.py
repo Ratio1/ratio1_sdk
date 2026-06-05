@@ -1,4 +1,5 @@
 from argparse import Namespace
+from time import time
 import unittest
 from unittest.mock import patch
 
@@ -7,7 +8,7 @@ from pandas import DataFrame
 from ratio1.base.generic_session import GenericSession
 from ratio1.cli.cli import build_parser
 from ratio1.cli.nodes import get_apps
-from ratio1.const import HB
+from ratio1.const import HB, PAYLOAD_DATA
 
 
 class _FakeLog:
@@ -16,8 +17,9 @@ class _FakeLog:
 
 
 class _FakeInstance:
-  signature = "FAKE_PLUGIN"
-  instance_id = "inst-01"
+  def __init__(self, signature="FAKE_PLUGIN", instance_id="inst-01"):
+    self.signature = signature
+    self.instance_id = instance_id
 
   def get_status(self):
     return {
@@ -30,12 +32,13 @@ class _FakeInstance:
 
 
 class _FakePipeline:
-  def __init__(self, owner="owner-01", owner_alias="owner-alias"):
+  def __init__(self, owner="owner-01", owner_alias="owner-alias", signatures=None):
     self.config = {
       "INITIATOR_ADDR": owner,
       "INITIATOR_ID": owner_alias,
     }
-    self.lst_plugin_instances = [_FakeInstance()]
+    signatures = signatures or ["FAKE_PLUGIN"]
+    self.lst_plugin_instances = [_FakeInstance(signature=signature) for signature in signatures]
 
 
 class TestGetAppsAliasFilter(unittest.TestCase):
@@ -45,7 +48,22 @@ class TestGetAppsAliasFilter(unittest.TestCase):
     session.log = _FakeLog()
     session._shorten_addr = lambda addr: addr
     session.get_active_nodes = lambda: ["node-smart", "node-other"]
-    session.get_active_supervisors = lambda: ["node-smart"]
+    session._dct_online_nodes_last_heartbeat = {
+      "node-smart": {},
+      "node-other": {},
+    }
+    session._GenericSession__current_network_statuses = {
+      "oracle-1": {
+        "smart-key": {
+          PAYLOAD_DATA.NETMON_ADDRESS: "node-smart",
+          PAYLOAD_DATA.NETMON_IS_SUPERVISOR: True,
+        },
+        "other-key": {
+          PAYLOAD_DATA.NETMON_ADDRESS: "node-other",
+          PAYLOAD_DATA.NETMON_IS_SUPERVISOR: False,
+        },
+      },
+    }
     session.get_node_alias = lambda node: {
       "node-smart": "smart-edge-01",
       "node-other": "batch-edge-01",
@@ -99,6 +117,34 @@ class TestGetAppsAliasFilter(unittest.TestCase):
     self.assertTrue(result.empty)
     self.assertEqual(session.requested_nodes, [(["node-smart"], True)])
 
+  def test_active_supervisors_fall_back_to_netmon_status(self):
+    session = GenericSession.__new__(GenericSession)
+    session.online_timeout = 60
+    session._dct_node_last_seen_time = {
+      "node-super": time(),
+      "node-worker": time(),
+    }
+    session._dct_online_nodes_last_heartbeat = {
+      "node-super": {},
+      "node-worker": {},
+    }
+    session._GenericSession__current_network_statuses = {
+      "oracle-1": {
+        "super-key": {
+          PAYLOAD_DATA.NETMON_ADDRESS: "node-super",
+          PAYLOAD_DATA.NETMON_IS_SUPERVISOR: True,
+        },
+        "worker-key": {
+          PAYLOAD_DATA.NETMON_ADDRESS: "node-worker",
+          PAYLOAD_DATA.NETMON_IS_SUPERVISOR: False,
+        },
+      },
+    }
+
+    result = session.get_active_supervisors()
+
+    self.assertEqual(result, ["node-super"])
+
   def test_get_nodes_apps_filters_app_names(self):
     session = self._make_session()
     session.get_active_pipelines = lambda node: {
@@ -109,6 +155,18 @@ class TestGetAppsAliasFilter(unittest.TestCase):
     result = session.get_nodes_apps(node="node-smart", app_filter="XYZ", as_df=True)
 
     self.assertEqual(result["App"].tolist(), ["alpha-XYZ-worker"])
+
+  def test_get_nodes_apps_filters_plugin_names(self):
+    session = self._make_session()
+    session.get_active_pipelines = lambda node: {
+      "oracle-services": _FakePipeline(signatures=["ORACLE_API", "OTHER_PLUGIN"]),
+      "background-services": _FakePipeline(signatures=["CONTAINER_APP_RUNNER"]),
+    }
+
+    result = session.get_nodes_apps(node="node-smart", app_filter="ORACLE_API", show_full=True, as_df=True)
+
+    self.assertEqual(result["App"].tolist(), ["oracle-services"])
+    self.assertEqual(result["Plugin"].tolist(), ["ORACLE_API"])
 
   def test_get_apps_passes_alias_filter_to_session(self):
     class _FakeSession:

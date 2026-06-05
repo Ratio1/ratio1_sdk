@@ -79,7 +79,7 @@ CLI_COMMANDS = {
                 "--alias": "Filter app discovery to nodes whose alias contains this value",
                 "--super": "Inspect only supervisor nodes when discovering apps without --node (flag)",
                 "--supervisors": "Inspect only supervisor nodes when discovering apps without --node (flag)",
-                "--app": "Filter displayed apps by a case-insensitive app-name substring",
+                "--app": "Filter displayed apps by a case-insensitive app-name or plugin-signature substring",
                 "--owner" : "Get the apps for a particular owner/initiator",
                 "--timeout": "Maximum seconds to wait for node presence and config collection",
                 "--full": "Include admin apps (flag)",

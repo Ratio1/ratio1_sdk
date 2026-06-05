@@ -2373,7 +2373,12 @@ class GenericSession(BaseDecentrAIObject):
 
     def get_active_supervisors(self):
       """
-      Get the list of all active supervisors
+      Get the list of all active supervisors.
+
+      Supervisor status can arrive through direct heartbeats or through
+      supervisor netmon reports. Netmon is used as a fallback because some
+      nodes can be active and visible in discovery before their heartbeat
+      includes the supervisor flag.
 
       Returns
       -------
@@ -2381,14 +2386,24 @@ class GenericSession(BaseDecentrAIObject):
           List of names of all the active supervisors
       """
       active_nodes = self.get_active_nodes()
+      active_node_set = set(active_nodes)
+      netmon_supervisors = set()
+      current_network_statuses = getattr(self, "_GenericSession__current_network_statuses", {})
+      for network_status in current_network_statuses.values():
+        for node_key, node_info in network_status.items():
+          if not node_info.get(PAYLOAD_DATA.NETMON_IS_SUPERVISOR, False):
+            continue
+          node_addr = node_info.get(PAYLOAD_DATA.NETMON_ADDRESS, node_key)
+          if node_addr in active_node_set:
+            netmon_supervisors.add(node_addr)
+          elif node_key in active_node_set:
+            netmon_supervisors.add(node_key)
 
       active_supervisors = []
       for node in active_nodes:
         last_hb = self._dct_online_nodes_last_heartbeat.get(node, None)
-        if last_hb is None:
-          continue
-
-        if last_hb.get(HB.EE_IS_SUPER, False):
+        is_supervisor = last_hb is not None and last_hb.get(HB.EE_IS_SUPER, False)
+        if is_supervisor or node in netmon_supervisors:
           active_supervisors.append(node)
 
       return active_supervisors
@@ -5134,8 +5149,8 @@ class GenericSession(BaseDecentrAIObject):
         explicit node is provided. Defaults to None.
 
     app_filter : str, optional
-        A case-insensitive substring filter applied to application names.
-        Defaults to None.
+        A case-insensitive substring filter applied to application names and
+        plugin signatures. Defaults to None.
 
     supervisors_only : bool, optional
         If True and no explicit node is provided, inspect only active
@@ -5222,11 +5237,18 @@ class GenericSession(BaseDecentrAIObject):
       if not show_full:
         apps = {k: v for k, v in apps.items() if str(k).lower() != 'admin_pipeline'}
 
+      app_filter_text = str(app_filter).lower() if app_filter is not None else None
+
       if app_filter is not None:
-        app_filter_text = str(app_filter).lower()
+        # Keep app-name matches, and also keep pipelines that contain at
+        # least one plugin signature match so row rendering can display it.
         apps = {
           app_name: app_data for app_name, app_data in apps.items()
           if app_filter_text in str(app_name).lower()
+          or any(
+            app_filter_text in str(getattr(instance, "signature", "")).lower()
+            for instance in getattr(app_data, "lst_plugin_instances", [])
+          )
         }
         
       # 6. Show the apps
@@ -5239,7 +5261,16 @@ class GenericSession(BaseDecentrAIObject):
           if owner is not None and owner != pipeline_owner:
             continue
           pipeline_alias = pipeline.config.get("INITIATOR_ID")
+          pipeline_name_matches_filter = (
+            app_filter_text is None or app_filter_text in str(pipeline_name).lower()
+          )
           for instance in pipeline.lst_plugin_instances:
+            plugin_name_matches_filter = (
+              app_filter_text is None
+              or app_filter_text in str(getattr(instance, "signature", "")).lower()
+            )
+            if not pipeline_name_matches_filter and not plugin_name_matches_filter:
+              continue
             instance_status = instance.get_status()
             if len(instance_status) == 0:
               # this instance is only present in config but is NOT loaded so ignore it

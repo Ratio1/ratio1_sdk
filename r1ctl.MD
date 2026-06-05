@@ -87,7 +87,7 @@ Retrieve the apps running on accessible nodes.
 - `--node`: Query a specific node by address or alias.
 - `--alias`: Query only nodes whose alias contains the provided substring.
 - `--super`, `--supervisors`: Query only supervisor nodes when no `--node` is provided.
-- `--app`: Display only apps whose name contains the provided substring.
+- `--app`: Display only apps whose pipeline name or plugin signature contains the provided substring.
 - `--owner`: Restrict results to apps owned by a specific initiator.
 - `--timeout`: Maximum seconds to wait for node presence and config collection.
 - `--full`: Include admin apps.
@@ -105,7 +105,7 @@ r1ctl get apps --alias smart --owner 0xai_...
 # Find apps only on supervisor nodes:
 r1ctl get apps --super
 
-# Find apps whose name contains "XYZ":
+# Find apps whose pipeline name or plugin signature contains "XYZ":
 r1ctl get apps --app XYZ
 ```
 
