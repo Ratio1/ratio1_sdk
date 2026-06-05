@@ -214,6 +214,8 @@ def get_apps(args):
   verbose = args.verbose
   node = args.node
   alias_filter = getattr(args, "alias", None)
+  app_filter = getattr(args, "app", None)
+  supervisors_only = getattr(args, "super", False) or getattr(args, "supervisors", False)
   show_full = args.full
   as_json = args.json
   owner = args.owner
@@ -227,7 +229,8 @@ def get_apps(args):
   )
   
   res = sess.get_nodes_apps(
-    node=node, alias_filter=alias_filter, owner=owner, show_full=show_full,
+    node=node, alias_filter=alias_filter, app_filter=app_filter,
+    supervisors_only=supervisors_only, owner=owner, show_full=show_full,
     as_json=as_json, as_df=not as_json, timeout=timeout
   )
   if res is not None:

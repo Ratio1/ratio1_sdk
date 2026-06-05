@@ -5111,6 +5111,8 @@ class GenericSession(BaseDecentrAIObject):
     self, 
     node=None, 
     alias_filter=None,
+    app_filter=None,
+    supervisors_only=False,
     owner=None, 
     show_full=False, 
     as_json=False, 
@@ -5130,6 +5132,14 @@ class GenericSession(BaseDecentrAIObject):
     alias_filter : str, optional
         A case-insensitive substring filter applied to node aliases when no
         explicit node is provided. Defaults to None.
+
+    app_filter : str, optional
+        A case-insensitive substring filter applied to application names.
+        Defaults to None.
+
+    supervisors_only : bool, optional
+        If True and no explicit node is provided, inspect only active
+        supervisor nodes. Defaults to False.
     
     owner : str, optional
         The owner of the apps to filter. Defaults to None.
@@ -5161,7 +5171,7 @@ class GenericSession(BaseDecentrAIObject):
     """
     lst_plugin_instance_data = []
     if node is None:
-      nodes = self.get_active_nodes()
+      nodes = self.get_active_supervisors() if supervisors_only else self.get_active_nodes()
       if alias_filter is not None:
         # Filter candidate nodes before requesting configurations so the CLI
         # only waits on nodes whose aliases match the requested substring.
@@ -5211,6 +5221,13 @@ class GenericSession(BaseDecentrAIObject):
       # 5. Maybe exclude admin application.
       if not show_full:
         apps = {k: v for k, v in apps.items() if str(k).lower() != 'admin_pipeline'}
+
+      if app_filter is not None:
+        app_filter_text = str(app_filter).lower()
+        apps = {
+          app_name: app_data for app_name, app_data in apps.items()
+          if app_filter_text in str(app_name).lower()
+        }
         
       # 6. Show the apps
       if as_json:

@@ -77,6 +77,9 @@ CLI_COMMANDS = {
             "params": {
                 "--node": "The ETH address or the specific address of the node to get the apps from",
                 "--alias": "Filter app discovery to nodes whose alias contains this value",
+                "--super": "Inspect only supervisor nodes when discovering apps without --node (flag)",
+                "--supervisors": "Inspect only supervisor nodes when discovering apps without --node (flag)",
+                "--app": "Filter displayed apps by a case-insensitive app-name substring",
                 "--owner" : "Get the apps for a particular owner/initiator",
                 "--timeout": "Maximum seconds to wait for node presence and config collection",
                 "--full": "Include admin apps (flag)",
