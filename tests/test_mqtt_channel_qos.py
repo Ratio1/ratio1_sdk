@@ -1,8 +1,11 @@
 import unittest
 import copy
+import pathlib
+import tomllib
 from collections import deque
 from unittest import mock
 
+import ratio1
 from ratio1.base.generic_session import GenericSession
 from ratio1.comm.mqtt_wrapper import MQTTWrapper
 from ratio1.const import COMMS
@@ -100,6 +103,13 @@ def _base_config():
 
 
 class TestMqttChannelQos(unittest.TestCase):
+
+  def test_package_metadata_version_matches_runtime_export(self):
+    pyproject_path = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject_path.open("rb") as fh:
+      pyproject_data = tomllib.load(fh)
+
+    self.assertEqual(pyproject_data["project"]["version"], ratio1.__version__)
 
   def test_send_uses_channel_qos_when_available(self):
     wrapper = MQTTWrapper(
