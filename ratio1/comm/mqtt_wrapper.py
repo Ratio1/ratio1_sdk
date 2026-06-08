@@ -365,43 +365,59 @@ class MQTTWrapper(BaseCommWrapper):
   def subscribe(self, max_retries=5):
 
     if self.recv_channel_name is None:
-      return
+      return {
+        'has_connection': True,
+        'msg': 'MQTT receive disabled for this communicator.',
+        'msg_type': PAYLOAD_CT.STATUS_TYPE.STATUS_NORMAL,
+      }
 
-    nr_retry = 1
     has_connection = True
-    exception = None
+    failure_msg = None
     channel_def = self.get_recv_channel_def()
     lst_topics = channel_def[COMMS.TOPIC]
+    qos = self.get_channel_qos(channel_def=channel_def)
     for topic in lst_topics:
+      nr_retry = 1
       current_topic_connection = False
+      exception = None
       while nr_retry <= max_retries:
         try:
           if self._mqttc is not None:
-            self._mqttc.subscribe(
+            subscribe_result = self._mqttc.subscribe(
               topic=topic,
-              qos=self.cfg_qos
+              qos=qos
             )
-            current_topic_connection = True
+            result_code = subscribe_result[0] if isinstance(subscribe_result, tuple) else None
+            if result_code in (None, mqtt.MQTT_ERR_SUCCESS):
+              current_topic_connection = True
+            else:
+              exception = "MQTT client returned subscribe rc={}".format(result_code)
           else:
-            has_connection = False
+            exception = "MQTT client is not initialized"
         except Exception as e:
-          has_connection = False
           exception = e
 
         if current_topic_connection:
           break
 
-        sleep(1)
+        if nr_retry < max_retries:
+          sleep(1)
         nr_retry += 1
       # endwhile
 
       if current_topic_connection:
-        msg = "MQTT (Paho) subscribed to topic '{}' (QoS={})".format(topic, self.cfg_qos)
+        msg = "MQTT (Paho) subscribed to topic '{}' (QoS={})".format(topic, qos)
         msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_NORMAL
       else:
         msg = "MQTT (Paho) subscribe to '{}' FAILED after {} retries (reason:{})".format(topic, max_retries, exception)
         msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_EXCEPTION
+        has_connection = False
+        failure_msg = msg
       # endif
+
+    if not has_connection:
+      msg = failure_msg
+      msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_EXCEPTION
 
     dct_ret = {
       'has_connection': has_connection,
@@ -420,15 +436,16 @@ class MQTTWrapper(BaseCommWrapper):
       return
 
     channel_def = self.get_send_channel_def(send_to=send_to)
+    qos = self.get_channel_qos(channel_def=channel_def)
 
     result = mqttc.publish(
       topic=channel_def[self.channel_key],
       payload=message,
-      qos=self.cfg_qos
+      qos=qos
     )
 
     ####
-    self.D("Sent message (QoS {})'{}'".format(self.cfg_qos, message))
+    self.D("Sent message (QoS {})'{}'".format(qos, message))
     ####
 
     if result.rc == mqtt.MQTT_ERR_QUEUE_SIZE:

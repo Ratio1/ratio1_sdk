@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from collections import deque, OrderedDict, defaultdict
+from copy import deepcopy
 from datetime import datetime as dt
 from threading import Lock, Thread
 from time import sleep
@@ -248,7 +249,7 @@ class GenericSession(BaseDecentrAIObject):
     self.__at_least_a_netmon_received = False
     
     # TODO: maybe read config from file?
-    self._config = {**self.default_config, **config}
+    self._config = {**deepcopy(self.default_config), **deepcopy(config)}
     
     
     
@@ -1648,6 +1649,32 @@ class GenericSession(BaseDecentrAIObject):
         #end if
       #end name is None      
       return self.__user_config_loaded
+
+    def __env_qos(self, *keys):
+      value = next((os.getenv(key) for key in keys if os.getenv(key) not in [None, ""]), None)
+      if value is None:
+        return None
+      value = int(value)
+      if value not in [0, 1, 2]:
+        raise ValueError(f"Invalid MQTT QoS {value}. Expected one of 0, 1, 2.")
+      return value
+
+    def __apply_channel_qos_from_env(self):
+      qos_overrides = [
+        ("CTRL_CHANNEL", self.__env_qos("EE_MQTT_HEARTBEAT_QOS", "MQTT_HEARTBEAT_QOS")),
+        ("CONFIG_CHANNEL", self.__env_qos("EE_MQTT_COMMAND_QOS", "MQTT_COMMAND_QOS")),
+      ]
+      for channel_name, qos in qos_overrides:
+        if qos is None:
+          continue
+        channel_cfg = self._config.get(channel_name)
+        if not isinstance(channel_cfg, dict):
+          raise ValueError(f"Cannot set QoS for missing MQTT channel '{channel_name}'")
+        # Keep SDK-generated commands aligned with edge-node rollout knobs. The
+        # heartbeat/command meaning is attached to the MQTT topic, not the legacy
+        # communicator name that happens to publish or receive it.
+        channel_cfg[comm_ct.QOS] = qos
+      return
     
     def __fill_config(self, host, port, user, pwd, secured, subtopic):
       """
@@ -1807,6 +1834,7 @@ class GenericSession(BaseDecentrAIObject):
       if disable_addressed_payload_subs is not None:
         self._config[comm_ct.DISABLE_ADDRESSED_PAYLOAD_SUBS] = str(disable_addressed_payload_subs).strip().upper() in ['TRUE', '1', 'YES']
 
+      self.__apply_channel_qos_from_env()
       self._config.setdefault(comm_ct.EE_ID, self.name)
       self._config.setdefault(comm_ct.EE_ADDR, self.bc_engine.address)
 
