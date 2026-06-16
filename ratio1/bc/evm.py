@@ -36,6 +36,7 @@ Web3Vars = namedtuple(
 
 if not EE_VPN_IMPL:
   from web3 import Web3
+  from web3.logs import DISCARD
 else:
   class Web3:
     """
@@ -1655,6 +1656,90 @@ class _EVMMixin:
       )
       job_ids = [int(job.get("jobId")) for job in jobs if job.get("jobId") is not None]
       return job_ids
+
+    def web3_get_csp_escrow_owner(self, escrow_address: str, network: str = None):
+      """
+      Retrieve the current owner for a CSP escrow from PoAI Manager.
+      """
+      assert self.is_valid_eth_address(escrow_address), "Invalid escrow address"
+
+      w3vars = self._get_web3_vars(network)
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address,
+        abi=EVM_ABI_DATA.POAI_MANAGER_ABI,
+      )
+      owner = contract.functions.escrowToOwner(escrow_address).call()
+      return to_checksum_address(owner)
+
+    def web3_get_csp_escrow_owner_transfer_from_tx(
+      self,
+      tx_hash: str,
+      log_index: int = None,
+      network: str = None,
+    ):
+      """
+      Resolve and validate a CSP escrow owner transfer event from a mined tx.
+      """
+      if not isinstance(tx_hash, str) or not tx_hash.startswith("0x"):
+        raise ValueError("Invalid transaction hash")
+      if log_index is not None:
+        log_index = int(log_index)
+
+      w3vars = self._get_web3_vars(network)
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address,
+        abi=EVM_ABI_DATA.POAI_MANAGER_ABI,
+      )
+      receipt = w3vars.w3.eth.get_transaction_receipt(tx_hash)
+      receipt_status = getattr(receipt, "status", receipt.get("status", None))
+      if receipt_status != 1:
+        raise ValueError(f"Transaction {tx_hash} did not succeed")
+
+      manager_address = to_checksum_address(w3vars.poai_manager_address)
+      matching_logs = []
+      decoded_logs = contract.events.CspEscrowOwnerTransferred().process_receipt(
+        receipt,
+        errors=DISCARD,
+      )
+      for event_log in decoded_logs:
+        event_address = to_checksum_address(event_log["address"])
+        if event_address != manager_address:
+          continue
+        event_log_index = int(event_log["logIndex"])
+        if log_index is not None and event_log_index != log_index:
+          continue
+        matching_logs.append(event_log)
+
+      if len(matching_logs) == 0:
+        raise ValueError("No CspEscrowOwnerTransferred event found in transaction")
+      if log_index is None and len(matching_logs) > 1:
+        raise ValueError("Multiple CspEscrowOwnerTransferred events found; provide log_index")
+
+      event_log = matching_logs[0]
+      args = event_log["args"]
+      escrow = to_checksum_address(args["escrow"])
+      old_owner = to_checksum_address(args["oldOwner"])
+      new_owner = to_checksum_address(args["newOwner"])
+
+      current_owner = self.web3_get_csp_escrow_owner(
+        escrow_address=escrow,
+        network=w3vars.network,
+      )
+      if current_owner.lower() != new_owner.lower():
+        raise ValueError(
+          f"Escrow {escrow} is currently owned by {current_owner}, not transfer recipient {new_owner}"
+        )
+
+      block_number = getattr(receipt, "blockNumber", receipt.get("blockNumber", None))
+      return {
+        "network": w3vars.network,
+        "tx_hash": tx_hash,
+        "log_index": int(event_log["logIndex"]),
+        "block_number": int(block_number) if block_number is not None else None,
+        "escrow": escrow,
+        "old_owner": old_owner,
+        "new_owner": new_owner,
+      }
 
     def web3_submit_node_update(
       self,
