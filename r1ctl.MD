@@ -50,6 +50,8 @@ Retrieve information about network nodes.
 - `--peered`: Get only peered nodes - ie the nodes that allow the current client to connect to them and give them workloads
 - `--supervisor="addr"`: Query nodes using a specific supervisor address.
 - `--eth`: Use ETH addresses instead of the default Ratio1 addresses.
+- `--group-by[=field]`: Group nodes by a selected field. Omit the field to choose from an interactive menu.
+- `--explicit`: When used with `--group-by`, show the node aliases and addresses below each group.
 
 **Examples**:
 ```bash
@@ -58,6 +60,15 @@ nepctl get nodes --all
 
 # Get online nodes using a specific supervisor:
 nepctl get nodes --online --supervisor="Amfnbt3N-qg2-qGtywZIPQBTVlAnoADVRmSAsdDhlQ-6"
+
+# Choose a field interactively and group nodes by it:
+r1ctl get nodes --group-by
+
+# Group nodes directly by version:
+r1ctl get nodes --group-by=Version
+
+# Group nodes by version and show the nodes in each group:
+r1ctl get nodes --group-by=Version --explicit
 ```
 
 #### Using ETH addresses

@@ -36,6 +36,33 @@ def create_global_parser():
   )
   return global_parser
 
+def add_cli_param(parser, param, desc):
+  """
+  Add one CLI parameter to an argparse parser from a CLI_COMMANDS entry.
+
+  Parameters
+  ----------
+  parser : argparse.ArgumentParser
+      Parser that receives the argument definition.
+  param : str
+      Argument name, either optional (``--name``) or positional.
+  desc : str
+      Human-readable help text. Optional arguments ending in ``(flag)`` become
+      booleans, and optional arguments ending in ``(optional)`` can be provided
+      with or without a value.
+  """
+  if param.startswith("--"):
+    desc_lower = desc.lower()
+    if desc_lower.endswith("(flag)"):
+      parser.add_argument(param, action="store_true", help=desc)
+    elif desc_lower.endswith("(optional)"):
+      parser.add_argument(param, nargs="?", const="", type=str, help=desc)
+    else:
+      parser.add_argument(param, type=str, help=desc)
+  else:
+    parser.add_argument(param, help=desc)
+  return
+
 def build_parser():
   """
   Dynamically builds the argument parser based on CLI_COMMANDS.
@@ -75,14 +102,7 @@ def build_parser():
         # If we have parameters, add them
         if isinstance(subcmd_info, dict) and "params" in subcmd_info:
           for param, desc in subcmd_info["params"].items():
-            if param.startswith("--"):
-              if desc.lower().endswith("(flag)"):
-                subcommand_parser.add_argument(param, action="store_true", help=desc)
-              else:
-                subcommand_parser.add_argument(param, type=str, help=desc)
-            else:
-              # Positional argument
-              subcommand_parser.add_argument(param, help=desc)
+            add_cli_param(subcommand_parser, param, desc)
 
         # Assign the function to call
         subcommand_parser.set_defaults(func=subcmd_info["func"])
@@ -90,13 +110,7 @@ def build_parser():
       # Single-level command with optional parameters
       if "params" in subcommands:
         for param, desc in subcommands["params"].items():
-          if param.startswith("--"):
-            if desc.lower().endswith("(flag)"):
-              command_parser.add_argument(param, action="store_true", help=desc)
-            else:
-              command_parser.add_argument(param, type=str, help=desc)
-          else:
-            command_parser.add_argument(param, help=desc)
+          add_cli_param(command_parser, param, desc)
 
       # Set the function to be called for this command
       command_parser.set_defaults(func=subcommands["func"])

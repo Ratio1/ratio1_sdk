@@ -37,6 +37,8 @@ CLI_COMMANDS = {
                 "--alias" : "Use a specific node alias filter",
                 "--eth" : "Use a specific node (flag)",
                 "--wide" : "Display all available information (flag)",
+                "--group-by": "Group nodes by a selected field; omit the value to choose from an interactive menu (optional)",
+                "--explicit": "Show node aliases and addresses in grouped output (flag)",
             }
         },
         "supervisors": {

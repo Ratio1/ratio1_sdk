@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 
 from time import time
 from ratio1.utils.config import log_with_color
@@ -8,6 +9,8 @@ from ratio1._ver import __VER__ as version
 
 from pandas import DataFrame
 from datetime import datetime
+
+GROUP_BY_LIST_VALUE = ""
 
 
 def _get_netstats(
@@ -51,6 +54,168 @@ def _get_netstats(
   return df, supervisor, super_alias, nr_supers, elapsed
 
 
+def _resolve_group_by_column(df, group_by):
+  """
+  Resolve a user-provided group-by field to a DataFrame column name.
+
+  Parameters
+  ----------
+  df : pandas.DataFrame
+      Node report returned by ``Session.get_network_known_nodes``.
+  group_by : str
+      User-provided field name from ``r1ctl get nodes --group-by``.
+
+  Returns
+  -------
+  str or None
+      Matching DataFrame column name, or ``None`` if no column matches.
+  """
+  normalized = str(group_by).strip().lower()
+  for column in df.columns:
+    if column.lower() == normalized:
+      return column
+  return None
+
+
+def _show_group_by_fields(df):
+  """
+  Print the fields that can be used with ``r1ctl get nodes --group-by``.
+
+  Parameters
+  ----------
+  df : pandas.DataFrame
+      Node report whose columns define the groupable fields.
+  """
+  fields = "\n".join(f"  - {column}" for column in df.columns)
+  log_with_color("Available fields for `r1ctl get nodes --group-by <field>`:", color='b')
+  log_with_color(fields)
+  return
+
+
+def _select_group_by_column(df):
+  """
+  Ask the user to select a group-by field from the node report columns.
+
+  Parameters
+  ----------
+  df : pandas.DataFrame
+      Node report whose columns define the groupable fields.
+
+  Returns
+  -------
+  str or None
+      Selected DataFrame column name, or ``None`` if no usable selection is
+      available.
+  """
+  columns = list(df.columns)
+  if not columns:
+    log_with_color("No fields are available for grouping.", color='r')
+    return None
+
+  log_with_color("Select a field to group nodes by:", color='b')
+  for index, column in enumerate(columns, start=1):
+    log_with_color(f"  {index}. {column}")
+
+  if not sys.stdin.isatty():
+    log_with_color(
+      "No interactive terminal is available. Use `--group-by=<field>` instead.",
+      color='r'
+    )
+    return None
+
+  selection = input("Group by field number or name: ").strip()
+  if not selection:
+    return None
+
+  if selection.isdigit():
+    selected_index = int(selection)
+    if 1 <= selected_index <= len(columns):
+      return columns[selected_index - 1]
+    log_with_color(f"Invalid selection '{selection}'.", color='r')
+    return None
+
+  selected_column = _resolve_group_by_column(df, selection)
+  if selected_column is None:
+    log_with_color(f"Unknown group-by field '{selection}'.", color='r')
+  return selected_column
+
+
+def _get_grouped_nodes(df, column, explicit=False):
+  """
+  Count nodes by unique values in one DataFrame column.
+
+  Parameters
+  ----------
+  df : pandas.DataFrame
+      Node report to aggregate.
+  column : str
+      Column name to group by.
+  explicit : bool, optional
+      If True, include the node aliases and addresses that belong to each
+      group. Defaults to False.
+
+  Returns
+  -------
+  pandas.DataFrame
+      Summary containing the grouped value, node count, and optionally node
+      identities.
+  """
+  groupable_df = df[[column]].copy()
+  if explicit:
+    explicit_columns = [c for c in ["Alias", "Address"] if c in df.columns]
+    groupable_df = df[[column, *explicit_columns]].copy()
+  groupable_df[column] = groupable_df[column].fillna("[missing]").replace("", "[empty]")
+  groupby_obj = groupable_df.groupby(column, dropna=False)
+  grouped_df = groupby_obj.size().reset_index(name="Nodes")
+  if explicit:
+    if "Alias" in groupable_df.columns:
+      grouped_df["Node Aliases"] = groupby_obj["Alias"].apply(
+        lambda values: ", ".join(str(v) for v in values if v is not None)
+      ).values
+    if "Address" in groupable_df.columns:
+      grouped_df["Node Addresses"] = groupby_obj["Address"].apply(
+        lambda values: ", ".join(str(v) for v in values if v is not None)
+      ).values
+  grouped_df["_sort_value"] = grouped_df[column].astype(str)
+  grouped_df = grouped_df.sort_values(
+    by=["Nodes", "_sort_value"],
+    ascending=[False, True]
+  )
+  grouped_df = grouped_df.drop(columns=["_sort_value"]).reset_index(drop=True)
+  return grouped_df
+
+
+def _format_explicit_grouped_nodes(df, column):
+  """
+  Format grouped nodes as readable multi-line text.
+
+  Parameters
+  ----------
+  df : pandas.DataFrame
+      Node report to aggregate and display.
+  column : str
+      Column name to group by.
+
+  Returns
+  -------
+  str
+      Human-readable grouped node listing. Each group starts with the grouped
+      field value and count, followed by indented node entries.
+  """
+  display_df = df[[column, "Alias", "Address"]].copy()
+  display_df[column] = display_df[column].fillna("[missing]").replace("", "[empty]")
+  grouped_df = _get_grouped_nodes(df, column)
+  lines = []
+  for _, group_row in grouped_df.iterrows():
+    group_value = group_row[column]
+    group_count = group_row["Nodes"]
+    node_label = "node" if group_count == 1 else "nodes"
+    lines.append(f"{column}: {group_value} ({group_count} {node_label})")
+    group_nodes = display_df[display_df[column] == group_value]
+    for _, node_row in group_nodes.iterrows():
+      lines.append(f"  - {node_row['Alias']}  {node_row['Address']}")
+  return "\n".join(lines)
+
 
 def get_nodes(args):
   """
@@ -63,6 +228,8 @@ def get_nodes(args):
   """
   supervisor_addr = args.supervisor
   alias_filter = args.alias
+  group_by = getattr(args, "group_by", None)
+  explicit = getattr(args, "explicit", False)
   online = args.online
   online = True # always online, flag deprecated
   wide = args.wide
@@ -84,6 +251,7 @@ def get_nodes(args):
     FILTERED = ['State']
     df = df[[c for c in df.columns if c not in FILTERED]]
 
+  grouping_requested = group_by is not None
   prefix = "Online n" if (online or args.peered) else "N"
   # network = os.environ.get(BASE_CT.dAuth.DAUTH_NET_ENV_KEY, BASE_CT.dAuth.DAUTH_SDK_NET_DEFAULT)
   network = sess.bc_engine.evm_network
@@ -99,7 +267,27 @@ def get_nodes(args):
     )
     import pandas as pd
     pd.set_option('display.float_format', '{:.4f}'.format)
-    log_with_color(f"{df}\n")    
+    if grouping_requested:
+      if group_by == GROUP_BY_LIST_VALUE:
+        column = _select_group_by_column(df)
+        if column is None:
+          return df
+      else:
+        column = _resolve_group_by_column(df, group_by)
+        if column is None:
+          log_with_color(f"Unknown group-by field '{group_by}'.", color='r')
+          _show_group_by_fields(df)
+          return df
+
+      grouped_df = _get_grouped_nodes(df, column, explicit=explicit)
+      log_with_color(f"Nodes grouped by '{column}':", color='b')
+      if explicit:
+        log_with_color(f"{_format_explicit_grouped_nodes(df, column)}\n")
+      else:
+        log_with_color(f"{grouped_df}\n")
+      return grouped_df
+
+    log_with_color(f"{df}\n")
   return df
   
   
