@@ -1944,7 +1944,8 @@ class R1FSEngine:
       unique_dir = None
       try:
         json_data = json.dumps(data, sort_keys=True, separators=(',', ':'))
-        self.P(f"JSON data: {json_data}")
+        if show_logs:
+          self.P(f"JSON data: {json_data}")
         
         if use_tempfile:
           if show_logs:
@@ -3633,7 +3634,8 @@ class R1FSEngine:
       except (TypeError, ValueError) as e:
         raise ValueError(f"Data cannot be JSON serialized: {e}")
       
-      self.P(f"JSON data: {json_data}")
+      if show_logs:
+        self.P(f"JSON data: {json_data}")
 
       # Use custom filename or default
       if fn is None:
@@ -3661,7 +3663,7 @@ class R1FSEngine:
           file_path=tmp_json_path,
           nonce=nonce,
           secret=secret,
-          show_logs=True  # Don't show logs from calculate_file_cid
+          show_logs=show_logs,
         )
         
         if show_logs:
