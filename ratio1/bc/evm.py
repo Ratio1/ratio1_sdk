@@ -30,6 +30,7 @@ Web3Vars = namedtuple(
     "controller_contract_address",
     "poai_manager_address",
     "attestation_registry_address",
+    "dauth_oracle_registry_address",
   ]
 )
 
@@ -265,6 +266,7 @@ class _EVMMixin:
       controller_contract_address = network_data[dAuth.EvmNetData.DAUTH_CONTROLLER_ADDR_KEY]
       poai_manager_address = network_data[dAuth.EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY]
       attestation_registry_address = network_data[dAuth.EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY]
+      dauth_oracle_registry_address = network_data[dAuth.EvmNetData.DAUTH_ORACLE_REGISTRY_ADDR_KEY]
       genesis_date = self.log.str_to_date(str_genesis_date).replace(tzinfo=timezone.utc)
       ep_sec = (
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVAL_SECONDS_KEY] * 
@@ -288,6 +290,7 @@ class _EVMMixin:
         controller_contract_address=controller_contract_address,
         poai_manager_address=poai_manager_address,
         attestation_registry_address=attestation_registry_address,
+        dauth_oracle_registry_address=dauth_oracle_registry_address,
       )
       return result
 
@@ -1003,6 +1006,66 @@ class _EVMMixin:
 
       result = contract.functions.getOracles().call()
       return result    
+
+
+    def web3_get_dauth_oracles(self, network=None, debug=False) -> list:
+      """
+      Get the list of dAuth oracles from the registry contract.
+
+      Parameters
+      ----------
+      network : str, optional
+        The network to use. The default is None.
+
+      Returns
+      -------
+      list
+        The list of dAuth oracle addresses.
+      """
+      w3vars = self._get_web3_vars(network)
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.dauth_oracle_registry_address,
+        abi=EVM_ABI_DATA.DAUTH_ORACLE_REGISTRY_ABI,
+      )
+      if debug:
+        self.P(f"Getting dAuth oracles for {w3vars.network} via {w3vars.rpc_url}...")
+
+      result = contract.functions.getDAuthOracles().call()
+      return result
+
+
+    def web3_is_dauth_oracle(self, address: str, network=None, debug=False) -> bool:
+      """
+      Check if the address is a dAuth oracle in the registry contract.
+
+      Parameters
+      ----------
+      address : str
+        The address to check.
+
+      network : str, optional
+        The network to use. The default is None.
+
+      Returns
+      -------
+      bool
+        True if the address is a dAuth oracle, False otherwise.
+      """
+      if EE_VPN_IMPL:
+        self.P("VPN implementation. Skipping Ethereum check.", color='r')
+        return False
+      assert self.is_valid_eth_address(address), "Invalid Ethereum address"
+
+      w3vars = self._get_web3_vars(network)
+      contract = w3vars.w3.eth.contract(
+        address=w3vars.dauth_oracle_registry_address,
+        abi=EVM_ABI_DATA.DAUTH_ORACLE_REGISTRY_ABI,
+      )
+      if debug:
+        self.P(f"Checking if {address} ({w3vars.network}) is a dAuth oracle...")
+
+      result = contract.functions.isDAuthOracle(address).call()
+      return result
 
     
     def web3_get_balance_eth(self, address=None, network=None):

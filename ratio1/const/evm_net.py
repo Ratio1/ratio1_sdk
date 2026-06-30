@@ -12,6 +12,7 @@ class EvmNetData:
   DAUTH_POAI_MANAGER_ADDR_KEY = 'EE_DAUTH_POAI_MANAGER_ADDR'
   DAUTH_ATTESTATION_REGISTRY_ADDR_KEY = 'EE_DAUTH_ATTESTATION_REGISTRY_ADDR'
   DAUTH_CONTROLLER_ADDR_KEY = 'EE_DAUTH_CONTROLLER_ADDR'
+  DAUTH_ORACLE_REGISTRY_ADDR_KEY = 'EE_DAUTH_ORACLE_REGISTRY_ADDR'
   
   EE_GENESIS_EPOCH_DATE_KEY = 'EE_GENESIS_EPOCH_DATE'
   EE_EPOCH_INTERVALS_KEY = 'EE_EPOCH_INTERVALS'
@@ -68,6 +69,41 @@ _CONTROLLER_ABI = [
         "internalType": "address[]",
         "name": "",
         "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+]
+
+_DAUTH_ORACLE_REGISTRY_ABI = [
+  {
+    "inputs": [],
+    "name": "getDAuthOracles",
+    "outputs": [
+      {
+        "internalType": "address[]",
+        "name": "",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "oracleAddress",
+        "type": "address"
+      }
+    ],
+    "name": "isDAuthOracle",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -777,6 +813,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xa2fDD4c7E93790Ff68a01f01AA789D619F12c6AC",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0xa8d7FFCE91a888872A9f5431B4Dd6c0c135055c1",
     EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY: "0x0602d03E7d4646E9b22F633D8751F03502b17861",
+    EvmNetData.DAUTH_ORACLE_REGISTRY_ADDR_KEY   : "0x4805A2f5Edb258968791aBc87bcd4CD2F453D07d",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-rpc.publicnode.com",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
@@ -799,6 +836,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0xd1c7Dca934B37FAA402EB2EC64F6644d6957bE3b",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0x68f825aA8fD4Af498c2998F4b165F103080574d4",
     EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY: "0xc20722A0fdde53e6D674f6Eb975Ad8A83Cc15516",
+    EvmNetData.DAUTH_ORACLE_REGISTRY_ADDR_KEY   : "0x5580Be75D405E387bD21dC4eE594a8b6366f403c",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia-testnet.api.pocket.network",      
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2025-05-23 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 24,
@@ -822,6 +860,7 @@ EVM_NET_DATA = {
     EvmNetData.DAUTH_PROXYAPI_ADDR_KEY          : "0x85D8B51f266b95aA6B5B3bB3909D6d5da9A54908",
     EvmNetData.DAUTH_POAI_MANAGER_ADDR_KEY      : "0x7e3fda628DfF6C84e7E7cC8cC6F4C032b9fBef88",
     EvmNetData.DAUTH_ATTESTATION_REGISTRY_ADDR_KEY: "0x37bcEe016624f91013E7014b1d5676c20ac66d19",
+    EvmNetData.DAUTH_ORACLE_REGISTRY_ADDR_KEY   : "0x279cF55957348DA3B9219C806d9955c392d517A5",
     EvmNetData.DAUTH_RPC_KEY                    : "https://base-sepolia-testnet.api.pocket.network",
     EvmNetData.EE_GENESIS_EPOCH_DATE_KEY        : "2026-05-01 16:00:00",
     EvmNetData.EE_EPOCH_INTERVALS_KEY           : 4,
@@ -882,5 +921,6 @@ class EVM_ABI_DATA:
   POAI_MANAGER_ABI = _POAI_MANAGER_ABI
   CSP_ESCROW_ABI = _CSP_ESCROW_ABI
   ATTESTATION_REGISTRY_ABI = _ATTESTATION_REGISTRY_ABI
+  DAUTH_ORACLE_REGISTRY_ABI = _DAUTH_ORACLE_REGISTRY_ABI
   PROXY_ABI = _PROXY_ABI
   CONTROLLER_ABI = _CONTROLLER_ABI
