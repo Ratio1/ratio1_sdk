@@ -54,6 +54,8 @@ class dAuth:
   DAUTH_SENDER_SDK_VER = 'sender_sdk_ver'
   DAUTH_SENDER_APP_VER = 'sender_app_ver'
   DAUTH_REQUEST = 'request'
+  DAUTH_SECRET_PLACEHOLDER = '__R1_DAUTH_SECRET__'
+  DAUTH_GET_SECRETS_ENDPOINT = '/get_secrets'
   
   DAUTH_ENV_KEYS_PREFIX = 'EE_'
   

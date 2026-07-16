@@ -1870,6 +1870,114 @@ class BaseBlockEngine(
 
     """
     raise NotImplementedError()
+
+
+  def get_dauth_job_secret_bundle(
+    self,
+    job_id,
+    network=None,
+    request_timeout=(60, 120),
+  ):
+    """
+    Fetch a signed dAuth secret bundle for a job.
+
+    Parameters
+    ----------
+    job_id : Any
+      Identifier of the job whose secrets are requested. It is normalized to
+      a string before signing and comparison.
+
+    network : str, optional
+      EVM network whose dAuth URL should be used. The engine network is used
+      when omitted.
+
+    request_timeout : tuple or float, optional
+      Timeout forwarded to ``requests.post``. The default is ``(60, 120)``.
+
+    Returns
+    -------
+    dict
+      Full secret bundle returned by the dAuth server.
+
+    Raises
+    ------
+    ValueError
+      If the job ID, signature, or response payload is invalid.
+
+    RuntimeError
+      If the HTTP request fails or dAuth rejects the request.
+    """
+    if job_id in [None, ""]:
+      raise ValueError("Job ID is required for dAuth secret resolution.")
+    normalized_job_id = str(job_id)
+
+    selected_network = network if network is not None else self.evm_network
+    network_data = self.get_network_data(selected_network)
+    url = network_data[dAuth.EvmNetData.DAUTH_URL_KEY]
+    secrets_url = url.replace(
+      "/get_auth_data",
+      dAuth.DAUTH_GET_SECRETS_ENDPOINT,
+    )
+
+    signed_body = {"job_id": normalized_job_id}
+    self.sign(signed_body)
+    try:
+      response = requests.post(
+        secrets_url,
+        json={"body": signed_body},
+        timeout=request_timeout,
+      )
+    except requests.RequestException as exc:
+      raise RuntimeError("dAuth secret request failed.") from exc
+
+    if response.status_code != 200:
+      raise RuntimeError(
+        "dAuth secret request failed with HTTP status {}.".format(response.status_code)
+      )
+
+    try:
+      response_data = response.json()
+    except (TypeError, ValueError) as exc:
+      raise ValueError("dAuth secret response is not valid JSON.") from exc
+    if not isinstance(response_data, dict):
+      raise ValueError("dAuth secret response must be a dictionary.")
+
+    result = response_data.get("result")
+    if not isinstance(result, dict):
+      raise ValueError("dAuth secret response result must be a dictionary.")
+
+    try:
+      verification = self.verify(result, log_hash_sign_fails=False)
+    except Exception as exc:
+      raise ValueError("dAuth secret response signature is invalid.") from exc
+    if not getattr(verification, "valid", False):
+      raise ValueError("dAuth secret response signature is invalid.")
+    try:
+      signer_eth_address = self.node_address_to_eth_address(verification.sender)
+      is_dauth_oracle = self.web3_is_dauth_oracle(
+        signer_eth_address,
+        network=selected_network,
+      )
+    except Exception as exc:
+      raise ValueError("dAuth secret response signer is not authorized.") from exc
+    if not is_dauth_oracle:
+      raise ValueError("dAuth secret response signer is not authorized.")
+
+    if result.get("error") not in [None, ""]:
+      raise RuntimeError("dAuth secret request was rejected.")
+    if result.get("status") != "success":
+      raise ValueError("dAuth secret response status is invalid.")
+    if result.get("job_id") != normalized_job_id:
+      raise ValueError("dAuth secret response job ID does not match the request.")
+
+    secret_bundle = result.get("secret_bundle")
+    if not isinstance(secret_bundle, dict):
+      raise ValueError("dAuth secret bundle must be a dictionary.")
+    if secret_bundle.get("job_id") != normalized_job_id:
+      raise ValueError("dAuth secret bundle job ID does not match the request.")
+    if not isinstance(secret_bundle.get("job_secrets"), dict):
+      raise ValueError("dAuth secret bundle job_secrets must be a dictionary.")
+    return secret_bundle
   
   
   
