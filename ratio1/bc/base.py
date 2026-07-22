@@ -1885,7 +1885,7 @@ class BaseBlockEngine(
     ----------
     job_id : Any
       Identifier of the job whose secrets are requested. It is normalized to
-      a string before signing and comparison.
+      a stripped string before signing and comparison.
 
     network : str, optional
       EVM network whose dAuth URL should be used. The engine network is used
@@ -1907,9 +1907,11 @@ class BaseBlockEngine(
     RuntimeError
       If the HTTP request fails or dAuth rejects the request.
     """
-    if job_id in [None, ""]:
+    if job_id is None:
       raise ValueError("Job ID is required for dAuth secret resolution.")
-    normalized_job_id = str(job_id)
+    normalized_job_id = str(job_id).strip()
+    if not normalized_job_id:
+      raise ValueError("Job ID is required for dAuth secret resolution.")
 
     selected_network = network if network is not None else self.evm_network
     network_data = self.get_network_data(selected_network)

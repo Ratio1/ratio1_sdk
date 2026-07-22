@@ -122,6 +122,25 @@ class TestDauthJobSecretClient(unittest.TestCase):
     )
 
   @mock.patch("ratio1.bc.base.requests.post")
+  def test_strips_job_id_before_signing_and_validation(self, post):
+    bundle = _secret_bundle(job_id="7")
+    post.return_value = _response_for(bundle)
+
+    result = self.engine.get_dauth_job_secret_bundle("  7  ")
+
+    self.assertIs(result, bundle)
+    self.assertEqual(self.engine.signed_payloads, [{"job_id": "7"}])
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_rejects_empty_job_id_after_stripping(self, post):
+    for job_id in (None, "", "   "):
+      with self.subTest(job_id=job_id):
+        with self.assertRaisesRegex(ValueError, "Job ID is required"):
+          self.engine.get_dauth_job_secret_bundle(job_id)
+
+    post.assert_not_called()
+
+  @mock.patch("ratio1.bc.base.requests.post")
   def test_uses_network_data_and_ignores_environment_override(self, post):
     post.return_value = _response_for()
 
@@ -203,10 +222,6 @@ class TestDauthJobSecretClient(unittest.TestCase):
     malformed_responses.append(missing_result)
 
     malformed_responses.append(_response_for(secret_bundle=[]))
-
-    malformed_bundle = _secret_bundle()
-    malformed_bundle["job_secrets"] = []
-    malformed_responses.append(_response_for(malformed_bundle))
 
     for response in malformed_responses:
       with self.subTest(response=response):
