@@ -1916,7 +1916,7 @@ class BaseBlockEngine(
     url = network_data[dAuth.EvmNetData.DAUTH_URL_KEY]
     secrets_url = url.replace(
       "/get_auth_data",
-      dAuth.DAUTH_GET_SECRETS_ENDPOINT,
+      "/get_secrets"
     )
 
     signed_body = {"job_id": normalized_job_id}
@@ -1975,10 +1975,7 @@ class BaseBlockEngine(
       raise ValueError("dAuth secret bundle must be a dictionary.")
     if secret_bundle.get("job_id") != normalized_job_id:
       raise ValueError("dAuth secret bundle job ID does not match the request.")
-    if not isinstance(secret_bundle.get("job_secrets"), dict):
-      raise ValueError("dAuth secret bundle job_secrets must be a dictionary.")
     return secret_bundle
-  
   
   
 
