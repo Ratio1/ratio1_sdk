@@ -11,6 +11,7 @@ from collections import defaultdict
 from hashlib import sha256, md5
 from threading import Lock
 from copy import deepcopy
+from time import time
 
 try:
   from ver import __VER__ as app_version
@@ -1921,7 +1922,11 @@ class BaseBlockEngine(
       "/get_secrets"
     )
 
-    signed_body = {"job_id": normalized_job_id}
+    request_nonce = hex(int(time() * 1000))
+    signed_body = {
+      "job_id": normalized_job_id,
+      DAUTH_NONCE: request_nonce,
+    }
     self.sign(signed_body)
     try:
       response = requests.post(
@@ -1965,6 +1970,8 @@ class BaseBlockEngine(
     if not is_dauth_oracle:
       raise ValueError("dAuth secret response signer is not authorized.")
 
+    if result.get(DAUTH_NONCE) != request_nonce:
+      raise ValueError("dAuth secret response nonce does not match the request.")
     if result.get("error") not in [None, ""]:
       raise RuntimeError("dAuth secret request was rejected.")
     if result.get("status") != "success":
@@ -1972,7 +1979,17 @@ class BaseBlockEngine(
     if result.get("job_id") != normalized_job_id:
       raise ValueError("dAuth secret response job ID does not match the request.")
 
-    secret_bundle = result.get("secret_bundle")
+    encrypted_secret_bundle = result.get("encrypted_secret_bundle")
+    if not isinstance(encrypted_secret_bundle, str) or not encrypted_secret_bundle:
+      raise ValueError("dAuth encrypted secret bundle is invalid.")
+    try:
+      decrypted_secret_bundle = self.decrypt(
+        encrypted_data_b64=encrypted_secret_bundle,
+        sender_address=verification.sender,
+      )
+      secret_bundle = json.loads(decrypted_secret_bundle)
+    except Exception as exc:
+      raise ValueError("dAuth secret bundle decryption failed.") from exc
     if not isinstance(secret_bundle, dict):
       raise ValueError("dAuth secret bundle must be a dictionary.")
     if secret_bundle.get("job_id") != normalized_job_id:

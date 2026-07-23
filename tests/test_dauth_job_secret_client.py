@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 from types import SimpleNamespace
@@ -6,7 +7,12 @@ from unittest import mock
 import requests
 
 from ratio1.bc.base import BaseBlockEngine
-from ratio1.const.base import DAUTH_ENV_KEY, dAuth
+from ratio1.const.base import DAUTH_ENV_KEY, DAUTH_NONCE, dAuth
+
+
+REQUEST_TIME = 1_700_000_000
+REQUEST_NONCE = hex(REQUEST_TIME * 1000)
+_ENCRYPTED_PAYLOADS = {}
 
 
 class _DauthClientHarness:
@@ -22,6 +28,7 @@ class _DauthClientHarness:
     self.dauth_oracle = True
     self.oracle_checks = []
     self.network_data_calls = []
+    self.decrypt_calls = []
     self.default_dauth_url = "https://default.dauth.example/get_auth_data"
 
   def P(self, message, **kwargs):
@@ -53,6 +60,10 @@ class _DauthClientHarness:
     self.oracle_checks.append((address, network))
     return self.dauth_oracle
 
+  def decrypt(self, encrypted_data_b64, sender_address):
+    self.decrypt_calls.append((encrypted_data_b64, sender_address))
+    return _ENCRYPTED_PAYLOADS.get(encrypted_data_b64)
+
 
 def _secret_bundle(job_id="7", secret_value="top-secret"):
   return {
@@ -71,12 +82,15 @@ def _secret_bundle(job_id="7", secret_value="top-secret"):
   }
 
 
-def _response_for(bundle=None, **result_overrides):
+def _response_for(bundle=None, nonce=REQUEST_NONCE, **result_overrides):
   bundle = bundle if bundle is not None else _secret_bundle()
+  encrypted_secret_bundle = "ciphertext-{}".format(len(_ENCRYPTED_PAYLOADS))
+  _ENCRYPTED_PAYLOADS[encrypted_secret_bundle] = json.dumps(bundle)
   result = {
     "status": "success",
     "job_id": bundle["job_id"],
-    "secret_bundle": bundle,
+    DAUTH_NONCE: nonce,
+    "encrypted_secret_bundle": encrypted_secret_bundle,
     "EE_SIGN": "server-signature",
     "EE_SENDER": "server",
   }
@@ -89,7 +103,11 @@ def _response_for(bundle=None, **result_overrides):
 class TestDauthJobSecretClient(unittest.TestCase):
 
   def setUp(self):
+    _ENCRYPTED_PAYLOADS.clear()
     self.engine = _DauthClientHarness()
+    self.time_patcher = mock.patch("ratio1.bc.base.time", return_value=REQUEST_TIME)
+    self.time_patcher.start()
+    self.addCleanup(self.time_patcher.stop)
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_returns_full_secret_bundle_from_signed_success_response(self, post):
@@ -101,19 +119,24 @@ class TestDauthJobSecretClient(unittest.TestCase):
       request_timeout=(2, 5),
     )
 
-    self.assertIs(result, bundle)
-    self.assertEqual(self.engine.signed_payloads, [{"job_id": "7"}])
+    self.assertEqual(result, bundle)
+    self.assertEqual(
+      self.engine.signed_payloads,
+      [{"job_id": "7", DAUTH_NONCE: REQUEST_NONCE}],
+    )
     self.assertEqual(
       self.engine.verification_calls,
       [(post.return_value.json.return_value["result"], {"log_hash_sign_fails": False})],
     )
     self.assertEqual(self.engine.oracle_checks, [("0xserver", "mainnet")])
     self.assertEqual(self.engine.network_data_calls, ["mainnet"])
+    self.assertEqual(self.engine.decrypt_calls, [("ciphertext-0", "server")])
     post.assert_called_once_with(
       "https://default.dauth.example/get_secrets",
       json={
         "body": {
           "job_id": "7",
+          DAUTH_NONCE: REQUEST_NONCE,
           "EE_SIGN": "request-signature",
           "EE_SENDER": "requester",
         },
@@ -128,8 +151,11 @@ class TestDauthJobSecretClient(unittest.TestCase):
 
     result = self.engine.get_dauth_job_secret_bundle("  7  ")
 
-    self.assertIs(result, bundle)
-    self.assertEqual(self.engine.signed_payloads, [{"job_id": "7"}])
+    self.assertEqual(result, bundle)
+    self.assertEqual(
+      self.engine.signed_payloads,
+      [{"job_id": "7", DAUTH_NONCE: REQUEST_NONCE}],
+    )
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_empty_job_id_after_stripping(self, post):
@@ -221,13 +247,30 @@ class TestDauthJobSecretClient(unittest.TestCase):
     missing_result.json.return_value = {}
     malformed_responses.append(missing_result)
 
-    malformed_responses.append(_response_for(secret_bundle=[]))
+    malformed_responses.append(_response_for(encrypted_secret_bundle=None))
 
     for response in malformed_responses:
       with self.subTest(response=response):
         post.return_value = response
         with self.assertRaises(ValueError):
           self.engine.get_dauth_job_secret_bundle("7")
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_rejects_response_nonce_mismatch_before_decryption(self, post):
+    post.return_value = _response_for(nonce=hex((REQUEST_TIME - 1) * 1000))
+
+    with self.assertRaisesRegex(ValueError, "nonce does not match"):
+      self.engine.get_dauth_job_secret_bundle("7")
+
+    self.assertEqual(self.engine.decrypt_calls, [])
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_rejects_secret_bundle_decryption_failure(self, post):
+    post.return_value = _response_for()
+    _ENCRYPTED_PAYLOADS["ciphertext-0"] = None
+
+    with self.assertRaisesRegex(ValueError, "decryption failed"):
+      self.engine.get_dauth_job_secret_bundle("7")
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_server_error_and_status_mismatch(self, post):
