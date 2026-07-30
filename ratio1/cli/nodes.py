@@ -251,6 +251,9 @@ def get_nodes(args):
     FILTERED = ['State']
     df = df[[c for c in df.columns if c not in FILTERED]]
 
+  # now sort by alias
+  df = df.sort_values(by=['Alias'], ascending=True)
+  
   grouping_requested = group_by is not None
   prefix = "Online n" if (online or args.peered) else "N"
   # network = os.environ.get(BASE_CT.dAuth.DAUTH_NET_ENV_KEY, BASE_CT.dAuth.DAUTH_SDK_NET_DEFAULT)
@@ -286,7 +289,7 @@ def get_nodes(args):
       else:
         log_with_color(f"{grouped_df}\n")
       return grouped_df
-
+    
     log_with_color(f"{df}\n")
   return df
   
@@ -467,6 +470,7 @@ def get_apps(args):
       
       if not wide:        
         df_apps = df_apps[['Node Alias', 'Owner Alias', 'App', 'Plugin', 'Id', 'Probe', 'LastError']]
+      df_apps = df_apps.sort_values(by=['Node Alias'], ascending=True)
       log_with_color(f"{df_apps}\n")
     #end if as_json
   #end if res is not None
