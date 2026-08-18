@@ -9,9 +9,9 @@ import requests
 
 from collections import defaultdict
 from hashlib import sha256, md5
-from threading import Lock
+from threading import Event, Lock, Thread
 from copy import deepcopy
-from time import time
+from time import monotonic, time
 
 try:
   from ver import __VER__ as app_version
@@ -470,6 +470,9 @@ class BaseBlockEngine(
     }
     self._verify_canon_stats_flush_every = 1000
     self._verify_canon_stats_counter = 0
+    self._verify_canon_stats_flush_event = Event()
+    self._verify_canon_stats_worker_lock = Lock()
+    self._verify_canon_stats_worker = None
     data_folder = self.log.get_data_folder()
     self._verify_canon_stats_path = (
       os.path.join(data_folder, "verify_canon_stats.json")
@@ -1450,7 +1453,12 @@ class BaseBlockEngine(
       result = hexdigest
     return result
 
-  def _bump_verify_canon_stats(self, sender_address, canon_version):
+  def _bump_verify_canon_stats(
+      self,
+      sender_address,
+      canon_version,
+      persist=True,
+    ):
     """
     Update in-memory verification stats and periodically persist to disk.
 
@@ -1461,6 +1469,10 @@ class BaseBlockEngine(
     canon_version : str or None
         Canonicalization bucket used (for example "v1", "v2", or
         "unversioned").
+    persist : bool, optional
+        If True, schedule periodic best-effort persistence. Latency-sensitive
+        callers may keep the in-memory accounting while flushing explicitly
+        outside their hot path.
 
     Notes
     -----
@@ -1473,7 +1485,7 @@ class BaseBlockEngine(
     if canon_version is None:
       return
     sender_key = sender_address or "UNKNOWN"
-    snapshot = None
+    should_flush = False
     with self._verify_canon_stats_lock:
       total = self._verify_canon_stats.setdefault("total", {})
       total[canon_version] = total.get(canon_version, 0) + 1
@@ -1493,9 +1505,63 @@ class BaseBlockEngine(
         self._verify_canon_stats_flush_every
         and self._verify_canon_stats_counter % self._verify_canon_stats_flush_every == 0
       ):
+        should_flush = True
+    if should_flush and persist:
+      self._schedule_verify_canon_stats_flush()
+
+  def _schedule_verify_canon_stats_flush(self):
+    """Signal one coalescing persistence worker without blocking verify()."""
+    if not self._verify_canon_stats_path:
+      return False
+    with self._verify_canon_stats_worker_lock:
+      self._verify_canon_stats_flush_event.set()
+      worker = self._verify_canon_stats_worker
+      if worker is None or not worker.is_alive():
+        worker = Thread(
+          target=self._run_verify_canon_stats_flush,
+          name="verify-canon-stats-writer",
+          daemon=True,
+        )
+        self._verify_canon_stats_worker = worker
+        worker.start()
+    return True
+
+  def _run_verify_canon_stats_flush(self):
+    """Persist the newest requested snapshot and coalesce overlapping work."""
+    while True:
+      self._verify_canon_stats_flush_event.clear()
+      with self._verify_canon_stats_lock:
         snapshot = deepcopy(self._verify_canon_stats)
-    if snapshot is not None:
       self._flush_verify_canon_stats(snapshot)
+
+      with self._verify_canon_stats_worker_lock:
+        if self._verify_canon_stats_flush_event.is_set():
+          continue
+        self._verify_canon_stats_worker = None
+        return
+
+  def wait_for_verify_canon_stats_flush(self, timeout=None):
+    """Wait for an already requested best-effort stats write to finish."""
+    deadline = None if timeout is None else monotonic() + max(timeout, 0)
+    while True:
+      with self._verify_canon_stats_worker_lock:
+        worker = self._verify_canon_stats_worker
+      if worker is None:
+        return True
+
+      remaining = None
+      if deadline is not None:
+        remaining = max(deadline - monotonic(), 0)
+      worker.join(timeout=remaining)
+      if worker.is_alive():
+        return False
+
+  def flush_verify_canon_stats(self, wait=False, timeout=None):
+    """Request a latest stats snapshot, optionally waiting for persistence."""
+    scheduled = self._schedule_verify_canon_stats_flush()
+    if not scheduled or not wait:
+      return scheduled
+    return self.wait_for_verify_canon_stats_flush(timeout=timeout)
 
   def _flush_verify_canon_stats(self, snapshot):
     """
@@ -1630,6 +1696,7 @@ class BaseBlockEngine(
       verify_allowed=False,
       replace_nan=True,
       log_hash_sign_fails=True,
+      persist_canon_stats=True,
     ):
     """
     Verifies the signature validity of a given text message
@@ -1656,6 +1723,11 @@ class BaseBlockEngine(
     
     log_hash_sign_fails: bool, optional
       if `True` will log the verification failures for hash and signature issues. Default `True`
+
+    persist_canon_stats: bool, optional
+      if `True`, successful verification may schedule asynchronous canonical
+      statistics persistence. Set to `False` on latency-sensitive paths that
+      explicitly flush the in-memory counters later. Default `True`.
     
     Notes
     -----
@@ -1809,7 +1881,11 @@ class BaseBlockEngine(
       verify_msg.sender = sender_address
 
     if verify_msg.valid:
-      self._bump_verify_canon_stats(sender_address, used_canon_v)
+      self._bump_verify_canon_stats(
+        sender_address,
+        used_canon_v,
+        persist=persist_canon_stats,
+      )
     
     if not verify_msg.valid:
       if log_hash_sign_fails and signature is not None and sender_address is not None:

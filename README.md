@@ -61,6 +61,48 @@ This allows you to make modifications to the SDK and have them reflected immedia
 
 Comprehensive documentation for the Ratio1 SDK is currently a work in progress. Minimal documentation is available here, with detailed code examples located in the `tutorials` folder within the project's repository. We encourage developers to explore these examples to understand the SDK's capabilities and integration methods.
 
+### Heartbeat Observation Modes
+
+By default, an SDK session receives rich heartbeats from the full network. This is the existing behavior and requires no new configuration:
+
+```python
+from ratio1 import Session
+
+session = Session()  # heartbeat_observation_mode="full_network"
+```
+
+Use `selected_nodes` when the application needs rich heartbeats from a known set of nodes but should not receive every network heartbeat:
+
+```python
+from ratio1 import Session
+
+node = "0xai_A8SY7lEqBtf5XaGyB6ipdk5C30vSf3HK4xELp3iplwLe"
+session = Session(
+    heartbeat_observation_mode="selected_nodes",
+    heartbeat_observation_nodes=[node],
+)
+
+print(session.get_heartbeat_observation_status())
+```
+
+This mode subscribes only to the selected nodes' exact addressed heartbeat topics. Each runtime must have targeted heartbeat mirroring configured. The SDK verifies the raw signed envelope, sender, inner heartbeat identity, and timestamps before accepting state. If the targeted route is unavailable, status becomes `degraded`; the SDK never falls back to the global heartbeat topic.
+
+Use `summary_discovery` when the application needs network discovery but does not need individual rich heartbeat callbacks:
+
+```python
+from ratio1 import Session
+
+trusted_oracle = "0xai_Ap0GGiVTQQiNCLpQhC93ZWR5jPsca69-FoM9afnwFWuy"
+session = Session(
+    heartbeat_observation_mode="summary_discovery",
+    heartbeat_summary_publishers=[trusted_oracle],
+)
+```
+
+This mode has no heartbeat subscription. It updates discovery state only from fresh, signed, non-empty `NET_MON_01` summaries produced by an explicitly trusted address. Observation settings are immutable after startup; close the session and create another one to change modes or addresses.
+
+`filter_workers` remains an application-level filter. It runs after MQTT delivery, so it does not reduce broker traffic. Callback queues are bounded and reject the newest message when full. Inspect `get_heartbeat_observation_status()` for readiness, trust rejections, topics, freshness, and queue counters, or `get_callback_queue_status()` for queue-only details.
+
 ## Quick Start Guides
 
 Starting with version 2.6+, the Ratio1 SDK automatically performs self-configuration using **dAuth**—the Ratio1 decentralized self-authentication system. To begin integrating with the Ratio1 network, follow these steps:

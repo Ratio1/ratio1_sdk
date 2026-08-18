@@ -25,13 +25,16 @@ class _FakeLog:
 
 
 class _PublishResult:
-  rc = 0
+  def __init__(self, mid):
+    self.rc = 0
+    self.mid = mid
 
 
 class _FakeMqttClient:
   def __init__(self):
     self.published = []
     self.subscribed = []
+    self._next_mid = 1
 
   def publish(self, topic, payload, qos):
     self.published.append({
@@ -39,7 +42,9 @@ class _FakeMqttClient:
       "payload": payload,
       "qos": qos,
     })
-    return _PublishResult()
+    result = _PublishResult(mid=self._next_mid)
+    self._next_mid += 1
+    return result
 
   def subscribe(self, topic, qos):
     self.subscribed.append({

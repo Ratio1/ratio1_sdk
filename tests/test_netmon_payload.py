@@ -1,9 +1,47 @@
 import copy
+import json
 import unittest
 from collections import defaultdict
+from datetime import datetime, timezone
+from unittest import mock
 
 from ratio1.base.generic_session import GenericSession
+from ratio1.comm.heartbeat_observation import (
+  HeartbeatObservationConfig,
+  HeartbeatObservationMonitor,
+  HeartbeatObservationPolicy,
+)
 from ratio1.const import DEFAULT_PIPELINES, HB, PAYLOAD_DATA, PLUGIN_SIGNATURES
+
+
+ORACLE = "0xai_A_b3ELqPfiAjV7iBSiOyUEO7gWOQG9WUsUuojPWbiMh"
+NODE_ADDRESS_FOR_MISMATCH = "0xai_A_b3ELqPfiAjV7iBSiOyUEO7gWOQG9WUsUuojPWbiMiF"
+
+
+class _VerifyResult:
+  def __init__(self, valid=True, sender=ORACLE):
+    self.valid = valid
+    self.sender = sender
+    self.message = "test result"
+
+
+class _Verifier:
+  def __init__(self, valid=True, sender=ORACLE):
+    self.valid = valid
+    self.sender = sender
+
+  def verify(self, payload, **kwargs):
+    return _VerifyResult(valid=self.valid, sender=self.sender)
+
+
+class _IdentityFormatter:
+  def decode_output(self, payload):
+    return payload
+
+
+class _FormatterWrapper:
+  def get_required_formatter_from_payload(self, payload):
+    return _IdentityFormatter()
 
 
 class _FakeLog:
@@ -137,6 +175,46 @@ class TestGenericSessionNetmonDecode(unittest.TestCase):
     session._GenericSession__request_pipelines_from_net_config_monitor = lambda: None
     return session
 
+  def _make_summary_session(self, verifier=None):
+    session = self._make_session()
+    session._eth_enabled = False
+    session.filter_workers = []
+    session.own_pipelines = []
+    session.custom_on_payload = mock.Mock()
+    session._GenericSession__maybe_process_net_config = mock.Mock()
+    session.formatter_wrapper = _FormatterWrapper()
+    session._heartbeat_observation_config = HeartbeatObservationConfig.from_values(
+      mode="summary_discovery",
+      summary_publishers=[ORACLE],
+      max_age_seconds=60,
+      future_skew_seconds=5,
+    )
+    session._heartbeat_observation_policy = HeartbeatObservationPolicy(
+      config=session._heartbeat_observation_config,
+      verifier=verifier or _Verifier(),
+      decompress_text=session.log.decompress_text,
+    )
+    session._heartbeat_observation_monitor = HeartbeatObservationMonitor(
+      config=session._heartbeat_observation_config,
+    )
+    return session
+
+  def _wire_summary(self, **overrides):
+    payload = build_v1_netmon_payload()
+    payload.update({
+      PAYLOAD_DATA.EE_SENDER: ORACLE,
+      PAYLOAD_DATA.EE_SIGN: "signature",
+      PAYLOAD_DATA.EE_HASH: "hash",
+      PAYLOAD_DATA.EE_TIMESTAMP: datetime.now(timezone.utc).strftime(
+        "%Y-%m-%d %H:%M:%S.%f",
+      ),
+      PAYLOAD_DATA.EE_TIMEZONE: "UTC+0",
+      "EE_TZ": "Etc/UTC",
+    })
+    payload[PAYLOAD_DATA.EE_PAYLOAD_PATH][0] = "oracle"
+    payload.update(overrides)
+    return payload
+
   def test_netmon_processing_normalizes_v2_before_use(self):
     session = self._make_session()
     payload = build_v2_netmon_payload(session.log)
@@ -153,6 +231,91 @@ class TestGenericSessionNetmonDecode(unittest.TestCase):
     node_data = payload[PAYLOAD_DATA.NETMON_CURRENT_NETWORK]["node-1"]
     self.assertEqual(node_data[PAYLOAD_DATA.NETMON_WHITELIST], ["0xself"])
     self.assertIn(payload[PAYLOAD_DATA.EE_SENDER], session._GenericSession__current_network_statuses)
+
+  def test_trusted_summary_updates_discovery_before_user_filter(self):
+    session = self._make_session()
+    session._heartbeat_observation_config = HeartbeatObservationConfig.from_values(
+      mode="summary_discovery",
+      summary_publishers=[ORACLE],
+    )
+    session.filter_workers = ["0xselected"]
+    session.own_pipelines = []
+    session.custom_on_payload = mock.Mock()
+    session._GenericSession__maybe_process_net_mon = mock.Mock()
+    session._GenericSession__maybe_process_net_config = mock.Mock()
+    payload = build_v1_netmon_payload()
+    payload[PAYLOAD_DATA.EE_SENDER] = ORACLE
+
+    session._GenericSession__on_payload(
+      payload,
+      payload[PAYLOAD_DATA.EE_SENDER],
+      DEFAULT_PIPELINES.ADMIN_PIPELINE,
+      PLUGIN_SIGNATURES.NET_MON_01,
+      "NETMON_01_INST",
+      trusted_summary=True,
+    )
+
+    session._GenericSession__maybe_process_net_mon.assert_called_once()
+    session._GenericSession__maybe_process_net_config.assert_not_called()
+    session.custom_on_payload.assert_not_called()
+
+  def test_raw_trusted_summary_auth_is_required_before_state_mutation(self):
+    session = self._make_summary_session()
+    payload = self._wire_summary()
+
+    session._GenericSession__on_message_default_callback(
+      json.dumps(payload),
+      session._GenericSession__on_payload,
+      source="payload",
+    )
+
+    self.assertIn(ORACLE, session._GenericSession__current_network_statuses)
+    status = session._heartbeat_observation_monitor.snapshot()
+    self.assertEqual(status["accepted_summaries"], 1)
+    self.assertEqual(status["last_valid_sender"], ORACLE)
+
+  def test_rejected_or_empty_summary_cannot_mutate_discovery_state(self):
+    cases = [
+      (
+        "bad_signature",
+        _Verifier(valid=False),
+        self._wire_summary(),
+      ),
+      (
+        "sender_mismatch",
+        _Verifier(sender=NODE_ADDRESS_FOR_MISMATCH),
+        self._wire_summary(),
+      ),
+      (
+        "stale",
+        _Verifier(),
+        self._wire_summary(**{
+          PAYLOAD_DATA.EE_TIMESTAMP: "2000-01-01 00:00:00.000000",
+        }),
+      ),
+      (
+        "empty_network",
+        _Verifier(),
+        self._wire_summary(**{
+          PAYLOAD_DATA.NETMON_CURRENT_NETWORK: {},
+        }),
+      ),
+    ]
+    for name, verifier, payload in cases:
+      with self.subTest(name=name):
+        session = self._make_summary_session(verifier=verifier)
+
+        session._GenericSession__on_message_default_callback(
+          json.dumps(payload),
+          session._GenericSession__on_payload,
+          source="payload",
+        )
+
+        self.assertEqual(session._GenericSession__current_network_statuses, {})
+        self.assertEqual(
+          session._heartbeat_observation_monitor.snapshot()["accepted_summaries"],
+          0,
+        )
 
 
 if __name__ == "__main__":

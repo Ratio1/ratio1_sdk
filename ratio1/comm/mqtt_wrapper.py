@@ -10,7 +10,7 @@
 import os
 import traceback
 from collections import deque
-from threading import Lock
+from threading import Event, Lock
 from time import sleep
 
 import paho.mqtt.client as mqtt
@@ -45,6 +45,45 @@ class MQTTWrapper(BaseCommWrapper):
     self.disconnected = False
     self._nr_full_retries = 0
     self.__nr_dropped_messages = 0
+    self.__nr_stale_messages = 0
+    self._subscription_lock = Lock()
+    self._pending_subacks = {}
+    self._early_subacks = {}
+    self._subscription_status = {
+      'ready': False,
+      'acknowledged_topics': [],
+      'rejected_topics': [],
+      'timed_out_topics': [],
+      'stale_callbacks': 0,
+    }
+    self.__lifecycle_lock = Lock()
+    self.__pending_publishes = {}
+    self.__early_publish_callbacks = set()
+    self.__pending_subscriptions = {}
+    self.__early_subscribe_callbacks = {}
+    self.__active_subscriptions = {}
+    self.__retired_client_ids = set()
+    self.__lifecycle = {
+      'publish_attempts': 0,
+      'publish_handoff_accepted': 0,
+      'publish_handoff_rejected': 0,
+      'publish_completed': 0,
+      'broker_acknowledged': 0,
+      'publish_abandoned': 0,
+      'stale_publish_callbacks': 0,
+      'subscribe_attempts': 0,
+      'subscribe_handoff_accepted': 0,
+      'subscribe_handoff_rejected': 0,
+      'subscribe_requested': 0,
+      'subscribe_confirmed': 0,
+      'subscribe_rejected': 0,
+      'subscribe_downgraded': 0,
+      'subscribe_abandoned': 0,
+      'stale_subscribe_callbacks': 0,
+      'stale_connect_callbacks': 0,
+      'stale_disconnect_callbacks': 0,
+      'intentional_disconnect_callbacks': 0,
+    }
     self._disconnected_log = deque(maxlen=10)
     self._disconnected_counter = 0
     self._custom_on_message = on_message
@@ -79,6 +118,165 @@ class MQTTWrapper(BaseCommWrapper):
   def nr_dropped_messages(self):
     return self.__nr_dropped_messages
 
+  @property
+  def nr_stale_messages(self):
+    """Return messages ignored from retired MQTT client objects.
+
+    Returns
+    -------
+    int
+      Lifetime count of stale message callbacks.
+    """
+    return self.__nr_stale_messages
+
+  @property
+  def receive_ready(self):
+    """Return whether this communicator's receive path is ready.
+
+    Returns
+    -------
+    bool
+      ``True`` for disabled receive paths or after all configured topics have
+      been accepted according to the wrapper's SUBACK policy.
+    """
+    if self.recv_channel_name is None or len(self.get_recv_channel_topics()) == 0:
+      return True
+    with self._subscription_lock:
+      return self._subscription_status['ready']
+
+  def get_delivery_lifecycle_status(self):
+    """Return transport lifecycle counters without claiming edge execution.
+
+    Returns
+    -------
+    dict
+      Publish and subscription handoff, completion, abandonment, and
+      conservation state for the current wrapper lifetime.
+    """
+    with self.__lifecycle_lock:
+      status = dict(self.__lifecycle)
+      publish_in_call = (
+        self.__lifecycle['publish_attempts']
+        - self.__lifecycle['publish_handoff_accepted']
+        - self.__lifecycle['publish_handoff_rejected']
+      )
+      subscribe_in_call = (
+        self.__lifecycle['subscribe_attempts']
+        - self.__lifecycle['subscribe_handoff_accepted']
+        - self.__lifecycle['subscribe_handoff_rejected']
+      )
+      status.update({
+        'publish_pending': len(self.__pending_publishes),
+        'publish_in_call': publish_in_call,
+        'subscribe_pending': len(self.__pending_subscriptions),
+        'subscribe_in_call': subscribe_in_call,
+        'active_subscriptions': len(self.__active_subscriptions),
+        'publish_conserved': publish_in_call == 0 and self.__lifecycle['publish_attempts'] == (
+          self.__lifecycle['publish_handoff_rejected']
+          + self.__lifecycle['publish_handoff_accepted']
+        ) and self.__lifecycle['publish_handoff_accepted'] == (
+          self.__lifecycle['publish_completed']
+          + self.__lifecycle['publish_abandoned']
+          + len(self.__pending_publishes)
+        ),
+        'subscribe_conserved': subscribe_in_call == 0 and self.__lifecycle['subscribe_attempts'] == (
+          self.__lifecycle['subscribe_handoff_rejected']
+          + self.__lifecycle['subscribe_handoff_accepted']
+        ) and self.__lifecycle['subscribe_handoff_accepted'] == (
+          self.__lifecycle['subscribe_confirmed']
+          + self.__lifecycle['subscribe_rejected']
+          + self.__lifecycle['subscribe_abandoned']
+          + len(self.__pending_subscriptions)
+        ),
+        'application_execution_known': False,
+      })
+      return status
+
+  @staticmethod
+  def __client_mid_key(client, mid):
+    return id(client), mid
+
+  def __complete_publish_locked(self, qos):
+    self.__lifecycle['publish_completed'] += 1
+    if qos > 0:
+      self.__lifecycle['broker_acknowledged'] += 1
+
+  @staticmethod
+  def __normalize_granted_qos(granted_qos):
+    if not isinstance(granted_qos, (list, tuple)):
+      granted_qos = [granted_qos]
+    result = []
+    for value in granted_qos:
+      normalized = getattr(value, 'value', value)
+      try:
+        normalized = int(normalized)
+      except Exception:
+        normalized = 128 if getattr(value, 'is_failure', True) else 0
+      result.append(normalized)
+    return result
+
+  def __complete_subscription_locked(self, request, granted_qos):
+    granted_qos = self.__normalize_granted_qos(granted_qos)
+    if not granted_qos or any(value >= 128 for value in granted_qos):
+      self.__lifecycle['subscribe_rejected'] += 1
+      return
+    granted = min(granted_qos)
+    self.__lifecycle['subscribe_confirmed'] += 1
+    if granted < request['qos']:
+      self.__lifecycle['subscribe_downgraded'] += 1
+    self.__active_subscriptions[request['topic']] = granted
+
+  def __register_publish_handoff(self, client, mid, qos):
+    key = self.__client_mid_key(client, mid)
+    with self.__lifecycle_lock:
+      self.__lifecycle['publish_handoff_accepted'] += 1
+      if key in self.__early_publish_callbacks:
+        self.__early_publish_callbacks.discard(key)
+        self.__complete_publish_locked(qos)
+      else:
+        self.__pending_publishes[key] = qos
+
+  def __register_subscription_request(self, client, mid, topic, qos):
+    key = self.__client_mid_key(client, mid)
+    request = {'topic': topic, 'qos': qos}
+    with self.__lifecycle_lock:
+      self.__lifecycle['subscribe_handoff_accepted'] += 1
+      self.__lifecycle['subscribe_requested'] += 1
+      early_granted = self.__early_subscribe_callbacks.pop(key, None)
+      if early_granted is None:
+        self.__pending_subscriptions[key] = request
+      else:
+        self.__complete_subscription_locked(request, early_granted)
+
+  def __abandon_client_lifecycle(self, client):
+    if client is None:
+      return
+    client_id = id(client)
+    with self.__lifecycle_lock:
+      publish_keys = [
+        key for key in self.__pending_publishes if key[0] == client_id
+      ]
+      for key in publish_keys:
+        self.__pending_publishes.pop(key, None)
+      self.__lifecycle['publish_abandoned'] += len(publish_keys)
+
+      subscribe_keys = [
+        key for key in self.__pending_subscriptions if key[0] == client_id
+      ]
+      for key in subscribe_keys:
+        self.__pending_subscriptions.pop(key, None)
+      self.__lifecycle['subscribe_abandoned'] += len(subscribe_keys)
+      self.__active_subscriptions.clear()
+
+      self.__early_publish_callbacks = {
+        key for key in self.__early_publish_callbacks if key[0] != client_id
+      }
+      self.__early_subscribe_callbacks = {
+        key: value
+        for key, value in self.__early_subscribe_callbacks.items()
+        if key[0] != client_id
+      }
+
 
   @property
   def cfg_qos(self):
@@ -105,7 +303,7 @@ class MQTTWrapper(BaseCommWrapper):
     lst_topics = self.get_recv_channel_topics()
 
     if len(lst_topics) == 0:
-      raise ValueError("ERROR! No topics to subscribe to")
+      return None
 
     cfg[COMMS.TOPIC] = lst_topics
     return cfg
@@ -178,6 +376,7 @@ class MQTTWrapper(BaseCommWrapper):
     mqttc.on_disconnect = self._callback_on_disconnect
     mqttc.on_message = self._callback_on_message
     mqttc.on_publish = self._callback_on_publish
+    mqttc.on_subscribe = self._callback_on_subscribe
 
     return mqttc
 
@@ -190,6 +389,10 @@ class MQTTWrapper(BaseCommWrapper):
     return sleep_iter
 
   def _callback_on_connect(self, client, userdata, flags, rc, *args, **kwargs):
+    """Record connection state only for the current transport generation."""
+    if client is not self._mqttc:
+      self._record_stale_transport_callback('connect', client)
+      return
     self.connected = False
     if rc == 0:
       self.connected = True
@@ -205,6 +408,10 @@ class MQTTWrapper(BaseCommWrapper):
       client.connected_flag = False
       client.disconnect_flag = True
     """
+
+    if client is not self._mqttc:
+      self._record_stale_transport_callback('disconnect', client)
+      return
 
     if mqtt_version.startswith('2'):
       # In version 2, on_disconnect has a different order of parameters, and rc is passed as the 4th parameter
@@ -243,15 +450,110 @@ class MQTTWrapper(BaseCommWrapper):
     return
 
   def _callback_on_publish(self, client, userdata, mid, *args, **kwargs):
+    """Complete one publish only for the active MQTT client generation."""
+    if client is not self._mqttc:
+      self._record_stale_transport_callback('publish', client)
+      return
+
+    key = self.__client_mid_key(client, mid)
+    with self.__lifecycle_lock:
+      qos = self.__pending_publishes.pop(key, None)
+      if qos is None:
+        if len(self.__early_publish_callbacks) >= 1024:
+          self.__early_publish_callbacks.pop()
+        self.__early_publish_callbacks.add(key)
+      else:
+        self.__complete_publish_locked(qos)
+    return
+
+  def _record_stale_transport_callback(self, callback_name, client=None):
+    """Account for a callback from a non-current MQTT client generation."""
+    with self._subscription_lock:
+      self._subscription_status['stale_callbacks'] += 1
+    lifecycle_key = 'stale_{}_callbacks'.format(callback_name)
+    with self.__lifecycle_lock:
+      if callback_name == 'disconnect' and id(client) in self.__retired_client_ids:
+        self.__retired_client_ids.discard(id(client))
+        self.__lifecycle['intentional_disconnect_callbacks'] += 1
+      elif lifecycle_key in self.__lifecycle:
+        self.__lifecycle[lifecycle_key] += 1
+    return
+
+  def _callback_on_subscribe(
+      self,
+      client,
+      userdata,
+      mid,
+      granted_qos,
+      *args,
+      **kwargs
+    ):
+    """Capture one broker SUBACK for the matching active subscribe request.
+
+    Parameters
+    ----------
+    client : paho.mqtt.client.Client
+      Client that emitted the callback.
+    userdata : object
+      Paho user data, unused.
+    mid : int
+      MQTT message identifier returned by ``subscribe``.
+    granted_qos : sequence
+      Granted QoS values or reason codes.
+    *args : tuple
+      Paho-version-specific trailing callback values.
+    **kwargs : dict
+      Paho-version-specific named callback values.
+
+    Returns
+    -------
+    None
+    """
+    if client is not self._mqttc:
+      self._record_stale_transport_callback('subscribe', client)
+      return
+    grants = list(granted_qos or [])
+    key = self.__client_mid_key(client, mid)
+    normalized_grants = self.__normalize_granted_qos(grants)
+    with self.__lifecycle_lock:
+      request = self.__pending_subscriptions.pop(key, None)
+      if request is None:
+        if len(self.__early_subscribe_callbacks) >= 1024:
+          self.__early_subscribe_callbacks.pop(
+            next(iter(self.__early_subscribe_callbacks))
+          )
+        self.__early_subscribe_callbacks[key] = normalized_grants
+      else:
+        self.__complete_subscription_locked(request, normalized_grants)
+    with self._subscription_lock:
+      pending = self._pending_subacks.get(mid)
+      if pending is None:
+        # Paho may dispatch the callback immediately after subscribe returns,
+        # before the caller has installed its waiter for the returned MID.
+        self._early_subacks[mid] = grants
+      else:
+        pending['grants'] = grants
+        pending['event'].set()
     return
 
   def _callback_on_message(self, client, userdata, message, *args, **kwargs):
+    """Admit one active-client message without blocking the Paho loop."""
+    if client is not self._mqttc:
+      self.__nr_stale_messages += 1
+      return
     if self._custom_on_message is not None:
       self._custom_on_message(client, userdata, message)
     else:
       try:
         msg = message.payload.decode('utf-8')
-        self._recv_buff.append(msg)
+        try_append = getattr(self._recv_buff, 'try_append', None)
+        if callable(try_append):
+          admitted = try_append(msg)
+        else:
+          self._recv_buff.append(msg)
+          admitted = True
+        if not admitted:
+          self.__nr_dropped_messages += 1
       except:
         # DEBUG TODO: enable here a debug show of the message.payload if
         # the number of dropped messages rises
@@ -362,9 +664,98 @@ class MQTTWrapper(BaseCommWrapper):
   def get_thread_name(self):
     return self._thread_name
 
-  def subscribe(self, max_retries=5):
+  def _reset_subscription_attempt(self):
+    """Clear per-attempt topic outcomes while retaining stale-callback history."""
+    with self._subscription_lock:
+      stale_callbacks = self._subscription_status['stale_callbacks']
+      self._pending_subacks.clear()
+      self._early_subacks.clear()
+      self._subscription_status = {
+        'ready': False,
+        'acknowledged_topics': [],
+        'rejected_topics': [],
+        'timed_out_topics': [],
+        'stale_callbacks': stale_callbacks,
+      }
+    return
 
-    if self.recv_channel_name is None:
+  def _record_topic_status(self, key, topic):
+    """Append a topic once to a subscription outcome list."""
+    with self._subscription_lock:
+      if topic not in self._subscription_status[key]:
+        self._subscription_status[key].append(topic)
+    return
+
+  def _wait_for_suback(self, mid, topic, ack_timeout):
+    """Wait for one exact topic's broker acknowledgment."""
+    pending = {
+      'event': Event(),
+      'topic': topic,
+      'grants': None,
+    }
+    with self._subscription_lock:
+      self._pending_subacks[mid] = pending
+      early_grants = self._early_subacks.pop(mid, None)
+      if early_grants is not None:
+        pending['grants'] = early_grants
+        pending['event'].set()
+    acknowledged = pending['event'].wait(timeout=ack_timeout)
+    with self._subscription_lock:
+      self._pending_subacks.pop(mid, None)
+      grants = pending['grants']
+    if not acknowledged:
+      return False, 'timeout'
+    if not grants or any(self._suback_is_failure(grant) for grant in grants):
+      return False, 'rejected'
+    return True, None
+
+  @staticmethod
+  def _suback_is_failure(grant):
+    """Return whether one Paho v1/v2 SUBACK value denotes rejection."""
+    if getattr(grant, 'is_failure', False):
+      return True
+    value = getattr(grant, 'value', grant)
+    try:
+      return int(value) >= 128
+    except (TypeError, ValueError):
+      return True
+
+  def get_subscription_status(self):
+    """Return a copy of current receive-subscription outcomes.
+
+    Returns
+    -------
+    dict
+      Readiness, acknowledged, rejected, timed-out, and stale-callback state.
+    """
+    with self._subscription_lock:
+      return {
+        key: list(value) if isinstance(value, list) else value
+        for key, value in self._subscription_status.items()
+      }
+
+  def subscribe(self, max_retries=5, ack_timeout=2.0):
+    """Subscribe to each configured topic and optionally require its SUBACK.
+
+    Parameters
+    ----------
+    max_retries : int, optional
+      Maximum local subscribe attempts per exact topic.
+    ack_timeout : float, optional
+      Maximum seconds to wait for each required broker SUBACK.
+
+    Returns
+    -------
+    dict
+      Existing communicator result shape with ``has_connection`` readiness.
+    """
+
+    self._reset_subscription_attempt()
+
+    channel_def = self.get_recv_channel_def()
+    if channel_def is None:
+      with self._subscription_lock:
+        self._subscription_status['ready'] = True
       return {
         'has_connection': True,
         'msg': 'MQTT receive disabled for this communicator.',
@@ -373,7 +764,6 @@ class MQTTWrapper(BaseCommWrapper):
 
     has_connection = True
     failure_msg = None
-    channel_def = self.get_recv_channel_def()
     lst_topics = channel_def[COMMS.TOPIC]
     qos = self.get_channel_qos(channel_def=channel_def)
     for topic in lst_topics:
@@ -381,20 +771,61 @@ class MQTTWrapper(BaseCommWrapper):
       current_topic_connection = False
       exception = None
       while nr_retry <= max_retries:
+        with self.__lifecycle_lock:
+          self.__lifecycle['subscribe_attempts'] += 1
+        handoff_recorded = False
         try:
           if self._mqttc is not None:
-            subscribe_result = self._mqttc.subscribe(
+            subscribe_client = self._mqttc
+            subscribe_result = subscribe_client.subscribe(
               topic=topic,
               qos=qos
             )
             result_code = subscribe_result[0] if isinstance(subscribe_result, tuple) else None
             if result_code in (None, mqtt.MQTT_ERR_SUCCESS):
-              current_topic_connection = True
+              mid = (
+                subscribe_result[1]
+                if isinstance(subscribe_result, tuple) and len(subscribe_result) > 1
+                else None
+              )
+              if mid is None:
+                with self.__lifecycle_lock:
+                  self.__lifecycle['subscribe_handoff_rejected'] += 1
+                exception = 'MQTT subscribe did not return a message id'
+              else:
+                self.__register_subscription_request(
+                  client=subscribe_client,
+                  mid=mid,
+                  topic=topic,
+                  qos=qos,
+                )
+                handoff_recorded = True
+                if self.require_suback:
+                  current_topic_connection, suback_error = self._wait_for_suback(
+                    mid=mid,
+                    topic=topic,
+                    ack_timeout=ack_timeout,
+                  )
+                  if suback_error == 'timeout':
+                    self._record_topic_status('timed_out_topics', topic)
+                    exception = 'MQTT SUBACK timed out'
+                  elif suback_error == 'rejected':
+                    self._record_topic_status('rejected_topics', topic)
+                    exception = 'MQTT SUBACK rejected the topic'
+                else:
+                  current_topic_connection = True
             else:
+              with self.__lifecycle_lock:
+                self.__lifecycle['subscribe_handoff_rejected'] += 1
               exception = "MQTT client returned subscribe rc={}".format(result_code)
           else:
+            with self.__lifecycle_lock:
+              self.__lifecycle['subscribe_handoff_rejected'] += 1
             exception = "MQTT client is not initialized"
         except Exception as e:
+          if not handoff_recorded:
+            with self.__lifecycle_lock:
+              self.__lifecycle['subscribe_handoff_rejected'] += 1
           exception = e
 
         if current_topic_connection:
@@ -406,7 +837,14 @@ class MQTTWrapper(BaseCommWrapper):
       # endwhile
 
       if current_topic_connection:
-        msg = "MQTT (Paho) subscribed to topic '{}' (QoS={})".format(topic, qos)
+        self._record_topic_status('acknowledged_topics', topic)
+        if self.require_suback:
+          msg = "MQTT (Paho) subscribed to topic '{}' (QoS={})".format(topic, qos)
+        else:
+          msg = "MQTT (Paho) subscription request accepted for topic '{}' (QoS={})".format(
+            topic,
+            qos,
+          )
         msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_NORMAL
       else:
         msg = "MQTT (Paho) subscribe to '{}' FAILED after {} retries (reason:{})".format(topic, max_retries, exception)
@@ -425,46 +863,134 @@ class MQTTWrapper(BaseCommWrapper):
       'msg_type': msg_type
     }
 
+    with self._subscription_lock:
+      self._subscription_status['ready'] = has_connection
+
     return dct_ret
 
   def receive(self):
     return
 
   def send(self, message, send_to=None):
+    """Hand one message to Paho or raise before claiming transport admission.
+
+    Parameters
+    ----------
+    message : str or bytes
+      Serialized MQTT payload.
+    send_to : str, optional
+      Address used to resolve an addressed channel topic.
+
+    Returns
+    -------
+    dict
+      Paho handoff metadata. This does not claim application execution.
+
+    Raises
+    ------
+    RuntimeError
+      If no client exists or Paho rejects the publish before handoff.
+    """
     mqttc = self._mqttc
     if mqttc is None:
-      return
+      with self.__lifecycle_lock:
+        self.__lifecycle['publish_attempts'] += 1
+        self.__lifecycle['publish_handoff_rejected'] += 1
+      raise RuntimeError('MQTT client is not initialized')
 
     channel_def = self.get_send_channel_def(send_to=send_to)
     qos = self.get_channel_qos(channel_def=channel_def)
+    topic = channel_def[self.channel_key]
+    with self.__lifecycle_lock:
+      self.__lifecycle['publish_attempts'] += 1
 
-    result = mqttc.publish(
-      topic=channel_def[self.channel_key],
-      payload=message,
-      qos=qos
-    )
+    try:
+      result = mqttc.publish(
+        topic=topic,
+        payload=message,
+        qos=qos
+      )
+    except Exception as exc:
+      with self.__lifecycle_lock:
+        self.__lifecycle['publish_handoff_rejected'] += 1
+      raise RuntimeError('MQTT publish raised before handoff: {}'.format(exc)) from exc
 
     ####
     self.D("Sent message (QoS {})'{}'".format(qos, message))
     ####
 
-    if result.rc == mqtt.MQTT_ERR_QUEUE_SIZE:
-      raise ValueError('Message is not queued due to ERR_QUEUE_SIZE')
+    if result.rc != mqtt.MQTT_ERR_SUCCESS:
+      with self.__lifecycle_lock:
+        self.__lifecycle['publish_handoff_rejected'] += 1
+      raise RuntimeError(
+        'MQTT publish was rejected before handoff (rc={}): {}'.format(
+          result.rc,
+          mqtt.error_string(result.rc),
+        )
+      )
 
-    return
+    mid = getattr(result, 'mid', None)
+    if mid is None:
+      with self.__lifecycle_lock:
+        self.__lifecycle['publish_handoff_rejected'] += 1
+      raise RuntimeError('MQTT publish returned success without a message id')
+
+    self.__register_publish_handoff(mqttc, mid, qos)
+    return {
+      'paho_accepted': True,
+      'mid': mid,
+      'qos': qos,
+      'topic': topic,
+    }
 
   def release(self):
-    try:
-      mqttc = self._mqttc
+    mqttc = self._mqttc
+    release_errors = []
 
-      if mqttc is not None:
-        self._mqttc.disconnect()
-        self._mqttc.loop_stop()  # stop the loop thread
-      self._mqttc = None
-      self.connected = False
+    if mqttc is not None:
+      # Retire the current generation before disconnect. Paho may invoke
+      # ``on_disconnect`` synchronously from this call; it must not re-enter
+      # release as an active-client callback.
+      try:
+        with self.__lifecycle_lock:
+          if len(self.__retired_client_ids) >= 1024:
+            self.__retired_client_ids.pop()
+          self.__retired_client_ids.add(id(mqttc))
+      except Exception as exc:
+        release_errors.append(exc)
+    self._mqttc = None
+
+    if mqttc is not None:
+      try:
+        self.__abandon_client_lifecycle(mqttc)
+      except Exception as exc:
+        release_errors.append(exc)
+      try:
+        mqttc.disconnect()
+      except Exception as exc:
+        release_errors.append(exc)
+      try:
+        mqttc.loop_stop()  # stop the loop thread
+      except Exception as exc:
+        release_errors.append(exc)
+
+    self.connected = False
+    try:
+      with self._subscription_lock:
+        self._subscription_status['ready'] = False
+        for pending in self._pending_subacks.values():
+          pending['grants'] = [128]
+          pending['event'].set()
+        self._early_subacks.clear()
+    except Exception as exc:
+      release_errors.append(exc)
+
+    if release_errors:
+      msg = 'MQTT (Paho) exception while releasing connection: `{}`'.format(
+        '; '.join(str(exc) for exc in release_errors),
+      )
+    else:
       msg = 'MQTT (Paho) connection released.'
-    except Exception as e:
-      msg = 'MQTT (Paho) exception while releasing connection: `{}`'.format(str(e))
 
     self.P(msg)
 

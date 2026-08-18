@@ -14,3 +14,8 @@ from .code_cheker import BaseCodeChecker
 from .const import PLUGIN_SIGNATURES, PAYLOAD_DATA
 from .const import HB as HEARTBEAT_DATA
 from .default.instance import PLUGIN_TYPES
+from .comm import (
+  HEARTBEAT_MODE_FULL_NETWORK,
+  HEARTBEAT_MODE_SELECTED_NODES,
+  HEARTBEAT_MODE_SUMMARY_DISCOVERY,
+)
