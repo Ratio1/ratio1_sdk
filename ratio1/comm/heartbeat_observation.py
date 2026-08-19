@@ -2,6 +2,7 @@
 
 import json
 import re
+import math
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -82,6 +83,8 @@ def _positive_number(value, field_name, allow_zero=False):
     result = float(value)
   except (TypeError, ValueError) as exc:
     raise ValueError("{} must be numeric".format(field_name)) from exc
+  if not math.isfinite(result):
+    raise ValueError("{} must be finite".format(field_name))
   if result < 0 or (result == 0 and not allow_zero):
     qualifier = "non-negative" if allow_zero else "positive"
     raise ValueError("{} must be {}".format(field_name, qualifier))

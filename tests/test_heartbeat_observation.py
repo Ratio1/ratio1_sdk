@@ -1,4 +1,5 @@
 import json
+import math
 import unittest
 from datetime import datetime, timezone
 
@@ -152,6 +153,20 @@ class TestHeartbeatObservationConfig(unittest.TestCase):
 
     with self.assertRaisesRegex(ValueError, "TARGETED_TOPIC"):
       config.heartbeat_topics({COMMS.TOPIC: "ratio1/ctrl"})
+
+  def test_observation_limits_reject_non_finite_values(self):
+    with self.assertRaisesRegex(ValueError, "finite"):
+      HeartbeatObservationConfig.from_values(
+        max_age_seconds=math.nan,
+      )
+    with self.assertRaisesRegex(ValueError, "finite"):
+      HeartbeatObservationConfig.from_values(
+        future_skew_seconds="inf",
+      )
+    with self.assertRaisesRegex(ValueError, "finite"):
+      HeartbeatObservationConfig.from_values(
+        observation_timeout_seconds="-inf",
+      )
 
   def test_explicit_values_override_config_values(self):
     config = HeartbeatObservationConfig.from_sources(
