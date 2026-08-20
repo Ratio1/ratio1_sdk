@@ -46,6 +46,7 @@ class MQTTWrapper(BaseCommWrapper):
     self._nr_full_retries = 0
     self.__nr_dropped_messages = 0
     self.__nr_stale_messages = 0
+    self._client_lock = Lock()
     self._subscription_lock = Lock()
     self._pending_subacks = {}
     self._early_subacks = {}
@@ -310,7 +311,8 @@ class MQTTWrapper(BaseCommWrapper):
 
   @property
   def connection(self):
-    return self._mqttc
+    with self._client_lock:
+      return self._mqttc
 
   def __get_client_id(self):
     mqttc = self._mqttc
@@ -390,12 +392,14 @@ class MQTTWrapper(BaseCommWrapper):
 
   def _callback_on_connect(self, client, userdata, flags, rc, *args, **kwargs):
     """Record connection state only for the current transport generation."""
-    if client is not self._mqttc:
+    with self._client_lock:
+      is_stale = client is not self._mqttc
+      if not is_stale:
+        self.connected = rc == 0
+    if is_stale:
       self._record_stale_transport_callback('connect', client)
       return
-    self.connected = False
     if rc == 0:
-      self.connected = True
       self.P("Conn ok clntid '{}' with code: {}".format(
         self.__get_client_id(), rc), color='g', verbosity=1)
     return
@@ -438,15 +442,13 @@ class MQTTWrapper(BaseCommWrapper):
       msg += "\n\n{}\n{}\n{}".format("*" * len(server_port), server_port, "*" * len(server_port))
       self.P(msg, color='r', verbosity=1)
     # endif multiple disconnects
-    self.connected = False
-    self.disconnected = True
     self._disconnected_log.append((self.log.time_to_str(), str_error))
     self._disconnected_counter += 1
     self.last_disconnect_log = '\n'.join([f"* Comm error '{x2}' occurred at {x1}" for x1, x2 in self._disconnected_log])
     # we need to stop the loop otherwise the client thread will keep working
     # so we call release->loop_stop
 
-    self.release()
+    self.release(expected_client=client)
     return
 
   def _callback_on_publish(self, client, userdata, mid, *args, **kwargs):
@@ -582,20 +584,23 @@ class MQTTWrapper(BaseCommWrapper):
         client_uid = self.log.get_unique_id()
 
         # 2. create the mqtt client object (with callbacks set)
-        self._mqttc = self.__create_mqttc_object(comtype, client_uid)
+        mqttc = self.__create_mqttc_object(comtype, client_uid)
+        with self._client_lock:
+          self._mqttc = mqttc
+          self.connected = False
 
         # TODO: more verbose logging including when there is no actual exception
         # 3. connect to the server
-        self._mqttc.connect(host=self.cfg_host, port=self.cfg_port)
+        mqttc.connect(host=self.cfg_host, port=self.cfg_port)
 
         # 4. start the loop in another thread
-        if self._mqttc is not None:
-          self._mqttc.loop_start()  # start loop in another thread
+        if self.connection is mqttc:
+          mqttc.loop_start()  # start loop in another thread
 
         # 5. wait until connected
         sleep_iter = self.__sleep_until_connected(max_sleep=max_sleep, sleep_time=sleep_time)
 
-        has_connection = self.connected
+        has_connection = self.connection is mqttc and self.connected
       except Exception as e:
         exception = e
         if self.debug_errors:
@@ -656,8 +661,8 @@ class MQTTWrapper(BaseCommWrapper):
     # if release was not called from on_disconnect, basically
     # this method of checking self._mqttc is not None is not
     # very reliable, as race conditions can occur
-    if self._mqttc is not None and not has_connection:
-      self.release()
+    if not has_connection and self.connection is mqttc:
+      self.release(expected_client=mqttc)
 
     return dct_ret
 
@@ -734,7 +739,7 @@ class MQTTWrapper(BaseCommWrapper):
         for key, value in self._subscription_status.items()
       }
 
-  def subscribe(self, max_retries=5, ack_timeout=2.0):
+  def subscribe(self, max_retries=5, ack_timeout=2.0, should_continue=None):
     """Subscribe to each configured topic and optionally require its SUBACK.
 
     Parameters
@@ -743,6 +748,8 @@ class MQTTWrapper(BaseCommWrapper):
       Maximum local subscribe attempts per exact topic.
     ack_timeout : float, optional
       Maximum seconds to wait for each required broker SUBACK.
+    should_continue : callable, optional
+      Session-liveness predicate checked before each broker handoff retry.
 
     Returns
     -------
@@ -771,6 +778,9 @@ class MQTTWrapper(BaseCommWrapper):
       current_topic_connection = False
       exception = None
       while nr_retry <= max_retries:
+        if should_continue is not None and not should_continue():
+          exception = 'MQTT subscription cancelled by session shutdown'
+          break
         with self.__lifecycle_lock:
           self.__lifecycle['subscribe_attempts'] += 1
         handoff_recorded = False
@@ -851,6 +861,7 @@ class MQTTWrapper(BaseCommWrapper):
         msg_type = PAYLOAD_CT.STATUS_TYPE.STATUS_EXCEPTION
         has_connection = False
         failure_msg = msg
+        break
       # endif
 
     if not has_connection:
@@ -943,9 +954,31 @@ class MQTTWrapper(BaseCommWrapper):
       'topic': topic,
     }
 
-  def release(self):
-    mqttc = self._mqttc
+  def release(self, expected_client=None):
     release_errors = []
+
+    with self._client_lock:
+      mqttc = self._mqttc
+      if expected_client is not None and mqttc is not expected_client:
+        mqttc = None
+      else:
+        self._mqttc = None
+        self.connected = False
+        if expected_client is not None:
+          self.disconnected = True
+        try:
+          with self._subscription_lock:
+            self._subscription_status['ready'] = False
+            for pending in self._pending_subacks.values():
+              pending['grants'] = [128]
+              pending['event'].set()
+            self._early_subacks.clear()
+        except Exception as exc:
+          release_errors.append(exc)
+
+    if expected_client is not None and mqttc is None:
+      self._record_stale_transport_callback('disconnect', expected_client)
+      return {'msgs': ['MQTT client generation was already replaced.']}
 
     if mqttc is not None:
       # Retire the current generation before disconnect. Paho may invoke
@@ -958,8 +991,6 @@ class MQTTWrapper(BaseCommWrapper):
           self.__retired_client_ids.add(id(mqttc))
       except Exception as exc:
         release_errors.append(exc)
-    self._mqttc = None
-
     if mqttc is not None:
       try:
         self.__abandon_client_lifecycle(mqttc)
@@ -973,17 +1004,6 @@ class MQTTWrapper(BaseCommWrapper):
         mqttc.loop_stop()  # stop the loop thread
       except Exception as exc:
         release_errors.append(exc)
-
-    self.connected = False
-    try:
-      with self._subscription_lock:
-        self._subscription_status['ready'] = False
-        for pending in self._pending_subacks.values():
-          pending['grants'] = [128]
-          pending['event'].set()
-        self._early_subacks.clear()
-    except Exception as exc:
-      release_errors.append(exc)
 
     if release_errors:
       msg = 'MQTT (Paho) exception while releasing connection: `{}`'.format(

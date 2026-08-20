@@ -3,6 +3,7 @@
 import json
 import re
 import math
+from collections.abc import Mapping
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -48,6 +49,12 @@ def _ordered_addresses(values, field_name):
     return ()
   if isinstance(values, str):
     values = [value.strip() for value in values.split(",") if value.strip()]
+  elif isinstance(values, Mapping):
+    raise ValueError("{} must be an address list".format(field_name))
+  try:
+    values = iter(values)
+  except TypeError as exc:
+    raise ValueError("{} must be an address list".format(field_name)) from exc
   result = []
   for value in values:
     if not isinstance(value, str) or not _RATIO1_ADDRESS.fullmatch(value):
@@ -79,6 +86,8 @@ def _positive_number(value, field_name, allow_zero=False):
   float
     Validated numeric value.
   """
+  if isinstance(value, bool):
+    raise ValueError("{} must be numeric".format(field_name))
   try:
     result = float(value)
   except (TypeError, ValueError) as exc:
@@ -150,7 +159,8 @@ class HeartbeatObservationConfig:
     HeartbeatObservationConfig
       Frozen validated configuration.
     """
-    mode = mode or HEARTBEAT_MODE_FULL_NETWORK
+    if mode is None:
+      mode = HEARTBEAT_MODE_FULL_NETWORK
     if mode not in HEARTBEAT_OBSERVATION_MODES:
       raise ValueError(
         "Invalid heartbeat observation mode {!r}; expected one of {}".format(

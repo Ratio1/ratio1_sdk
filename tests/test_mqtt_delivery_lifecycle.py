@@ -1,5 +1,6 @@
 import unittest
 from collections import deque
+from threading import Event, Thread
 from unittest import mock
 
 from ratio1.comm.mqtt_wrapper import MQTTWrapper
@@ -219,6 +220,37 @@ class TestMqttPublishLifecycle(unittest.TestCase):
     status = wrapper.get_delivery_lifecycle_status()
     self.assertFalse(wrapper.connected)
     self.assertEqual(status["stale_connect_callbacks"], 1)
+
+  def test_slow_old_client_release_cannot_clear_replacement_state(self):
+    wrapper = _wrapper(command_qos=2)
+    teardown_started = Event()
+    allow_teardown = Event()
+
+    class _SlowClient(_FakeMqttClient):
+      def disconnect(self):
+        teardown_started.set()
+        allow_teardown.wait(timeout=2.0)
+        super().disconnect()
+
+    old_client = _SlowClient()
+    replacement = _FakeMqttClient()
+    wrapper._mqttc = old_client
+    wrapper.connected = True
+    release_thread = Thread(target=wrapper.release)
+    release_thread.start()
+    self.assertTrue(teardown_started.wait(timeout=1.0))
+
+    wrapper._mqttc = replacement
+    wrapper.connected = True
+    with wrapper._subscription_lock:
+      wrapper._subscription_status["ready"] = True
+    allow_teardown.set()
+    release_thread.join(timeout=2.0)
+
+    self.assertFalse(release_thread.is_alive())
+    self.assertIs(wrapper._mqttc, replacement)
+    self.assertTrue(wrapper.connected)
+    self.assertTrue(wrapper.receive_ready)
 
 
 class TestMqttSubscriptionLifecycle(unittest.TestCase):

@@ -19,11 +19,21 @@ class _JoinProbe:
 
 class TestSessionCallbackBuffers(unittest.TestCase):
 
+  def test_transport_retry_predicate_reads_generic_session_state(self):
+    session = object.__new__(GenericSession)
+    session._GenericSession__running_main_loop_thread = True
+    self.assertTrue(session._communication_should_continue())
+    session._GenericSession__running_main_loop_thread = False
+    self.assertFalse(session._communication_should_continue())
+
   def test_callback_queue_size_accepts_numeric_config_strings(self):
     self.assertEqual(GenericSession._normalize_callback_queue_size("7"), 7)
     self.assertEqual(GenericSession._normalize_callback_queue_size(7), 7)
 
-    for invalid in (True, False, "", "0", "-1", "not-a-number", 0, -1):
+    for invalid in (
+      True, False, "", "0", "-1", "not-a-number", 0, -1,
+      float("nan"), float("inf"), float("-inf"),
+    ):
       with self.subTest(invalid=invalid):
         with self.assertRaises(ValueError):
           GenericSession._normalize_callback_queue_size(invalid)
@@ -59,6 +69,22 @@ class TestSessionCallbackBuffers(unittest.TestCase):
     self.assertTrue(session._payload_thread.joined)
     self.assertTrue(session._notif_thread.joined)
     self.assertTrue(session._hb_thread.joined)
+
+  def test_main_loop_closes_transport_before_waiting_for_callbacks(self):
+    session = object.__new__(GenericSession)
+    events = []
+    session._GenericSession__running_main_loop_thread = False
+    session._GenericSession__closed_everything = False
+    session.P = lambda *args, **kwargs: None
+    session._communication_close = lambda: events.append("transport")
+    session._GenericSession__release_callback_threads = (
+      lambda: events.append("callbacks")
+    )
+
+    session._GenericSession__main_loop()
+
+    self.assertEqual(events, ["transport", "callbacks"])
+    self.assertTrue(session._GenericSession__closed_everything)
 
   def test_callback_processing_success_and_failure_are_separately_counted(self):
     session = object.__new__(GenericSession)

@@ -145,6 +145,20 @@ class TestHeartbeatObservationConfig(unittest.TestCase):
     with self.assertRaisesRegex(ValueError, "heartbeat observation mode"):
       HeartbeatObservationConfig.from_values(mode="selected")
 
+    for invalid_mode in ("", False, 0):
+      with self.subTest(invalid_mode=invalid_mode):
+        with self.assertRaisesRegex(ValueError, "heartbeat observation mode"):
+          HeartbeatObservationConfig.from_values(mode=invalid_mode)
+
+  def test_address_lists_reject_non_iterable_config_values_cleanly(self):
+    for invalid_nodes in (True, 42, {NODE_A: True}):
+      with self.subTest(invalid_nodes=invalid_nodes):
+        with self.assertRaisesRegex(ValueError, "selected nodes"):
+          HeartbeatObservationConfig.from_values(
+            mode=HEARTBEAT_MODE_SELECTED_NODES,
+            nodes=invalid_nodes,
+          )
+
   def test_targeted_mode_requires_targeted_topic_capability(self):
     config = HeartbeatObservationConfig.from_values(
       mode=HEARTBEAT_MODE_SELECTED_NODES,
@@ -165,6 +179,20 @@ class TestHeartbeatObservationConfig(unittest.TestCase):
       for value in values:
         with self.subTest(field_name=field_name, value=value):
           with self.assertRaisesRegex(ValueError, "finite"):
+            HeartbeatObservationConfig.from_values(**{
+              field_name: value,
+            })
+
+  def test_observation_limits_reject_booleans_as_numeric_values(self):
+    fields = (
+      "max_age_seconds",
+      "future_skew_seconds",
+      "observation_timeout_seconds",
+    )
+    for field_name in fields:
+      for value in (True, False):
+        with self.subTest(field_name=field_name, value=value):
+          with self.assertRaisesRegex(ValueError, "numeric"):
             HeartbeatObservationConfig.from_values(**{
               field_name: value,
             })

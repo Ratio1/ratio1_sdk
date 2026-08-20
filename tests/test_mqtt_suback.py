@@ -1,5 +1,6 @@
 import threading
 import unittest
+from unittest import mock
 
 from ratio1.comm.mqtt_wrapper import MQTTWrapper
 from ratio1.const import COMMS
@@ -105,6 +106,49 @@ class TestMqttSuback(unittest.TestCase):
       wrapper.get_subscription_status()["timed_out_topics"],
       ["ratio1/ctrl/selected"],
     )
+
+  def test_first_failed_exact_topic_stops_later_topic_attempts(self):
+    wrapper = self._wrapper()
+    wrapper._explicit_recv_topics = (
+      "ratio1/ctrl/first",
+      "ratio1/ctrl/second",
+      "ratio1/ctrl/third",
+    )
+
+    class _SilentClient:
+      def __init__(self):
+        self.subscribed = []
+
+      def subscribe(self, topic, qos):
+        self.subscribed.append(topic)
+        return (0, len(self.subscribed))
+
+    client = _SilentClient()
+    wrapper._mqttc = client
+
+    with mock.patch("ratio1.comm.mqtt_wrapper.sleep", return_value=None):
+      result = wrapper.subscribe(max_retries=2, ack_timeout=0)
+
+    self.assertFalse(result["has_connection"])
+    self.assertEqual(client.subscribed, ["ratio1/ctrl/first"] * 2)
+
+  def test_subscription_retry_can_be_cancelled_by_session_shutdown(self):
+    wrapper = self._wrapper()
+
+    class _UnexpectedClient:
+      def subscribe(self, topic, qos):
+        raise AssertionError("shutdown must cancel before broker handoff")
+
+    wrapper._mqttc = _UnexpectedClient()
+
+    result = wrapper.subscribe(
+      max_retries=5,
+      ack_timeout=2.0,
+      should_continue=lambda: False,
+    )
+
+    self.assertFalse(result["has_connection"])
+    self.assertIn("cancelled", result["msg"].lower())
 
   def test_suback_from_retired_client_is_ignored(self):
     wrapper = self._wrapper()

@@ -154,7 +154,9 @@ class MqttSession(GenericSession):
       if communicator.connection is None:
         communicator.server_connect()
       if communicator.connection is not None and not communicator.receive_ready:
-        result = communicator.subscribe()
+        result = communicator.subscribe(
+          should_continue=self._communication_should_continue,
+        )
         if communicator is self._heartbeats_communicator:
           self._update_heartbeat_subscription_status(result)
     return

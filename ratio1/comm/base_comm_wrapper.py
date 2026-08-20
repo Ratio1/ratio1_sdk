@@ -146,10 +146,18 @@ class BaseCommWrapper(object):
     Keep validation close to the transport wrapper so bad rollout values fail
     before silently changing delivery guarantees.
     """
-    qos = int(qos)
-    if qos not in [0, 1, 2]:
-      raise ValueError("Invalid MQTT QoS {}. Expected one of 0, 1, 2.".format(qos))
-    return qos
+    invalid_message = (
+      "Invalid MQTT QoS {!r}. Expected one of 0, 1, 2.".format(qos)
+    )
+    if isinstance(qos, bool):
+      raise ValueError(invalid_message)
+    try:
+      normalized = int(qos)
+    except (TypeError, ValueError, OverflowError) as exc:
+      raise ValueError(invalid_message) from exc
+    if str(qos).strip() != str(normalized) or normalized not in [0, 1, 2]:
+      raise ValueError(invalid_message)
+    return normalized
 
   def get_channel_qos(self, channel_name=None, channel_def=None):
     """

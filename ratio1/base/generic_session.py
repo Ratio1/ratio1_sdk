@@ -122,7 +122,7 @@ class GenericSession(BaseDecentrAIObject):
       raise ValueError("callback_queue_size must be a positive integer")
     try:
       normalized = int(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
       raise ValueError(
         "callback_queue_size must be a positive integer"
       ) from exc
@@ -829,6 +829,15 @@ class GenericSession(BaseDecentrAIObject):
           msg_instance,
           trusted_summary=True,
         )
+      elif source == "heartbeat" and verified_sender is not None:
+        message_callback(
+          dict_msg_parsed,
+          msg_node_addr,
+          msg_pipeline,
+          msg_signature,
+          msg_instance,
+          verified_sender=verified_sender,
+        )
       else:
         message_callback(
           dict_msg_parsed,
@@ -836,15 +845,6 @@ class GenericSession(BaseDecentrAIObject):
           msg_pipeline,
           msg_signature,
           msg_instance,
-        )
-      if (
-        source == "heartbeat"
-        and verified_sender is not None
-        and getattr(self, "_heartbeat_observation_monitor", None) is not None
-      ):
-        self._heartbeat_observation_monitor.record_valid_observation(
-          verified_sender,
-          source="heartbeat",
         )
       return
 
@@ -1135,7 +1135,15 @@ class GenericSession(BaseDecentrAIObject):
           new_pipelines.append(pipeline)
       return new_pipelines
 
-    def __on_heartbeat(self, dict_msg: dict, msg_node_addr, msg_pipeline, msg_signature, msg_instance):
+    def __on_heartbeat(
+      self,
+      dict_msg: dict,
+      msg_node_addr,
+      msg_pipeline,
+      msg_signature,
+      msg_instance,
+      verified_sender=None,
+    ):
       """
       Handle a heartbeat message received from the communication server.
 
@@ -1155,6 +1163,10 @@ class GenericSession(BaseDecentrAIObject):
 
       msg_instance : str
           The name of the instance that sent the message.
+
+      verified_sender : str, optional
+          Authenticated selected-node sender whose observation can become ready
+          after required internal heartbeat processing succeeds.
       """
       # extract relevant data from the message
 
@@ -1214,6 +1226,15 @@ class GenericSession(BaseDecentrAIObject):
         transaction.handle_heartbeat(dict_msg)
 
       self.__track_allowed_node_by_hb(msg_node_addr, dict_msg)
+
+      if (
+        verified_sender is not None
+        and getattr(self, "_heartbeat_observation_monitor", None) is not None
+      ):
+        self._heartbeat_observation_monitor.record_valid_observation(
+          verified_sender,
+          source="heartbeat",
+        )
 
       # call the custom callback, if defined
       if self.custom_on_heartbeat is not None:
@@ -1693,6 +1714,16 @@ class GenericSession(BaseDecentrAIObject):
       """
       raise NotImplementedError
 
+    def _communication_should_continue(self):
+      """Return whether transport setup should keep retrying.
+
+      Returns
+      -------
+      bool
+          ``True`` while the session main loop is expected to keep running.
+      """
+      return self.__running_main_loop_thread
+
     def close(self, close_pipelines=False, wait_close=True, **kwargs):
       """
       Close the session, releasing all resources and closing all threads
@@ -1820,10 +1851,9 @@ class GenericSession(BaseDecentrAIObject):
       # end while self.running
 
       self.P("Main loop thread exiting...", verbosity=2)
-      self.__release_callback_threads()
-
       self.P("Comms closing...", verbosity=2)
       self._communication_close()
+      self.__release_callback_threads()
       self.__closed_everything = True
       return
 
@@ -2017,10 +2047,16 @@ class GenericSession(BaseDecentrAIObject):
       value = next((os.getenv(key) for key in keys if os.getenv(key) not in [None, ""]), None)
       if value is None:
         return None
-      value = int(value)
-      if value not in [0, 1, 2]:
-        raise ValueError(f"Invalid MQTT QoS {value}. Expected one of 0, 1, 2.")
-      return value
+      invalid_message = (
+        f"Invalid MQTT QoS {value!r}. Expected one of 0, 1, 2."
+      )
+      try:
+        normalized = int(value)
+      except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(invalid_message) from exc
+      if value.strip() != str(normalized) or normalized not in [0, 1, 2]:
+        raise ValueError(invalid_message)
+      return normalized
 
     def __apply_channel_qos_from_env(self):
       qos_overrides = [
