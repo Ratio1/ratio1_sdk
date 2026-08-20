@@ -155,18 +155,19 @@ class TestHeartbeatObservationConfig(unittest.TestCase):
       config.heartbeat_topics({COMMS.TOPIC: "ratio1/ctrl"})
 
   def test_observation_limits_reject_non_finite_values(self):
-    with self.assertRaisesRegex(ValueError, "finite"):
-      HeartbeatObservationConfig.from_values(
-        max_age_seconds=math.nan,
-      )
-    with self.assertRaisesRegex(ValueError, "finite"):
-      HeartbeatObservationConfig.from_values(
-        future_skew_seconds="inf",
-      )
-    with self.assertRaisesRegex(ValueError, "finite"):
-      HeartbeatObservationConfig.from_values(
-        observation_timeout_seconds="-inf",
-      )
+    fields = (
+      "max_age_seconds",
+      "future_skew_seconds",
+      "observation_timeout_seconds",
+    )
+    values = (math.nan, math.inf, -math.inf, "nan", "inf", "-inf")
+    for field_name in fields:
+      for value in values:
+        with self.subTest(field_name=field_name, value=value):
+          with self.assertRaisesRegex(ValueError, "finite"):
+            HeartbeatObservationConfig.from_values(**{
+              field_name: value,
+            })
 
   def test_explicit_values_override_config_values(self):
     config = HeartbeatObservationConfig.from_sources(
