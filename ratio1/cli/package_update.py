@@ -1,3 +1,4 @@
+from base64 import b64encode
 from importlib import metadata
 import subprocess
 import os
@@ -84,7 +85,8 @@ def update_package(args) -> None:
   -----
   This is invoked by ``r1ctl update``. The Windows branch starts a replacement
   interpreter because the installed executable is locked until this process
-  exits.
+  exits. Its ``-c`` argument is encoded into a whitespace-free launcher because
+  Windows ``os.execv`` otherwise splits inline source at the first space.
   """
   pkg_name = _dist_name()
   initial_version = _local_version(pkg_name)
@@ -123,7 +125,9 @@ def update_package(args) -> None:
     ]
 
     wrapper_code = '; '.join(wrapper_code_lines)
-    os.execv(sys.executable, [sys.executable, "-c", wrapper_code])  # never returns
+    wrapper_payload = b64encode(wrapper_code.encode("utf-8")).decode("ascii")
+    launcher_code = f"exec(__import__('base64').b64decode('{wrapper_payload}'))"
+    os.execv(sys.executable, [sys.executable, "-c", launcher_code])  # never returns
   # endif Windows
 
   cmd = _update_command(pkg_name)

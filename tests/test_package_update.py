@@ -65,7 +65,14 @@ class PackageUpdateCommandTests(unittest.TestCase):
     )
 
   def test_windows_updater_uses_the_shared_command_selection(self):
-    """Execute the deferred Windows updater through the shared installer path."""
+    """
+    Execute the deferred Windows updater through the shared installer path.
+
+    Notes
+    -----
+    Windows ``os.execv`` does not preserve whitespace inside the ``-c`` source
+    argument, so the launcher itself must be whitespace-free.
+    """
     args = SimpleNamespace(quiet=True)
     with patch.object(package_update.platform, "system", return_value="Windows"), \
          patch.object(package_update, "_dist_name", return_value="ratio1"), \
@@ -75,14 +82,12 @@ class PackageUpdateCommandTests(unittest.TestCase):
       with self.assertRaisesRegex(RuntimeError, "stop"):
         package_update.update_package(args)
 
-    wrapper_code = execv.call_args.args[1][2]
-    self.assertIn("from ratio1.cli.package_update import _update_command", wrapper_code)
-    self.assertIn("subprocess.call(_update_command(pkg)", wrapper_code)
-    self.assertNotIn("'-m', 'pip'", wrapper_code)
+    launcher_code = execv.call_args.args[1][2]
+    self.assertFalse(any(char.isspace() for char in launcher_code))
     with patch.object(package_update, "_update_command", return_value=["uv", "pip"]), \
          patch("subprocess.call", return_value=0) as call, \
          patch("importlib.metadata.version", return_value="1.0.0"):
-      exec(wrapper_code, {})
+      exec(launcher_code, {})
 
     call.assert_called_once_with(
       ["uv", "pip"],
