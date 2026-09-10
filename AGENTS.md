@@ -418,6 +418,13 @@ actor_to_docs_handoff:
   - Validated fix or guardrail: keep planning-only markdowns and generated result markdowns under `_todo/`, and point tutorial defaults there when they emit durable markdown artifacts
   - Evidence: local repo state showed `_todo/PAYLOADS_SDK.md` and `_todo/TODOs.md` while the payload capture tutorial still defaulted to `PAYLOADS_SDK_RESULTS.md` at the repo root
   - Follow-up: align any remaining durable result markdown generators with the `_todo/` convention when they are touched
+- 2026-09-02
+  - Area: `r1ctl update` on Windows
+  - Failure or false-positive pattern: Windows `os.execv` split a multi-word `python -c` updater payload at its first space, even though executing the payload directly passed unit tests
+  - Rollback hazard: replacing the deferred updater with an in-process `pip` call can leave `r1ctl.exe` locked during its own upgrade
+  - Validated fix or guardrail: pass a whitespace-free base64 launcher through `os.execv`, test the decoded updater body, and retain a Windows-native process replacement probe
+  - Evidence: reproduced with the `client_testing` Windows interpreter and verified the encoded launcher through the same interpreter
+  - Follow-up: keep Windows process replacement validation whenever the deferred updater changes
 
 ## Key Entry Points
 - `ratio1/__init__.py`: exports `Session`, `Pipeline`, `Instance`, `CustomPluginTemplate`, presets, version, and helpers
@@ -444,6 +451,7 @@ actor_to_docs_handoff:
 - R1FS startup workaround (2026-03): `R1FSEngine.maybe_start_ipfs()` includes an opt-in same-host relay workaround gated by `EE_R1FS_SAMEHOST_RELAY_FIX`; it proves same-host reachability by disconnecting any existing relay session, dialing the container-gateway relay multiaddr, and requiring `ipfs swarm peers` to show the relay on that exact local multiaddr before applying filters or bootstrap changes. It persists a marker in `${IPFS_PATH}/.r1fs_samehost_relay_fix.json`, merges `Swarm.AddrFilters`, re-adds a local bootstrap entry, and performs a controlled daemon restart only when config changes require it. The same marker file also caches recent negative proof results for the same relay and gateway tuple so off-host containers can skip repeated proof attempts for a bounded TTL. The workaround is disabled by default because local-path control-plane success did not reliably imply successful block transfer.
 - CLI and config: `r1ctl` uses argparse and `CLI_COMMANDS`; user config is stored in `~/.ratio1/config`; `reset_config` copies `.env` when present; alias default is `R1SDK` (`EE_SDK_ALIAS`).
 - CLI smoke-test side effect (2026-03): `ratio1.cli.cli:main()` calls `maybe_init_config()` before parsing commands, so even `-h` can create config and cache directories under `HOME`; parser smoke tests should import `build_parser()` instead of executing `main()`.
+- Windows CLI self-update (2026-09): `os.execv` can split a multi-word `python -c` payload at its first space on Windows; the deferred `r1ctl update` process uses a whitespace-free base64 launcher so `r1ctl.exe` is released before package replacement.
 - Payload helpers: `Payload` extends `dict` and can decode base64 images via `get_images_as_np` and `get_images_as_PIL`.
 - Heartbeat callback expansion (2026-03): heartbeat v2 messages keep `ENCODED_DATA` and also merge the decompressed heartbeat body into the same callback dict in `GenericSession.__on_heartbeat()`, so callback-level size measurements double-count that section relative to raw wire unless `ENCODED_DATA` is excluded explicitly.
 - Heartbeat observation modes (2026-08): `Session` defaults to the legacy `full_network` global CTRL subscription. `selected_nodes` uses exact addressed CTRL topics and verifies signed raw heartbeat identity and freshness before formatter mutation. `summary_discovery` has no CTRL subscription and updates discovery only from fresh signed `NET_MON_01` payloads produced by configured trusted addresses. Reduced modes never fall back to global CTRL, remain immutable for a session lifetime, and expose readiness plus bounded callback-queue outcomes through `get_heartbeat_observation_status()`.
@@ -473,6 +481,7 @@ actor_to_docs_handoff:
 - 2026-03-18: Recorded the `_todo/` convention for planning and result markdowns and aligned the SDK payload capture tutorial to emit its result markdown there by default.
 - 2026-03-19: Documented signing canon version contract (`v1`/`v2`), unversioned fallback verification, stats buckets, and cross-version compatibility test coverage.
 - 2026-03-31: Documented the addressed-payload routing safeguard and the receive-side rollout flag so config drift cannot silently fan out duplicate broadcast publishes.
+- 2026-09-02: Documented and fixed Windows `r1ctl update` process replacement by using a whitespace-free encoded launcher.
 - 2026-07-16: Documented the signed dAuth job-secret client, fixed placeholder constant, response-validation contract, and no-secret-logging boundary.
 - 2026-08-17: MQTT receive callbacks can admit into an observable bounded FIFO that rejects newest without blocking Paho; saturation and post-close rejection are counted separately, head age is O(1), and this process-local queue is not durable across process exit.
 - 2026-08-17: Signing-canonicalization verification statistics now use one coalescing background writer; latency-sensitive callers may retain in-memory accounting with `persist_canon_stats=False` and explicitly flush after their worker drains, so JSON snapshots and disk I/O do not run on the authentication hot path (`ratio1/bc/base.py`).
