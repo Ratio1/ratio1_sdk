@@ -1,5 +1,6 @@
 import copy
 import json
+import threading
 import unittest
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from ratio1.comm.heartbeat_observation import (
   HeartbeatObservationPolicy,
 )
 from ratio1.const import DEFAULT_PIPELINES, HB, PAYLOAD_DATA, PLUGIN_SIGNATURES
+from ratio1.io_formatter.default.aixp1 import Aixp1Formatter
 
 
 ORACLE = "0xai_A_b3ELqPfiAjV7iBSiOyUEO7gWOQG9WUsUuojPWbiMh"
@@ -178,8 +180,10 @@ class TestGenericSessionNetmonDecode(unittest.TestCase):
   def _make_summary_session(self, verifier=None):
     session = self._make_session()
     session._eth_enabled = False
-    session.filter_workers = []
+    session.filter_workers = None
     session.own_pipelines = []
+    session._GenericSession__open_transactions = []
+    session._GenericSession__open_transactions_lock = threading.Lock()
     session.custom_on_payload = mock.Mock()
     session._GenericSession__maybe_process_net_config = mock.Mock()
     session.formatter_wrapper = _FormatterWrapper()
@@ -316,6 +320,125 @@ class TestGenericSessionNetmonDecode(unittest.TestCase):
           session._heartbeat_observation_monitor.snapshot()["accepted_summaries"],
           0,
         )
+
+  def _use_aixp1_formatter(self, session):
+    """Use the production decoder with an isolated timing logger.
+
+    Parameters
+    ----------
+    session : GenericSession
+      Test session whose formatter lookup is replaced.
+    """
+    formatter = Aixp1Formatter(log=mock.Mock(), signature="aixp1")
+    session.formatter_wrapper = mock.Mock()
+    session.formatter_wrapper.get_required_formatter_from_payload.return_value = formatter
+
+  def test_formatter_route_changes_cannot_admit_unverified_summaries(self):
+    """Every Aixp1 routing overwrite must retain the raw trust decision.
+
+    Notes
+    -----
+    No worker filter is installed: rejection must come from authorization,
+    not from filtering out the publisher before discovery processing.
+    """
+    for location in ("DATA", "PLUGIN_META", "PIPELINE_META"):
+      with self.subTest(location=location):
+        verifier = mock.Mock(wraps=_Verifier(valid=False))
+        session = self._make_summary_session(verifier=verifier)
+        self._use_aixp1_formatter(session)
+        payload = self._wire_summary()
+        summary_path = payload[PAYLOAD_DATA.EE_PAYLOAD_PATH]
+        summary_path[1:3] = ["ADMIN_PIPELINE", "net_mon_01"]
+        body = {
+          PAYLOAD_DATA.NETMON_CURRENT_NETWORK:
+            payload.pop(PAYLOAD_DATA.NETMON_CURRENT_NETWORK),
+        }
+        route = {PAYLOAD_DATA.EE_PAYLOAD_PATH: summary_path}
+        if location == "DATA":
+          body.update(route)
+        else:
+          body[location] = route
+        payload.update({
+          "EE_EVENT_TYPE": "PAYLOAD",
+          "EE_FORMATTER": "aixp1",
+          PAYLOAD_DATA.EE_PAYLOAD_PATH: ["oracle", "ordinary", "CUSTOM", "instance"],
+          "DATA": body,
+        })
+
+        session._GenericSession__on_message_default_callback(
+          json.dumps(payload), session._GenericSession__on_payload, source="payload",
+        )
+
+        verifier.verify.assert_not_called()
+        self.assertEqual(session._GenericSession__current_network_statuses, {})
+        self.assertFalse(session._GenericSession__at_least_a_netmon_received)
+        self.assertEqual(
+          session._heartbeat_observation_monitor.snapshot()["accepted_summaries"], 0,
+        )
+        session._GenericSession__maybe_process_net_config.assert_not_called()
+        session.custom_on_payload.assert_not_called()
+
+  def test_trusted_formatted_summary_still_updates_discovery_and_callbacks(self):
+    """A trusted raw NetMon route remains valid through Aixp1 decoding."""
+    verifier = mock.Mock(wraps=_Verifier())
+    session = self._make_summary_session(verifier=verifier)
+    self._use_aixp1_formatter(session)
+    payload = self._wire_summary()
+    payload.update({
+      "EE_EVENT_TYPE": "PAYLOAD",
+      "EE_FORMATTER": "aixp1",
+      "DATA": {
+        PAYLOAD_DATA.NETMON_CURRENT_NETWORK:
+          payload.pop(PAYLOAD_DATA.NETMON_CURRENT_NETWORK),
+      },
+    })
+
+    session._GenericSession__on_message_default_callback(
+      json.dumps(payload), session._GenericSession__on_payload, source="payload",
+    )
+
+    verifier.verify.assert_called_once()
+    self.assertIn(ORACLE, session._GenericSession__current_network_statuses)
+    self.assertEqual(
+      session._heartbeat_observation_monitor.snapshot()["accepted_summaries"], 1,
+    )
+    session.custom_on_payload.assert_called_once()
+
+  def test_ordinary_payload_callbacks_are_preserved_in_every_mode(self):
+    """Reduced-mode summary checks do not discard ordinary application data."""
+    for mode in ("summary_discovery", "selected_nodes", "full_network"):
+      with self.subTest(mode=mode):
+        session = self._make_summary_session()
+        session._heartbeat_observation_config = HeartbeatObservationConfig.from_values(
+          mode=mode, summary_publishers=[ORACLE], nodes=[ORACLE],
+        )
+        payload = self._wire_summary(**{
+          PAYLOAD_DATA.EE_PAYLOAD_PATH: ["oracle", "ordinary", "CUSTOM", "instance"],
+        })
+        session._GenericSession__on_message_default_callback(
+          json.dumps(payload), session._GenericSession__on_payload, source="payload",
+        )
+
+        self.assertEqual(session._GenericSession__current_network_statuses, {})
+        session._GenericSession__maybe_process_net_config.assert_called_once()
+        session.custom_on_payload.assert_called_once()
+
+  def test_non_summary_modes_preserve_legacy_netmon_processing(self):
+    """The new summary-mode boundary does not change other modes' NetMon path."""
+    for mode in ("full_network", "selected_nodes"):
+      with self.subTest(mode=mode):
+        session = self._make_summary_session()
+        session._heartbeat_observation_config = HeartbeatObservationConfig.from_values(
+          mode=mode, nodes=[ORACLE],
+        )
+        session._GenericSession__on_message_default_callback(
+          json.dumps(self._wire_summary()),
+          session._GenericSession__on_payload,
+          source="payload",
+        )
+
+        self.assertIn(ORACLE, session._GenericSession__current_network_statuses)
+        session.custom_on_payload.assert_called_once()
 
 
 if __name__ == "__main__":

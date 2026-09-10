@@ -1493,7 +1493,23 @@ class GenericSession(BaseDecentrAIObject):
       trusted_summary : bool, optional
           Whether the raw NetMon envelope already passed the reduced-mode
           signature, sender, path, and freshness boundary.
+
+      Notes
+      -----
+      Summary-discovery NetMon payloads require raw authorization even when
+      formatter decoding changes their routing fields.
       """
+      observation_config = getattr(self, "_heartbeat_observation_config", None)
+      # Decoded routing cannot grant the trust that the raw envelope lacked.
+      if (
+        not trusted_summary
+        and observation_config is not None
+        and observation_config.mode == HEARTBEAT_MODE_SUMMARY_DISCOVERY
+        and str(msg_pipeline).lower() == DEFAULT_PIPELINES.ADMIN_PIPELINE.lower()
+        and str(msg_signature).upper() == PLUGIN_SIGNATURES.NET_MON_01.upper()
+      ):
+        return
+
       # extract relevant data from the message
       msg_data = dict_msg
 
