@@ -25,13 +25,16 @@ class _FakeLog:
 
 
 class _PublishResult:
-  rc = 0
+  def __init__(self, mid):
+    self.rc = 0
+    self.mid = mid
 
 
 class _FakeMqttClient:
   def __init__(self):
     self.published = []
     self.subscribed = []
+    self._next_mid = 1
 
   def publish(self, topic, payload, qos):
     self.published.append({
@@ -39,7 +42,9 @@ class _FakeMqttClient:
       "payload": payload,
       "qos": qos,
     })
-    return _PublishResult()
+    result = _PublishResult(mid=self._next_mid)
+    self._next_mid += 1
+    return result
 
   def subscribe(self, topic, qos):
     self.subscribed.append({
@@ -125,6 +130,20 @@ class TestMqttChannelQos(unittest.TestCase):
 
     self.assertEqual(client.published[0]["topic"], "root/ctrl")
     self.assertEqual(client.published[0]["qos"], 1)
+
+  def test_qos_rejects_values_that_only_look_integral_after_coercion(self):
+    wrapper = MQTTWrapper(
+      log=_FakeLog(),
+      config=_base_config(),
+      verbosity=99,
+    )
+
+    for invalid_qos in (
+      True, False, 1.5, float("nan"), float("inf"), float("-inf"), "1.0",
+    ):
+      with self.subTest(invalid_qos=invalid_qos):
+        with self.assertRaisesRegex(ValueError, "Invalid MQTT QoS"):
+          wrapper._normalize_qos(invalid_qos)
 
   def test_targeted_command_send_uses_config_channel_qos(self):
     wrapper = MQTTWrapper(
@@ -267,6 +286,19 @@ class TestMqttChannelQos(unittest.TestCase):
     self.assertEqual(session._config[COMMS.COMMUNICATION_CTRL_CHANNEL][COMMS.QOS], 1)
     self.assertEqual(session._config[COMMS.COMMUNICATION_CONFIG_CHANNEL][COMMS.QOS], 2)
     self.assertEqual(GenericSession.default_config, default_config)
+
+  def test_session_env_qos_rejects_malformed_values_consistently(self):
+    for invalid_qos in ("1.0", "nan", "3"):
+      with self.subTest(invalid_qos=invalid_qos):
+        session = GenericSession.__new__(GenericSession)
+        session._config = copy.deepcopy(GenericSession.default_config)
+        with mock.patch.dict(
+          "os.environ",
+          {"EE_MQTT_HEARTBEAT_QOS": invalid_qos},
+          clear=True,
+        ):
+          with self.assertRaisesRegex(ValueError, "Invalid MQTT QoS"):
+            session._GenericSession__apply_channel_qos_from_env()
 
   def test_subscribe_without_receive_channel_is_explicit_noop(self):
     wrapper = MQTTWrapper(

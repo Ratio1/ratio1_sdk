@@ -28,6 +28,8 @@ class BaseCommWrapper(object):
       recv_buff=None,
       send_channel_name=None,
       recv_channel_name=None,
+      recv_topics=None,
+      require_suback=False,
       comm_type=None,
       verbosity=1,
       **kwargs
@@ -38,6 +40,10 @@ class BaseCommWrapper(object):
     self._send_to = None
     self.send_channel_name = send_channel_name
     self.recv_channel_name = recv_channel_name
+    self._explicit_recv_topics = (
+      None if recv_topics is None else tuple(dict.fromkeys(recv_topics))
+    )
+    self._require_suback = bool(require_suback)
     self._comm_type = comm_type
     self.__verbosity = verbosity
     super(BaseCommWrapper, self).__init__(**kwargs)
@@ -140,10 +146,18 @@ class BaseCommWrapper(object):
     Keep validation close to the transport wrapper so bad rollout values fail
     before silently changing delivery guarantees.
     """
-    qos = int(qos)
-    if qos not in [0, 1, 2]:
-      raise ValueError("Invalid MQTT QoS {}. Expected one of 0, 1, 2.".format(qos))
-    return qos
+    invalid_message = (
+      "Invalid MQTT QoS {!r}. Expected one of 0, 1, 2.".format(qos)
+    )
+    if isinstance(qos, bool):
+      raise ValueError(invalid_message)
+    try:
+      normalized = int(qos)
+    except (TypeError, ValueError, OverflowError) as exc:
+      raise ValueError(invalid_message) from exc
+    if str(qos).strip() != str(normalized) or normalized not in [0, 1, 2]:
+      raise ValueError(invalid_message)
+    return normalized
 
   def get_channel_qos(self, channel_name=None, channel_def=None):
     """
@@ -227,16 +241,39 @@ class BaseCommWrapper(object):
       Ordered unique topic names including the broadcast topic and, when
       enabled, the addressed payload topic for this node.
     """
+    if self._explicit_recv_topics is not None:
+      return list(self._explicit_recv_topics)
     if self.recv_channel_name is None:
       return []
 
     cfg = self._config[self.recv_channel_name].copy()
     topics = self._expand_channel_topic(cfg[COMMS.TOPIC])
     targeted_topic = cfg.get(COMMS.TARGETED_TOPIC)
-    if targeted_topic and not self.cfg_disable_addressed_payload_subs:
+    subscribe_targeted = cfg.get(COMMS.SUBSCRIBE_TARGETED, True)
+    if isinstance(subscribe_targeted, str):
+      subscribe_targeted = subscribe_targeted.strip().upper() in [
+        "1", "TRUE", "YES",
+      ]
+    if (
+      targeted_topic
+      and subscribe_targeted
+      and not self.cfg_disable_addressed_payload_subs
+    ):
       topics.extend(self._expand_channel_topic(targeted_topic, subtopic_values=[self.cfg_node_addr]))
     # Preserve first-seen topic order while removing duplicates.
     return list(dict.fromkeys(topics))
+
+  @property
+  def require_suback(self):
+    """Return whether this wrapper needs broker-confirmed subscription readiness.
+
+    Returns
+    -------
+    bool
+      ``True`` when successful local subscribe calls are insufficient and every
+      topic must receive an acceptable MQTT SUBACK.
+    """
+    return self._require_suback
 
   @property
   def channel_key(self):

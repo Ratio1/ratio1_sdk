@@ -1,8 +1,13 @@
 import json
+import os
 
 from ...base import GenericSession
 from ...comm import MQTTWrapper
-from ...const import PAYLOAD_DATA
+from ...comm.heartbeat_observation import (
+  HEARTBEAT_MODE_SELECTED_NODES,
+  HEARTBEAT_MODE_SUMMARY_DISCOVERY,
+)
+from ...const import ENVIRONMENT, PAYLOAD_DATA
 from ...const import comms as comm_ct
 
 
@@ -32,6 +37,7 @@ class MqttSession(GenericSession):
         verbosity=self._verbosity,
     )
 
+    heartbeat_wrapper_kwargs = self._heartbeat_wrapper_kwargs()
     self._heartbeats_communicator = MQTTWrapper(
         log=self.log,
         config=self._config,
@@ -41,6 +47,7 @@ class MqttSession(GenericSession):
         recv_buff=self._hb_messages,
         connection_name=self.name,
         verbosity=self._verbosity,
+        **heartbeat_wrapper_kwargs,
     )
 
     self._notifications_communicator = MQTTWrapper(
@@ -64,18 +71,126 @@ class MqttSession(GenericSession):
     """
     Check if the session is connected to the communication server.
     """
-    return self._default_communicator.connected and self._heartbeats_communicator.connected and self._notifications_communicator.connected
+    communicators = [
+      self._default_communicator,
+      self._heartbeats_communicator,
+      self._notifications_communicator,
+    ]
+    return all(
+      communicator.connected and communicator.receive_ready
+      for communicator in communicators
+    )
+
+  def _heartbeat_wrapper_kwargs(self):
+    """Return reduced-mode constructor arguments for the heartbeat wrapper.
+
+    Returns
+    -------
+    dict
+      Empty for compatibility-preserving full-network mode, or an explicit
+      immutable receive-topic set for a reduced mode.
+    """
+    observation = getattr(self, "_heartbeat_observation_config", None)
+    if observation is None:
+      return {}
+    if observation.mode == HEARTBEAT_MODE_SUMMARY_DISCOVERY:
+      return {
+        "recv_topics": [],
+        "require_suback": False,
+      }
+    if observation.mode != HEARTBEAT_MODE_SELECTED_NODES:
+      return {}
+
+    channel_config = dict(
+      self._config[comm_ct.COMMUNICATION_CTRL_CHANNEL]
+    )
+    targeted_topic = channel_config.get(comm_ct.TARGETED_TOPIC)
+    if isinstance(targeted_topic, str) and targeted_topic.startswith("{}"):
+      root_topic = os.environ.get(
+        ENVIRONMENT.EE_ROOT_TOPIC_ENV_KEY,
+        getattr(self, "comms_root_topic", "naeural"),
+      )
+      placeholder_count = targeted_topic.count("{}")
+      channel_config[comm_ct.TARGETED_TOPIC] = targeted_topic.format(
+        root_topic,
+        *(["{}"] * (placeholder_count - 1)),
+      )
+    return {
+      "recv_topics": list(observation.heartbeat_topics(channel_config)),
+      "require_suback": True,
+    }
+
+  def _refresh_heartbeat_subscription_topics(self):
+    """Refresh exact topics after GenericSession finalizes root templates.
+
+    Returns
+    -------
+    None
+    """
+    observation = self._heartbeat_observation_config
+    if observation.mode == HEARTBEAT_MODE_SELECTED_NODES:
+      topics = observation.heartbeat_topics(
+        self._config[comm_ct.COMMUNICATION_CTRL_CHANNEL]
+      )
+      self._heartbeats_communicator._explicit_recv_topics = tuple(topics)
+      self._heartbeats_communicator._require_suback = True
+    elif observation.mode == HEARTBEAT_MODE_SUMMARY_DISCOVERY:
+      self._heartbeats_communicator._explicit_recv_topics = ()
+      self._heartbeats_communicator._require_suback = False
+    return
 
   def _connect(self) -> None:
-    if self._default_communicator.connection is None:
-      self._default_communicator.server_connect()
-      self._default_communicator.subscribe()
-    if self._heartbeats_communicator.connection is None:
-      self._heartbeats_communicator.server_connect()
-      self._heartbeats_communicator.subscribe()
-    if self._notifications_communicator.connection is None:
-      self._notifications_communicator.server_connect()
-      self._notifications_communicator.subscribe()
+    """Connect and establish the exact immutable receive subscriptions.
+
+    Returns
+    -------
+    None
+    """
+    for communicator in [
+      self._default_communicator,
+      self._heartbeats_communicator,
+      self._notifications_communicator,
+    ]:
+      if not self._communication_should_continue():
+        break
+      if communicator.connection is None:
+        communicator.server_connect()
+      if communicator.connection is not None and not communicator.receive_ready:
+        result = communicator.subscribe(
+          should_continue=self._communication_should_continue,
+        )
+        if communicator is self._heartbeats_communicator:
+          self._update_heartbeat_subscription_status(result)
+    return
+
+  def _update_heartbeat_subscription_status(self, subscribe_result):
+    """Project broker subscription evidence into observation readiness.
+
+    Parameters
+    ----------
+    subscribe_result : dict
+      MQTT wrapper subscribe result.
+
+    Returns
+    -------
+    None
+    """
+    observation = getattr(self, "_heartbeat_observation_config", None)
+    monitor = getattr(self, "_heartbeat_observation_monitor", None)
+    if (
+      observation is None
+      or monitor is None
+      or observation.mode != HEARTBEAT_MODE_SELECTED_NODES
+    ):
+      return
+    subscription = self._heartbeats_communicator.get_subscription_status()
+    ready = bool(subscribe_result.get("has_connection")) and subscription["ready"]
+    reason = None if ready else "targeted_subscription_failed"
+    monitor.set_subscription_status(
+      ready=ready,
+      topics=subscription["acknowledged_topics"],
+      reason=reason,
+    )
     return
 
   def _communication_close(self, **kwargs):

@@ -30,6 +30,15 @@ from ..const import (
 from ..const import comms as comm_ct
 from ..const import DEEPLOY_CT
 from ..io_formatter import IOFormatterWrapper
+from ..comm.heartbeat_observation import (
+  HEARTBEAT_MODE_FULL_NETWORK,
+  HEARTBEAT_MODE_SELECTED_NODES,
+  HEARTBEAT_MODE_SUMMARY_DISCOVERY,
+  HeartbeatObservationConfig,
+  HeartbeatObservationMonitor,
+  HeartbeatObservationPolicy,
+)
+from ..comm.message_buffer import ObservableMessageBuffer
 from ..logging import Logger
 from ..utils import load_dotenv
 from .payload import Payload
@@ -73,7 +82,9 @@ class GenericSession(BaseDecentrAIObject):
           "TOPIC": "{}/{}/config"
       },
       "CTRL_CHANNEL": {
-          "TOPIC": "{}/ctrl"
+          "TOPIC": "{}/ctrl",
+          "TARGETED_TOPIC": "{}/ctrl/{}",
+          "SUBSCRIBE_TARGETED": False,
       },
       "NOTIF_CHANNEL": {
           "TOPIC": "{}/notif"
@@ -87,6 +98,37 @@ class GenericSession(BaseDecentrAIObject):
       "DISABLE_ADDRESSED_PAYLOAD_SUBS": False,
       "SUBTOPIC": "address",  # or "alias"
   }
+
+  @staticmethod
+  def _normalize_callback_queue_size(value):
+    """Normalize a positive callback queue size from config-style input.
+
+    Parameters
+    ----------
+    value : int or str
+      Positive integer or its decimal string representation.
+
+    Returns
+    -------
+    int
+      Validated positive queue capacity.
+
+    Raises
+    ------
+    ValueError
+      If the value is boolean, non-integral, zero, or negative.
+    """
+    if isinstance(value, bool):
+      raise ValueError("callback_queue_size must be a positive integer")
+    try:
+      normalized = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+      raise ValueError(
+        "callback_queue_size must be a positive integer"
+      ) from exc
+    if normalized <= 0 or str(value).strip() != str(normalized):
+      raise ValueError("callback_queue_size must be a positive integer")
+    return normalized
 
 
   def __init__(
@@ -123,6 +165,13 @@ class GenericSession(BaseDecentrAIObject):
               run_dauth=True,
               debug_env=False,     
               evm_network=None,         
+              heartbeat_observation_mode=None,
+              heartbeat_observation_nodes=None,
+              heartbeat_summary_publishers=None,
+              heartbeat_observation_max_age_seconds=None,
+              heartbeat_observation_future_skew_seconds=None,
+              heartbeat_observation_timeout_seconds=None,
+              callback_queue_size=None,
               **kwargs
             ) -> None:
     """
@@ -159,7 +208,40 @@ class GenericSession(BaseDecentrAIObject):
         
     filter_workers: list, optional
         If set, process the messages that come only from the nodes from this list.
-        Defaults to None
+        Defaults to None. Filtering happens after broker delivery and therefore
+        does not reduce MQTT traffic; use ``selected_nodes`` observation mode
+        when broker-side heartbeat reduction is required.
+
+    heartbeat_observation_mode : str, optional
+        Heartbeat delivery mode. Supported values are ``full_network``,
+        ``selected_nodes``, and ``summary_discovery``. Omission preserves the
+        existing ``full_network`` behavior.
+
+    heartbeat_observation_nodes : iterable of str, optional
+        Full Ratio1 addresses to observe when ``heartbeat_observation_mode`` is
+        ``selected_nodes``. The runtime must mirror its signed heartbeat to the
+        exact addressed CTRL topic.
+
+    heartbeat_summary_publishers : iterable of str, optional
+        Full Ratio1 addresses trusted to publish signed ``NET_MON_01`` payloads
+        when ``heartbeat_observation_mode`` is ``summary_discovery``.
+
+    heartbeat_observation_max_age_seconds : float, optional
+        Maximum accepted signed heartbeat or summary age. Defaults to 120
+        seconds.
+
+    heartbeat_observation_future_skew_seconds : float, optional
+        Maximum accepted future clock skew for signed observations. Defaults to
+        10 seconds.
+
+    heartbeat_observation_timeout_seconds : float, optional
+        Time without a valid reduced-mode observation before status becomes
+        degraded. Defaults to 30 seconds.
+
+    callback_queue_size : int, optional
+        Capacity of each payload, notification, and heartbeat callback queue.
+        Full queues reject the newest message and expose that outcome through
+        ``get_callback_queue_status()``. Defaults to 10,000 entries.
         
     show_commands : bool
         If True, will print the commands that are being sent to the ratio1 Edge Protocol edge nodes.
@@ -250,6 +332,29 @@ class GenericSession(BaseDecentrAIObject):
     
     # TODO: maybe read config from file?
     self._config = {**deepcopy(self.default_config), **deepcopy(config)}
+
+    self._heartbeat_observation_config = HeartbeatObservationConfig.from_sources(
+      self._config,
+      mode=heartbeat_observation_mode,
+      nodes=heartbeat_observation_nodes,
+      summary_publishers=heartbeat_summary_publishers,
+      max_age_seconds=heartbeat_observation_max_age_seconds,
+      future_skew_seconds=heartbeat_observation_future_skew_seconds,
+      observation_timeout_seconds=heartbeat_observation_timeout_seconds,
+    )
+    configured_queue_size = self._config.get("CALLBACK_QUEUE_SIZE", 10000)
+    if callback_queue_size is not None:
+      configured_queue_size = callback_queue_size
+    self._callback_queue_size = self._normalize_callback_queue_size(
+      configured_queue_size
+    )
+    self._callback_outcomes_lock = Lock()
+    self._callback_outcomes = {
+      channel: {"processed": 0, "processing_failed": 0}
+      for channel in ["payload", "notification", "heartbeat"]
+    }
+    self._heartbeat_observation_policy = None
+    self._heartbeat_observation_monitor = None
     
     
     
@@ -307,6 +412,7 @@ class GenericSession(BaseDecentrAIObject):
     self.__running_callback_threads = False
     self.__running_main_loop_thread = False
     self.__closed_everything = False
+    self.__closing = False
 
     self.__formatter_plugins_locations = formatter_plugins_locations
 
@@ -431,11 +537,22 @@ class GenericSession(BaseDecentrAIObject):
     self.formatter_wrapper = IOFormatterWrapper(
       self.log, plugin_search_locations=self.__formatter_plugins_locations
     )
+    self._heartbeat_observation_policy = HeartbeatObservationPolicy(
+      config=self._heartbeat_observation_config,
+      verifier=self.bc_engine,
+      decompress_text=self.log.decompress_text,
+    )
+    self._heartbeat_observation_monitor = HeartbeatObservationMonitor(
+      config=self._heartbeat_observation_config,
+    )
     
     obfuscated_pass = self._config[comm_ct.PASS][:3] + '*' * (len(self._config[comm_ct.PASS]) - 3) 
 
     msg = f"Connection to {self._config[comm_ct.USER]}:{obfuscated_pass}@{self._config[comm_ct.HOST]}:{self._config[comm_ct.PORT]} {'<secured>' if self._config[comm_ct.SECURED] else '<UNSECURED>'}"
     self.P(msg, color='y')
+    refresh_topics = getattr(self, "_refresh_heartbeat_subscription_topics", None)
+    if callable(refresh_topics):
+      refresh_topics()
     self._connect()
 
     msg = f"Created comms session '{self.name}'"
@@ -472,28 +589,114 @@ class GenericSession(BaseDecentrAIObject):
       return addr
     return addr[:prefix_size] + '...' + addr[-sufix_size:]
 
+  def set_heartbeat_observation(self, **kwargs):
+    """Reject attempts to mutate the observation contract of a live session.
+
+    Parameters
+    ----------
+    **kwargs : dict
+      Requested replacement settings, accepted only for a future API version.
+
+    Raises
+    ------
+    RuntimeError
+      Always. The first release requires callers to recreate the session so
+      subscription and authentication generations remain deterministic.
+    """
+    raise RuntimeError(
+      "Heartbeat observation configuration is immutable; create a new session"
+    )
+
+  def get_callback_queue_status(self):
+    """Return bounded callback admission and processing outcomes.
+
+    Returns
+    -------
+    dict
+      Per-channel queue snapshots augmented with ``processed`` and
+      ``processing_failed`` counters.
+    """
+    buffers = {
+      "payload": self._payload_messages,
+      "notification": self._notif_messages,
+      "heartbeat": self._hb_messages,
+    }
+    with self._callback_outcomes_lock:
+      outcomes = deepcopy(self._callback_outcomes)
+    result = {}
+    for channel, message_buffer in buffers.items():
+      result[channel] = message_buffer.snapshot().to_dict()
+      result[channel].update(outcomes[channel])
+    return result
+
+  def get_heartbeat_observation_status(self):
+    """Return mode readiness, trust outcomes, and queue provenance.
+
+    Returns
+    -------
+    dict
+      Observation monitor state plus authentication, subscription, and local
+      admission counters.
+    """
+    monitor = getattr(self, "_heartbeat_observation_monitor", None)
+    if monitor is None:
+      return {
+        "mode": HEARTBEAT_MODE_FULL_NETWORK,
+        "state": "initializing",
+        "reason": None,
+      }
+    status = monitor.snapshot()
+    policy = getattr(self, "_heartbeat_observation_policy", None)
+    status["authorization"] = policy.snapshot() if policy is not None else {}
+    status["callback_queues"] = self.get_callback_queue_status()
+    heartbeat_communicator = getattr(self, "_heartbeats_communicator", None)
+    if heartbeat_communicator is not None:
+      status["subscription"] = heartbeat_communicator.get_subscription_status()
+      status["transport_dropped_messages"] = (
+        heartbeat_communicator.nr_dropped_messages
+      )
+      status["transport_stale_messages"] = (
+        heartbeat_communicator.nr_stale_messages
+      )
+    return status
+
 
   # Message callbacks
   if True:
     def __create_user_callback_threads(self):
-      self._payload_messages = deque()
+      """Create one bounded FIFO and consumer thread per callback channel.
+
+      Returns
+      -------
+      None
+      """
+      capacity = getattr(self, "_callback_queue_size", 10000)
+      if not hasattr(self, "_callback_outcomes_lock"):
+        self._callback_outcomes_lock = Lock()
+      if not hasattr(self, "_callback_outcomes"):
+        self._callback_outcomes = {
+          channel: {"processed": 0, "processing_failed": 0}
+          for channel in ["payload", "notification", "heartbeat"]
+        }
+
+      self._payload_messages = ObservableMessageBuffer(capacity=capacity)
       self._payload_thread = Thread(
         target=self.__handle_messages,
-        args=(self._payload_messages, self.__on_payload),
+        args=(self._payload_messages, self.__on_payload, "payload"),
         daemon=True
       )
 
-      self._notif_messages = deque()
+      self._notif_messages = ObservableMessageBuffer(capacity=capacity)
       self._notif_thread = Thread(
         target=self.__handle_messages,
-        args=(self._notif_messages, self.__on_notification),
+        args=(self._notif_messages, self.__on_notification, "notification"),
         daemon=True
       )
 
-      self._hb_messages = deque()
+      self._hb_messages = ObservableMessageBuffer(capacity=capacity)
       self._hb_thread = Thread(
         target=self.__handle_messages,
-        args=(self._hb_messages, self.__on_heartbeat),
+        args=(self._hb_messages, self.__on_heartbeat, "heartbeat"),
         daemon=True
       )
 
@@ -545,7 +748,12 @@ class GenericSession(BaseDecentrAIObject):
       else:
         return None
 
-    def __on_message_default_callback(self, message, message_callback) -> None:
+    def __on_message_default_callback(
+        self,
+        message,
+        message_callback,
+        source=None,
+      ) -> None:
       """
       Default callback for all messages received from the communication server.
 
@@ -555,6 +763,8 @@ class GenericSession(BaseDecentrAIObject):
           The message received from the communication server
       message_callback : Callable[[dict, str, str, str, str], None]
           The callback that will handle the message.
+      source : str, optional
+          Callback channel used to select the reduced-mode trust boundary.
       """
       dict_msg_parsed, dict_msg = None, None
       try: 
@@ -562,6 +772,40 @@ class GenericSession(BaseDecentrAIObject):
       except json.JSONDecodeError:
         self.D("Failed to decode JSON message: {}".format(message), verbosity=2)
         return
+
+      observation_config = getattr(self, "_heartbeat_observation_config", None)
+      observation_policy = getattr(self, "_heartbeat_observation_policy", None)
+      verified_sender = None
+      trusted_summary = False
+      if (
+        observation_config is not None
+        and observation_policy is not None
+        and source == "heartbeat"
+        and observation_config.mode == HEARTBEAT_MODE_SELECTED_NODES
+      ):
+        decision = observation_policy.authorize_heartbeat(message)
+        if not decision.accepted:
+          return
+        verified_sender = decision.sender
+      elif (
+        observation_config is not None
+        and observation_policy is not None
+        and source == "payload"
+        and observation_config.mode == HEARTBEAT_MODE_SUMMARY_DISCOVERY
+      ):
+        raw_path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None] * 4)
+        is_netmon = (
+          isinstance(raw_path, (list, tuple))
+          and len(raw_path) >= 3
+          and str(raw_path[1]).lower() == DEFAULT_PIPELINES.ADMIN_PIPELINE.lower()
+          and str(raw_path[2]).upper() == PLUGIN_SIGNATURES.NET_MON_01.upper()
+        )
+        if is_netmon:
+          decision = observation_policy.authorize_summary(message)
+          if not decision.accepted:
+            return
+          verified_sender = decision.sender
+          trusted_summary = True
 
       # parse the message
       dict_msg_parsed = self.__parse_message(dict_msg)
@@ -572,15 +816,40 @@ class GenericSession(BaseDecentrAIObject):
         msg_path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None] * 4)
         # TODO: in the future, the EE_PAYLOAD_PATH will have the address, not the id
         msg_node_id, msg_pipeline, msg_signature, msg_instance = msg_path
-        msg_node_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
+        msg_node_addr = verified_sender or dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
       except:
         self.D("Message does not respect standard: {}".format(dict_msg), verbosity=2)
         return
 
-      message_callback(dict_msg_parsed, msg_node_addr, msg_pipeline, msg_signature, msg_instance)
+      if trusted_summary:
+        message_callback(
+          dict_msg_parsed,
+          msg_node_addr,
+          msg_pipeline,
+          msg_signature,
+          msg_instance,
+          trusted_summary=True,
+        )
+      elif source == "heartbeat" and verified_sender is not None:
+        message_callback(
+          dict_msg_parsed,
+          msg_node_addr,
+          msg_pipeline,
+          msg_signature,
+          msg_instance,
+          verified_sender=verified_sender,
+        )
+      else:
+        message_callback(
+          dict_msg_parsed,
+          msg_node_addr,
+          msg_pipeline,
+          msg_signature,
+          msg_instance,
+        )
       return
 
-    def __handle_messages(self, message_queue, message_callback):
+    def __handle_messages(self, message_queue, message_callback, source):
       """
       Handle messages from the communication server.
       This method is called in a separate thread.
@@ -591,19 +860,34 @@ class GenericSession(BaseDecentrAIObject):
           The queue of messages received from the communication server
       message_callback : Callable[[dict, str, str, str, str], None]
           The callback that will handle the message.
+      source : str
+          Stable callback-channel name used for policy and outcome accounting.
       """
-      while self.__running_callback_threads:
-        if len(message_queue) == 0:
-          sleep(0.01)
+      while self.__running_callback_threads or len(message_queue) > 0:
+        current_msg = message_queue.get(timeout=0.1)
+        if current_msg is None:
           continue
-        current_msg = message_queue.popleft()
-        self.__on_message_default_callback(current_msg, message_callback)
-      # end while self.running
-
-      # process the remaining messages before exiting
-      while len(message_queue) > 0:
-        current_msg = message_queue.popleft()
-        self.__on_message_default_callback(current_msg, message_callback)
+        outcome = "processed"
+        try:
+          self.__on_message_default_callback(
+            current_msg,
+            message_callback,
+            source,
+          )
+        except Exception:
+          outcome = "processing_failed"
+          try:
+            self.D(
+              "Failed to process {} callback message:\n{}".format(
+                source,
+                traceback.format_exc(),
+              ),
+              verbosity=2,
+            )
+          except Exception:
+            pass
+        with self._callback_outcomes_lock:
+          self._callback_outcomes[source][outcome] += 1
       return
 
     def __maybe_ignore_message(self, node_addr):
@@ -852,7 +1136,15 @@ class GenericSession(BaseDecentrAIObject):
           new_pipelines.append(pipeline)
       return new_pipelines
 
-    def __on_heartbeat(self, dict_msg: dict, msg_node_addr, msg_pipeline, msg_signature, msg_instance):
+    def __on_heartbeat(
+      self,
+      dict_msg: dict,
+      msg_node_addr,
+      msg_pipeline,
+      msg_signature,
+      msg_instance,
+      verified_sender=None,
+    ):
       """
       Handle a heartbeat message received from the communication server.
 
@@ -872,6 +1164,10 @@ class GenericSession(BaseDecentrAIObject):
 
       msg_instance : str
           The name of the instance that sent the message.
+
+      verified_sender : str, optional
+          Authenticated selected-node sender whose observation can become ready
+          after required internal heartbeat processing succeeds.
       """
       # extract relevant data from the message
 
@@ -931,6 +1227,15 @@ class GenericSession(BaseDecentrAIObject):
         transaction.handle_heartbeat(dict_msg)
 
       self.__track_allowed_node_by_hb(msg_node_addr, dict_msg)
+
+      if (
+        verified_sender is not None
+        and getattr(self, "_heartbeat_observation_monitor", None) is not None
+      ):
+        self._heartbeat_observation_monitor.record_valid_observation(
+          verified_sender,
+          source="heartbeat",
+        )
 
       # call the custom callback, if defined
       if self.custom_on_heartbeat is not None:
@@ -1021,17 +1326,21 @@ class GenericSession(BaseDecentrAIObject):
       msg_signature : str,
       sender_addr: str,
     ):
+      """Process a valid NetMon payload and report whether state was updated.
+
+      Returns
+      -------
+      bool
+          ``True`` only when a non-empty current-network map was committed.
       """
-      This method processes the net-mon (NETMON) messages received from the communication
-      channel.
-      """
+      processed = False
       REQUIRED_PIPELINE = DEFAULT_PIPELINES.ADMIN_PIPELINE
       REQUIRED_SIGNATURE = PLUGIN_SIGNATURES.NET_MON_01
       msg_pipeline = msg_pipeline.lower() if msg_pipeline is not None else None
       msg_signature = msg_signature.upper() if msg_signature is not None else None
       if msg_pipeline == REQUIRED_PIPELINE.lower() and msg_signature == REQUIRED_SIGNATURE.upper():
         # handle net mon message
-        sender_addr = dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
+        sender_addr = sender_addr or dict_msg.get(PAYLOAD_DATA.EE_SENDER, None)
         path = dict_msg.get(PAYLOAD_DATA.EE_PAYLOAD_PATH, [None, None, None, None])
         ee_id = dict_msg.get(PAYLOAD_DATA.EE_ID, None)
         dict_msg = PAYLOAD_DATA.maybe_decode_netmon_payload(dict_msg, log=self.log)
@@ -1050,6 +1359,7 @@ class GenericSession(BaseDecentrAIObject):
           
           self.__at_least_a_netmon_received = True
           self.__current_network_statuses[sender_addr] = current_network
+          processed = True
           online_addresses = []
           all_addresses = []
           lst_netconfig_request = []
@@ -1093,7 +1403,7 @@ class GenericSession(BaseDecentrAIObject):
           # end for each node in network map
         # end if current_network is valid
       # end if NET_MON_01
-      return
+      return processed
 
     def __maybe_process_net_config(
       self, 
@@ -1159,7 +1469,8 @@ class GenericSession(BaseDecentrAIObject):
       msg_node_addr, 
       msg_pipeline, 
       msg_signature, 
-      msg_instance
+      msg_instance,
+      trusted_summary=False,
     ) -> None:
       """
       Handle a payload message received from the communication server.
@@ -1180,19 +1491,72 @@ class GenericSession(BaseDecentrAIObject):
           
       msg_instance : str
           The name of the instance that sent the message.
+      trusted_summary : bool, optional
+          Whether the raw NetMon envelope already passed the reduced-mode
+          signature, sender, path, and freshness boundary.
+
+      Notes
+      -----
+      Summary-discovery NetMon payloads require raw authorization even when
+      formatter decoding changes their routing fields.
       """
+      observation_config = getattr(self, "_heartbeat_observation_config", None)
+      # Decoded routing cannot grant the trust that the raw envelope lacked.
+      if (
+        not trusted_summary
+        and observation_config is not None
+        and observation_config.mode == HEARTBEAT_MODE_SUMMARY_DISCOVERY
+        and str(msg_pipeline).lower() == DEFAULT_PIPELINES.ADMIN_PIPELINE.lower()
+        and str(msg_signature).upper() == PLUGIN_SIGNATURES.NET_MON_01.upper()
+      ):
+        return
+
       # extract relevant data from the message
       msg_data = dict_msg
 
-      if self.__maybe_ignore_message(msg_node_addr):
-        return
-      
-      self.__maybe_process_net_mon(
-        dict_msg=dict_msg, 
-        msg_pipeline=msg_pipeline, 
-        msg_signature=msg_signature, 
-        sender_addr=msg_node_addr
-      )
+      if trusted_summary:
+        dict_msg = PAYLOAD_DATA.maybe_decode_netmon_payload(dict_msg, log=self.log)
+        observation_policy = getattr(
+          self,
+          "_heartbeat_observation_policy",
+          None,
+        )
+        if observation_policy is not None:
+          valid_summary_content = observation_policy.validate_summary_content(
+            dict_msg
+          ).accepted
+        else:
+          current_network = dict_msg.get(PAYLOAD_DATA.NETMON_CURRENT_NETWORK)
+          valid_summary_content = isinstance(current_network, dict) and bool(
+            current_network
+          )
+        if not valid_summary_content:
+          return
+        processed_summary = self.__maybe_process_net_mon(
+          dict_msg=dict_msg,
+          msg_pipeline=msg_pipeline,
+          msg_signature=msg_signature,
+          sender_addr=msg_node_addr,
+        )
+        if (
+          processed_summary
+          and getattr(self, "_heartbeat_observation_monitor", None) is not None
+        ):
+          self._heartbeat_observation_monitor.record_valid_observation(
+            msg_node_addr,
+            source="summary",
+          )
+        if self.__maybe_ignore_message(msg_node_addr):
+          return
+      else:
+        if self.__maybe_ignore_message(msg_node_addr):
+          return
+        self.__maybe_process_net_mon(
+          dict_msg=dict_msg,
+          msg_pipeline=msg_pipeline,
+          msg_signature=msg_signature,
+          sender_addr=msg_node_addr,
+        )
 
       self.__maybe_process_net_config(
         dict_msg=dict_msg, 
@@ -1258,23 +1622,58 @@ class GenericSession(BaseDecentrAIObject):
       return
 
     def __start_main_loop_thread(self):
+      """Start reconnect processing and wait for mode-specific readiness.
+
+      Returns
+      -------
+      None
+      """
       self._main_loop_thread = Thread(target=self.__main_loop, daemon=True)
 
-      self.__running_main_loop_thread = True
+      self.__running_main_loop_thread = not self.__closing
       self._main_loop_thread.start()
       
+      mode = self._heartbeat_observation_config.mode
       start_wait = tm()
-      self.Pd(f"Blocking main thread for 1st NET_MON_01 with timeout={self.START_TIMEOUT}...")
-      elapsed = 0
-      while not self.__at_least_a_netmon_received:
-        elapsed = tm() - start_wait
-        if elapsed > self.START_TIMEOUT:
-          msg = "Timeout waiting for NET_MON_01 message. No connections. Exiting..."
-          self.P(msg, color='r', show=True)
+      if mode == HEARTBEAT_MODE_FULL_NETWORK:
+        self.Pd(
+          f"Blocking main thread for 1st NET_MON_01 with timeout={self.START_TIMEOUT}..."
+        )
+        elapsed = 0
+        while not self.__at_least_a_netmon_received and self._communication_should_continue():
+          elapsed = tm() - start_wait
+          if elapsed > self.START_TIMEOUT:
+            self.P(
+              "Timeout waiting for NET_MON_01 message. No connections.",
+              color='r',
+              show=True,
+            )
+            break
+          sleep(0.1)
+        if self.__at_least_a_netmon_received:
+          self.Pd(
+            f"Received NET_MON_01 message after {elapsed:.1f}s. Resuming the main thread..."
+          )
+        return
+
+      self.Pd(
+        "Waiting for {} observation readiness with timeout={}...".format(
+          mode,
+          self._heartbeat_observation_config.observation_timeout_seconds,
+        )
+      )
+      while True:
+        if not self._communication_should_continue():
+          return
+        observation = self._heartbeat_observation_monitor.snapshot()
+        if observation["state"] in ["ready", "degraded"]:
           break
-        sleep(0.1)      
-      if self.__at_least_a_netmon_received:        
-        self.Pd(f"Received NET_MON_01 message after {elapsed:.1f}s. Resuming the main thread...")
+        sleep(0.1)
+      if observation["state"] == "degraded":
+        self.P(
+          "Heartbeat observation degraded: {}".format(observation["reason"]),
+          color='r',
+        )
       return
 
     def __handle_open_transactions(self):
@@ -1334,6 +1733,17 @@ class GenericSession(BaseDecentrAIObject):
       """
       raise NotImplementedError
 
+    def _communication_should_continue(self):
+      """Return whether transport setup should keep retrying.
+
+      Returns
+      -------
+      bool
+          ``True`` during initial setup and reconnects, until shutdown is
+          requested. Startup precedes the main-loop thread.
+      """
+      return not self.__closing
+
     def close(self, close_pipelines=False, wait_close=True, **kwargs):
       """
       Close the session, releasing all resources and closing all threads
@@ -1351,6 +1761,8 @@ class GenericSession(BaseDecentrAIObject):
       if close_pipelines:
         self.__close_own_pipelines(wait=wait_close)
 
+      # Startup must not overwrite a shutdown requested by an early callback.
+      self.__closing = True
       self.__running_main_loop_thread = False
 
       # wait for the main loop thread to exit
@@ -1433,9 +1845,13 @@ class GenericSession(BaseDecentrAIObject):
       raise NotImplementedError
 
     def __release_callback_threads(self):
-      """
-      Release all resources and close all threads
-      """
+      """Close callback admission, drain accepted entries, and join consumers."""
+      for message_buffer in [
+        self._payload_messages,
+        self._notif_messages,
+        self._hb_messages,
+      ]:
+        message_buffer.close(discard=False)
       self.__running_callback_threads = False
 
       self._payload_thread.join()
@@ -1450,17 +1866,16 @@ class GenericSession(BaseDecentrAIObject):
       We use it like this to avoid blocking the main thread, which is used by the user.
       """
       self.__start_main_loop_time = tm()
-      while self.__running_main_loop_thread:
+      while self.__running_main_loop_thread and self._communication_should_continue():
         self.__maybe_reconnect()
         self.__handle_open_transactions()
         sleep(0.1)
       # end while self.running
 
       self.P("Main loop thread exiting...", verbosity=2)
-      self.__release_callback_threads()
-
       self.P("Comms closing...", verbosity=2)
       self._communication_close()
+      self.__release_callback_threads()
       self.__closed_everything = True
       return
 
@@ -1654,10 +2069,16 @@ class GenericSession(BaseDecentrAIObject):
       value = next((os.getenv(key) for key in keys if os.getenv(key) not in [None, ""]), None)
       if value is None:
         return None
-      value = int(value)
-      if value not in [0, 1, 2]:
-        raise ValueError(f"Invalid MQTT QoS {value}. Expected one of 0, 1, 2.")
-      return value
+      invalid_message = (
+        f"Invalid MQTT QoS {value!r}. Expected one of 0, 1, 2."
+      )
+      try:
+        normalized = int(value)
+      except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(invalid_message) from exc
+      if value.strip() != str(normalized) or normalized not in [0, 1, 2]:
+        raise ValueError(invalid_message)
+      return normalized
 
     def __apply_channel_qos_from_env(self):
       qos_overrides = [
