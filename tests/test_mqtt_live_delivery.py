@@ -2,6 +2,7 @@ import os
 import threading
 import time
 import unittest
+from unittest import mock
 from uuid import uuid4
 
 import paho.mqtt.client as mqtt
@@ -38,6 +39,52 @@ def _new_client(client_id):
 
 @unittest.skipUnless(os.environ.get(LIVE_HOST_ENV), "isolated MQTT broker not configured")
 class TestMqttLiveDelivery(unittest.TestCase):
+
+  def test_receive_resubscribes_after_disconnect_during_ready_publication(self):
+    host = os.environ[LIVE_HOST_ENV]
+    port = int(os.environ.get(LIVE_PORT_ENV, '1883'))
+    for require_suback in (False, True):
+      with self.subTest(require_suback=require_suback):
+        root = 'ecomms-generation-' + uuid4().hex
+        received = threading.Event()
+        config = {
+          COMMS.HOST: host, COMMS.PORT: port, COMMS.USER: '', COMMS.PASS: '',
+          COMMS.EE_ADDR: '0xai_SDK', COMMS.QOS: 1, COMMS.SECURED: 0,
+          COMMS.COMMUNICATION_CTRL_CHANNEL: {COMMS.TOPIC: root + '/ctrl'},
+        }
+        wrapper = MQTTWrapper(
+          log=_Log(), config=config, recv_buff=[],
+          recv_channel_name=COMMS.COMMUNICATION_CTRL_CHANNEL,
+          recv_topics=[root + '/ctrl'], require_suback=require_suback,
+          on_message=lambda *args: received.set(), verbosity=99,
+        )
+        publisher = _new_client(root + '-publisher')
+        try:
+          self.assertTrue(wrapper.server_connect(max_retries=2)['has_connection'])
+          old = wrapper.connection
+          record = wrapper._record_topic_status
+
+          def disconnect_before_ready(*args, **kwargs):
+            record(*args, **kwargs)
+            wrapper.release(expected_client=old)
+
+          with mock.patch.object(wrapper, '_record_topic_status', side_effect=disconnect_before_ready):
+            self.assertFalse(wrapper.subscribe(max_retries=1)['has_connection'])
+          self.assertFalse(wrapper.receive_ready)
+          self.assertTrue(wrapper.server_connect(max_retries=2)['has_connection'])
+          self.assertIsNot(wrapper.connection, old)
+          if not wrapper.receive_ready:
+            self.assertTrue(wrapper.subscribe(max_retries=1)['has_connection'])
+          publisher.connect(host, port)
+          publisher.loop_start()
+          result = publisher.publish(root + '/ctrl', 'after-reconnect', qos=1)
+          result.wait_for_publish(timeout=5)
+          self.assertTrue(result.is_published())
+          self.assertTrue(received.wait(5), 'replacement missed its receive subscription')
+        finally:
+          wrapper.release()
+          publisher.disconnect()
+          publisher.loop_stop()
 
   def test_command_delivery_survives_heartbeat_burst_and_reconnect(self):
     host = os.environ[LIVE_HOST_ENV]

@@ -1,6 +1,7 @@
 import json
 import math
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 
 from ratio1 import (
@@ -453,6 +454,42 @@ class TestHeartbeatObservationPolicy(unittest.TestCase):
 
 
 class TestHeartbeatObservationMonitor(unittest.TestCase):
+
+  def test_selected_subscription_wait_has_a_deadline_and_can_recover(self):
+    clock = _Clock(0.0)
+    config = HeartbeatObservationConfig.from_values(
+      mode='selected_nodes', nodes=[NODE_A], observation_timeout_seconds=5,
+    )
+    monitor = HeartbeatObservationMonitor(config=config, clock=clock)
+    clock.value = 4.9
+    self.assertEqual(monitor.snapshot()['state'], 'waiting_for_suback')
+    clock.value = 5.0
+    self.assertEqual(monitor.snapshot()['state'], 'degraded')
+    self.assertEqual(monitor.snapshot()['reason'], 'targeted_subscription_timeout')
+    monitor.set_subscription_status(True, [f'ratio1/ctrl/{NODE_A}'])
+    monitor.record_valid_observation(NODE_A)
+    self.assertEqual(monitor.snapshot()['state'], 'ready')
+
+  def test_selected_startup_returns_after_deadline_without_subscription_attempt(self):
+    from ratio1.base.generic_session import GenericSession
+
+    clock = _Clock(0.0)
+    config = HeartbeatObservationConfig.from_values(
+      mode='selected_nodes', nodes=[NODE_A], observation_timeout_seconds=1,
+    )
+    monitor = HeartbeatObservationMonitor(config=config, clock=clock)
+    session = GenericSession.__new__(GenericSession)
+    session._heartbeat_observation_config = config
+    session._heartbeat_observation_monitor = monitor
+    session.Pd = mock.Mock()
+    session.P = mock.Mock()
+    clock.value = 1000
+    with mock.patch('ratio1.base.generic_session.Thread'), mock.patch(
+      'ratio1.base.generic_session.sleep',
+      side_effect=AssertionError('startup slept beyond observation deadline'),
+    ):
+      session._GenericSession__start_main_loop_thread()
+    self.assertEqual(monitor.snapshot()['state'], 'degraded')
 
   def test_selected_mode_becomes_degraded_without_targeted_heartbeat(self):
     clock = _Clock(10.0)

@@ -692,6 +692,9 @@ class HeartbeatObservationMonitor:
           if self._subscription_reason:
             state = "degraded"
             reason = self._subscription_reason
+          elif elapsed >= self.config.observation_timeout_seconds:
+            state = "degraded"
+            reason = "targeted_subscription_timeout"
           else:
             state = "waiting_for_suback"
         elif self._last_valid_at is None:
