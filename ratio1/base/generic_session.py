@@ -412,6 +412,7 @@ class GenericSession(BaseDecentrAIObject):
     self.__running_callback_threads = False
     self.__running_main_loop_thread = False
     self.__closed_everything = False
+    self.__closing = False
 
     self.__formatter_plugins_locations = formatter_plugins_locations
 
@@ -1629,7 +1630,7 @@ class GenericSession(BaseDecentrAIObject):
       """
       self._main_loop_thread = Thread(target=self.__main_loop, daemon=True)
 
-      self.__running_main_loop_thread = True
+      self.__running_main_loop_thread = not self.__closing
       self._main_loop_thread.start()
       
       mode = self._heartbeat_observation_config.mode
@@ -1639,7 +1640,7 @@ class GenericSession(BaseDecentrAIObject):
           f"Blocking main thread for 1st NET_MON_01 with timeout={self.START_TIMEOUT}..."
         )
         elapsed = 0
-        while not self.__at_least_a_netmon_received:
+        while not self.__at_least_a_netmon_received and self._communication_should_continue():
           elapsed = tm() - start_wait
           if elapsed > self.START_TIMEOUT:
             self.P(
@@ -1662,6 +1663,8 @@ class GenericSession(BaseDecentrAIObject):
         )
       )
       while True:
+        if not self._communication_should_continue():
+          return
         observation = self._heartbeat_observation_monitor.snapshot()
         if observation["state"] in ["ready", "degraded"]:
           break
@@ -1736,9 +1739,10 @@ class GenericSession(BaseDecentrAIObject):
       Returns
       -------
       bool
-          ``True`` while the session main loop is expected to keep running.
+          ``True`` during initial setup and reconnects, until shutdown is
+          requested. Startup precedes the main-loop thread.
       """
-      return self.__running_main_loop_thread
+      return not self.__closing
 
     def close(self, close_pipelines=False, wait_close=True, **kwargs):
       """
@@ -1757,6 +1761,8 @@ class GenericSession(BaseDecentrAIObject):
       if close_pipelines:
         self.__close_own_pipelines(wait=wait_close)
 
+      # Startup must not overwrite a shutdown requested by an early callback.
+      self.__closing = True
       self.__running_main_loop_thread = False
 
       # wait for the main loop thread to exit
@@ -1860,7 +1866,7 @@ class GenericSession(BaseDecentrAIObject):
       We use it like this to avoid blocking the main thread, which is used by the user.
       """
       self.__start_main_loop_time = tm()
-      while self.__running_main_loop_thread:
+      while self.__running_main_loop_thread and self._communication_should_continue():
         self.__maybe_reconnect()
         self.__handle_open_transactions()
         sleep(0.1)

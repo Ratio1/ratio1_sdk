@@ -151,6 +151,8 @@ class MqttSession(GenericSession):
       self._heartbeats_communicator,
       self._notifications_communicator,
     ]:
+      if not self._communication_should_continue():
+        break
       if communicator.connection is None:
         communicator.server_connect()
       if communicator.connection is not None and not communicator.receive_ready:

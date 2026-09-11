@@ -479,6 +479,7 @@ class TestHeartbeatObservationMonitor(unittest.TestCase):
     )
     monitor = HeartbeatObservationMonitor(config=config, clock=clock)
     session = GenericSession.__new__(GenericSession)
+    session._GenericSession__closing = False
     session._heartbeat_observation_config = config
     session._heartbeat_observation_monitor = monitor
     session.Pd = mock.Mock()

@@ -19,11 +19,30 @@ class _JoinProbe:
 
 class TestSessionCallbackBuffers(unittest.TestCase):
 
-  def test_transport_retry_predicate_reads_generic_session_state(self):
+  def test_transport_retries_allow_startup_and_stop_on_close(self):
     session = object.__new__(GenericSession)
+    session._GenericSession__closing = False
+    session._GenericSession__closed_everything = False
+    session._GenericSession__running_main_loop_thread = False
+    self.assertTrue(session._communication_should_continue())
     session._GenericSession__running_main_loop_thread = True
     self.assertTrue(session._communication_should_continue())
-    session._GenericSession__running_main_loop_thread = False
+    session.close(wait_close=False)
+    self.assertFalse(session._communication_should_continue())
+    session.close(wait_close=False)
+    self.assertFalse(session._communication_should_continue())
+
+  def test_pipeline_close_finishes_before_transport_cancellation(self):
+    session = object.__new__(GenericSession)
+    session._GenericSession__closing = False
+    session._GenericSession__closed_everything = False
+    session._GenericSession__running_main_loop_thread = True
+    checks = []
+    session._GenericSession__close_own_pipelines = lambda **kwargs: checks.append(
+      session._communication_should_continue()
+    )
+    session.close(close_pipelines=True, wait_close=False)
+    self.assertEqual(checks, [True])
     self.assertFalse(session._communication_should_continue())
 
   def test_callback_queue_size_accepts_numeric_config_strings(self):

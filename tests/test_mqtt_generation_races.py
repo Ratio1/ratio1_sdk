@@ -65,7 +65,7 @@ class TestMqttGenerationRaces(unittest.TestCase):
     session._default_communicator = wrapper
     session._heartbeats_communicator = other
     session._notifications_communicator = other
-    session._communication_should_continue = lambda: True
+    session._GenericSession__closing = False
     with mock.patch.object(wrapper, '_MQTTWrapper__create_mqttc_object', return_value=replacement):
       session._connect()
 
