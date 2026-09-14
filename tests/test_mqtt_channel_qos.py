@@ -1,5 +1,6 @@
 import unittest
 import copy
+import json
 import pathlib
 import tomllib
 from collections import deque
@@ -10,6 +11,15 @@ from ratio1.base.generic_session import GenericSession
 from ratio1.comm.mqtt_wrapper import MQTTWrapper
 from ratio1.const import COMMS
 from ratio1.const.payload import STATUS_TYPE
+
+
+LEGACY_QOS_CASES = (
+  (0, 0), (1, 1), (2, 2), (True, 1), (False, 0),
+  (0.0, 0), (1.0, 1), (2.0, 2), (1.5, 1), (2.9, 2), (-0.5, 0),
+  ("0", 0), ("1", 1), ("2", 2), (" 1 ", 1), ("\t2\n", 2),
+  ("01", 1), ("02", 2), ("+1", 1), ("+2", 2), ("-0", 0),
+  ("00", 0), ("0_1", 1),
+)
 
 
 class _FakeLog:
@@ -131,7 +141,39 @@ class TestMqttChannelQos(unittest.TestCase):
     self.assertEqual(client.published[0]["topic"], "root/ctrl")
     self.assertEqual(client.published[0]["qos"], 1)
 
-  def test_qos_rejects_values_that_only_look_integral_after_coercion(self):
+  def test_qos_preserves_legacy_coercion_and_channel_precedence(self):
+    """Keep historical integer coercion without rewriting source configuration.
+
+    Notes
+    -----
+    Channel overrides must work even when the unused global value is invalid.
+    """
+    for raw_qos, expected_qos in LEGACY_QOS_CASES:
+      for use_channel in (False, True):
+        with self.subTest(raw_qos=raw_qos, use_channel=use_channel):
+          config = _base_config()
+          channel = config[COMMS.COMMUNICATION_CTRL_CHANNEL]
+          config[COMMS.QOS] = "unused-invalid" if use_channel else raw_qos
+          if use_channel:
+            channel[COMMS.QOS] = raw_qos
+          else:
+            del channel[COMMS.QOS]
+          original_config = json.dumps(config, sort_keys=True)
+          wrapper = MQTTWrapper(log=_FakeLog(), config=config, verbosity=99)
+
+          result = wrapper.get_channel_qos(COMMS.COMMUNICATION_CTRL_CHANNEL)
+
+          self.assertIs(type(result), int)
+          self.assertEqual(result, expected_qos)
+          self.assertEqual(json.dumps(config, sort_keys=True), original_config)
+
+  def test_qos_rejects_invalid_or_out_of_range_coercions(self):
+    """Reject malformed values and integer results outside MQTT's QoS range.
+
+    Notes
+    -----
+    Numeric floats retain legacy truncation, but float-form strings do not.
+    """
     wrapper = MQTTWrapper(
       log=_FakeLog(),
       config=_base_config(),
@@ -139,11 +181,44 @@ class TestMqttChannelQos(unittest.TestCase):
     )
 
     for invalid_qos in (
-      True, False, 1.5, float("nan"), float("inf"), float("-inf"), "1.0",
+      None, [], {}, "", " ", -1, 3, -1.5, 3.0,
+      float("nan"), float("inf"), float("-inf"),
+      "1.0", "true", "false", "1e0", "nan", "inf", "-1", "3", "0x1",
     ):
       with self.subTest(invalid_qos=invalid_qos):
         with self.assertRaisesRegex(ValueError, "Invalid MQTT QoS"):
           wrapper._normalize_qos(invalid_qos)
+
+  def test_send_and_subscribe_use_normalized_legacy_qos(self):
+    """Pass normalized legacy values to both Paho transport operations.
+
+    Notes
+    -----
+    A local fake client exercises transport call arguments without networking.
+    """
+    for raw_qos, expected_qos in LEGACY_QOS_CASES:
+      with self.subTest(raw_qos=raw_qos):
+        config = _base_config()
+        config[COMMS.COMMUNICATION_CTRL_CHANNEL][COMMS.QOS] = raw_qos
+        wrapper = MQTTWrapper(
+          log=_FakeLog(),
+          config=config,
+          send_channel_name=COMMS.COMMUNICATION_CTRL_CHANNEL,
+          recv_channel_name=COMMS.COMMUNICATION_CTRL_CHANNEL,
+          recv_buff=deque(),
+          verbosity=99,
+        )
+        client = _FakeMqttClient()
+        wrapper._mqttc = client
+
+        wrapper.send("hb")
+        result = wrapper.subscribe(max_retries=1)
+
+        self.assertTrue(result["has_connection"])
+        self.assertEqual(client.published[0]["qos"], expected_qos)
+        self.assertIs(type(client.published[0]["qos"]), int)
+        self.assertEqual(client.subscribed[0]["qos"], expected_qos)
+        self.assertIs(type(client.subscribed[0]["qos"]), int)
 
   def test_targeted_command_send_uses_config_channel_qos(self):
     wrapper = MQTTWrapper(
@@ -288,7 +363,13 @@ class TestMqttChannelQos(unittest.TestCase):
     self.assertEqual(GenericSession.default_config, default_config)
 
   def test_session_env_qos_rejects_malformed_values_consistently(self):
-    for invalid_qos in ("1.0", "nan", "3"):
+    """Keep malformed nonempty environment overrides as startup errors.
+
+    Notes
+    -----
+    These spellings were invalid before the compatibility regression as well.
+    """
+    for invalid_qos in ("1.0", "true", "false", "1e0", "nan", "inf", "-1", "3", " "):
       with self.subTest(invalid_qos=invalid_qos):
         session = GenericSession.__new__(GenericSession)
         session._config = copy.deepcopy(GenericSession.default_config)
@@ -299,6 +380,61 @@ class TestMqttChannelQos(unittest.TestCase):
         ):
           with self.assertRaisesRegex(ValueError, "Invalid MQTT QoS"):
             session._GenericSession__apply_channel_qos_from_env()
+
+  def test_session_env_qos_preserves_legacy_integer_spellings(self):
+    """Accept historical integer strings through every existing QoS env alias.
+
+    Notes
+    -----
+    Environment overrides change session-local channels, never class defaults.
+    """
+    default_config = copy.deepcopy(GenericSession.default_config)
+    for key, channel_name in (
+      ("EE_MQTT_HEARTBEAT_QOS", COMMS.COMMUNICATION_CTRL_CHANNEL),
+      ("MQTT_HEARTBEAT_QOS", COMMS.COMMUNICATION_CTRL_CHANNEL),
+      ("EE_MQTT_COMMAND_QOS", COMMS.COMMUNICATION_CONFIG_CHANNEL),
+      ("MQTT_COMMAND_QOS", COMMS.COMMUNICATION_CONFIG_CHANNEL),
+    ):
+      for raw_qos, expected_qos in LEGACY_QOS_CASES:
+        if not isinstance(raw_qos, str):
+          continue
+        with self.subTest(key=key, raw_qos=raw_qos):
+          session = GenericSession.__new__(GenericSession)
+          session._config = copy.deepcopy(default_config)
+          with mock.patch.dict("os.environ", {key: raw_qos}, clear=True):
+            session._GenericSession__apply_channel_qos_from_env()
+
+          result = session._config[channel_name][COMMS.QOS]
+          self.assertIs(type(result), int)
+          self.assertEqual(result, expected_qos)
+          self.assertEqual(GenericSession.default_config, default_config)
+
+  def test_session_env_qos_preserves_first_nonempty_precedence(self):
+    """Keep preferred keys authoritative and empty overrides absent.
+
+    Notes
+    -----
+    Invalid preferred values must fail rather than silently use a valid alias.
+    """
+    session = GenericSession.__new__(GenericSession)
+    for preferred, alias in (
+      ("EE_MQTT_HEARTBEAT_QOS", "MQTT_HEARTBEAT_QOS"),
+      ("EE_MQTT_COMMAND_QOS", "MQTT_COMMAND_QOS"),
+    ):
+      for environment, expected in (
+        ({}, None),
+        ({preferred: "", alias: ""}, None),
+        ({preferred: "", alias: "02"}, 2),
+        ({preferred: "+1", alias: "2"}, 1),
+        ({preferred: "-0", alias: "invalid"}, 0),
+      ):
+        with self.subTest(preferred=preferred, environment=environment):
+          with mock.patch.dict("os.environ", environment, clear=True):
+            result = session._GenericSession__env_qos(preferred, alias)
+          self.assertEqual(result, expected)
+      with mock.patch.dict("os.environ", {preferred: "1.0", alias: "2"}, clear=True):
+        with self.assertRaisesRegex(ValueError, "Invalid MQTT QoS"):
+          session._GenericSession__env_qos(preferred, alias)
 
   def test_subscribe_without_receive_channel_is_explicit_noop(self):
     wrapper = MQTTWrapper(
