@@ -140,22 +140,34 @@ class BaseCommWrapper(object):
 
   def _normalize_qos(self, qos):
     """
-    Return a validated MQTT QoS integer.
+    Return a validated MQTT QoS integer using historical coercion.
 
-    Channel-level QoS values can arrive from JSON/env processing as strings.
-    Keep validation close to the transport wrapper so bad rollout values fail
-    before silently changing delivery guarantees.
+    Parameters
+    ----------
+    qos : object
+      Configured value accepted by ``int``, including boolean and numeric
+      values or integer strings with whitespace, signs or leading zeroes.
+
+    Returns
+    -------
+    int
+      Normalized MQTT QoS in ``[0, 1, 2]``. Numeric fractions are truncated
+      toward zero to preserve existing configuration behavior.
+
+    Raises
+    ------
+    ValueError
+      If integer conversion fails or its result is outside the MQTT range.
     """
     invalid_message = (
       "Invalid MQTT QoS {!r}. Expected one of 0, 1, 2.".format(qos)
     )
-    if isinstance(qos, bool):
-      raise ValueError(invalid_message)
     try:
+      # Historical configs rely on int coercion, not canonical string syntax.
       normalized = int(qos)
     except (TypeError, ValueError, OverflowError) as exc:
       raise ValueError(invalid_message) from exc
-    if str(qos).strip() != str(normalized) or normalized not in [0, 1, 2]:
+    if normalized not in [0, 1, 2]:
       raise ValueError(invalid_message)
     return normalized
 

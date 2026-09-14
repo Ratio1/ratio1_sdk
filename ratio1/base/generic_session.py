@@ -2066,6 +2066,24 @@ class GenericSession(BaseDecentrAIObject):
       return self.__user_config_loaded
 
     def __env_qos(self, *keys):
+      """
+      Return the first nonempty QoS override using historical integer syntax.
+
+      Parameters
+      ----------
+      *keys : str
+        Environment variable names in descending precedence order.
+
+      Returns
+      -------
+      int or None
+        MQTT QoS in ``[0, 1, 2]``, or ``None`` when every key is unset or empty.
+
+      Raises
+      ------
+      ValueError
+        If the selected value cannot be converted by ``int`` or is out of range.
+      """
       value = next((os.getenv(key) for key in keys if os.getenv(key) not in [None, ""]), None)
       if value is None:
         return None
@@ -2073,10 +2091,11 @@ class GenericSession(BaseDecentrAIObject):
         f"Invalid MQTT QoS {value!r}. Expected one of 0, 1, 2."
       )
       try:
+        # Preserve legacy signs, leading zeroes and other int-compatible forms.
         normalized = int(value)
       except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(invalid_message) from exc
-      if value.strip() != str(normalized) or normalized not in [0, 1, 2]:
+      if normalized not in [0, 1, 2]:
         raise ValueError(invalid_message)
       return normalized
 
