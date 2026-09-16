@@ -1,11 +1,13 @@
 from argparse import Namespace
 from time import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from pandas import DataFrame
+from pandas import DataFrame, option_context
 
 from ratio1.base.generic_session import GenericSession
+from ratio1.base.pipeline import Pipeline
 from ratio1.cli.cli import build_parser
 from ratio1.cli.nodes import get_apps
 from ratio1.const import HB, PAYLOAD_DATA
@@ -18,8 +20,18 @@ class _FakeLog:
 
 class _FakeInstance:
   def __init__(self, signature="FAKE_PLUGIN", instance_id="inst-01"):
+    """Initialize a local plugin fixture with an empty configuration.
+
+    Parameters
+    ----------
+    signature : str, optional
+        Plugin type displayed in the app table.
+    instance_id : str, optional
+        Identifier displayed for the plugin instance.
+    """
     self.signature = signature
     self.instance_id = instance_id
+    self.config = {}
 
   def get_status(self):
     return {
@@ -167,6 +179,99 @@ class TestGetAppsAliasFilter(unittest.TestCase):
 
     self.assertEqual(result["App"].tolist(), ["oracle-services"])
     self.assertEqual(result["Plugin"].tolist(), ["ORACLE_API"])
+
+  def test_get_nodes_apps_reads_each_instances_pipeline_resources(self):
+    """Read distinct allocations from an attached multi-instance pipeline.
+
+    Notes
+    -----
+    Uses the real Pipeline loader to verify where saved resource data resides.
+    """
+    session = self._make_session()
+    pipeline = Pipeline(
+      session=session, log=session.log, node_addr="node-smart",
+      name="allocated-app", is_attached=True,
+      existing_config={"INITIATOR_ADDR": "owner-01", "INITIATOR_ID": "owner"},
+      plugins=[{
+        "SIGNATURE": "CONTAINER_APP_RUNNER",
+        "INSTANCES": [
+          {"INSTANCE_ID": "first", "CONTAINER_RESOURCES": {"cpu": 0.5, "memory": "512m"}},
+          {"INSTANCE_ID": "second", "CONTAINER_RESOURCES": {"cpu": "2", "memory": "2g"}},
+        ],
+      }],
+    )
+    for instance in pipeline.lst_plugin_instances:
+      instance.last_known_status = _FakeInstance().get_status()
+    session.get_active_pipelines = lambda node: {pipeline.name: pipeline}
+
+    rows = session.get_nodes_apps(node="node-smart")
+
+    self.assertEqual([(row.get("CPU"), row.get("RAM")) for row in rows], [(0.5, "512m"), ("2", "2g")])
+    columns = list(rows[0])
+    app_index = columns.index("App")
+    self.assertEqual(columns[app_index:app_index + 4], ["App", "CPU", "RAM", "Plugin"])
+    self.assertEqual(
+      session.get_nodes_apps(node="node-smart", as_json=True),
+      [{pipeline.name: pipeline.get_full_config()}],
+    )
+
+  def test_get_nodes_apps_handles_unavailable_resource_values(self):
+    """Distinguish unavailable allocations from explicit zero values.
+
+    Notes
+    -----
+    Native apps may omit resources; malformed optional metadata must not
+    prevent listing other apps.
+    """
+    cases = [
+      ({}, ("-", "-")),
+      ({"CONTAINER_RESOURCES": None}, ("-", "-")),
+      ({"CONTAINER_RESOURCES": []}, ("-", "-")),
+      ({"CONTAINER_RESOURCES": {"cpu": 0.25}}, (0.25, "-")),
+      ({"CONTAINER_RESOURCES": {"memory": "1g"}}, ("-", "1g")),
+      ({"CONTAINER_RESOURCES": {"cpu": None, "memory": None}}, ("-", "-")),
+      ({"CONTAINER_RESOURCES": {"cpu": 0, "memory": 0}}, (0, 0)),
+    ]
+    for config, expected in cases:
+      with self.subTest(config=config):
+        session = self._make_session()
+        pipeline = _FakePipeline()
+        pipeline.lst_plugin_instances[0].config = config
+        session.get_active_pipelines = lambda node: {"allocated-app": pipeline}
+
+        rows = session.get_nodes_apps(node="node-smart")
+
+        self.assertEqual([(row.get("CPU"), row.get("RAM")) for row in rows], [expected])
+
+  def test_get_apps_prints_resources_after_app_in_normal_and_wide_views(self):
+    """Verify allocation values and column order in rendered CLI tables.
+
+    Notes
+    -----
+    Runs real session row construction and CLI formatting with local fixtures.
+    """
+    for wide in (False, True):
+      with self.subTest(wide=wide):
+        session = self._make_session()
+        session.bc_engine = SimpleNamespace(evm_network="testnet")
+        pipeline = _FakePipeline()
+        pipeline.lst_plugin_instances[0].config = {
+          "CONTAINER_RESOURCES": {"cpu": 0.5, "memory": "512m"},
+        }
+        session.get_active_pipelines = lambda node: {"allocated-app": pipeline}
+        argv = ["get", "apps", "--alias", "smart"] + (["--wide"] if wide else [])
+        args = build_parser().parse_args(argv)
+        with patch("ratio1.Session", return_value=session), \
+             patch("ratio1.cli.nodes.log_with_color") as output, \
+             option_context("display.max_columns", None, "display.width", 1000):
+          get_apps(args)
+
+        table = output.call_args.args[0]
+        header = table.splitlines()[0].split()
+        app_index = header.index("App")
+        self.assertEqual(header[app_index:app_index + 4], ["App", "CPU", "RAM", "Plugin"])
+        self.assertRegex(table, r"allocated-app\s+0\.5\s+512m\s+FAKE_PLUGIN")
+        self.assertEqual("Start" in header, wide)
 
   def test_get_apps_passes_alias_filter_to_session(self):
     class _FakeSession:

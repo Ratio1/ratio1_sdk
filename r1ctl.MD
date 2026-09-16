@@ -44,6 +44,20 @@ Query nodes or supervisors in the network.
 #### `get nodes`
 Retrieve information about network nodes.
 
+Normal and `--wide` tables include these columns, in GiB with one decimal:
+
+- `TMem`: Total node memory reported by netmon.
+- `PMem`: Sum of configured memory allocations across Deeploy pipeline instances.
+- `TDisk`: Total node disk capacity reported by netmon.
+- `PDisk`: Sum of configured `CONTAINER_RESOURCES.storage` allocations across
+  Deeploy pipeline instances, not current disk usage.
+
+Admin and non-Deeploy pipelines are excluded from allocation totals. Configs
+are collected from selected peered nodes with a shared wait of up to 10 seconds.
+Unavailable configs or allocation values appear as `-`; a known node without
+Deeploy pipelines shows `0.0`. Allocation strings use binary units (`512m`,
+`2g`, `1GiB`); bare container limits are interpreted as bytes.
+
 **Options**:
 - `--all`: Get all known nodes.
 - `--online`: Get only online nodes.
@@ -93,6 +107,11 @@ nepctl get avail <node_eth_address>
 
 #### `get apps`
 Retrieve the apps running on accessible nodes.
+
+Both normal and `--wide` tables show `CPU` and `RAM` immediately after `App`.
+These are the plugin instance's configured CPU core and memory allocations
+from the pipeline's `CONTAINER_RESOURCES`. RAM keeps its configured units
+(for example, `512m` or `2g`); unreported allocations appear as `-`.
 
 **Options**:
 - `--node`: Query a specific node by address or alias.

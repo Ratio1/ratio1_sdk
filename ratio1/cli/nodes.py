@@ -23,8 +23,30 @@ def _get_netstats(
   return_session=False,
   eth=False,
   all_info=False,
-  wait_for_node=None
+  wait_for_node=None,
+  include_resources=False,
 ):
+  """Collect a node report using the requested CLI filters.
+
+  Parameters
+  ----------
+  silent, online_only, allowed_only, supervisors_only : bool, optional
+      Logging, node availability, and access filters.
+  supervisor, alias_filter, wait_for_node : str, optional
+      Report source, alias filter, or explicit node to wait for.
+  return_session : bool, optional
+      Include the session in the returned tuple.
+  eth, all_info : bool, optional
+      Address and table detail options.
+  include_resources : bool, optional
+      Include hardware capacity and Deeploy allocations in GiB.
+
+  Returns
+  -------
+  tuple
+      Report, reporter identity, supervisor count, elapsed time, and optionally
+      the session used to collect the report.
+  """
   t1 = time()
   from ratio1 import Session
   sess = Session(silent=silent)
@@ -42,6 +64,7 @@ def _get_netstats(
     min_supervisors=1,
     eth=eth,
     all_info=all_info, 
+    include_resources=include_resources,
   )
   df = dct_info[SESSION_CT.NETSTATS_REPORT]
   supervisor = dct_info[SESSION_CT.NETSTATS_REPORTER]
@@ -200,31 +223,63 @@ def _format_explicit_grouped_nodes(df, column):
   -------
   str
       Human-readable grouped node listing. Each group starts with the grouped
-      field value and count, followed by indented node entries.
+      field value and count, followed by indented node entries. Resource
+      fields retain the node table's one-decimal GiB display format.
   """
   display_df = df[[column, "Alias", "Address"]].copy()
   display_df[column] = display_df[column].fillna("[missing]").replace("", "[empty]")
   grouped_df = _get_grouped_nodes(df, column)
+  display_values = _format_node_resource_columns(grouped_df)[column]
   lines = []
-  for _, group_row in grouped_df.iterrows():
+  for index, group_row in grouped_df.iterrows():
     group_value = group_row[column]
-    group_count = group_row["Nodes"]
+    group_count = int(group_row["Nodes"])
     node_label = "node" if group_count == 1 else "nodes"
-    lines.append(f"{column}: {group_value} ({group_count} {node_label})")
+    lines.append(f"{column}: {display_values.loc[index]} ({group_count} {node_label})")
     group_nodes = display_df[display_df[column] == group_value]
     for _, node_row in group_nodes.iterrows():
       lines.append(f"  - {node_row['Alias']}  {node_row['Address']}")
   return "\n".join(lines)
 
 
+def _format_node_resource_columns(df):
+  """Format GiB columns for display without modifying numeric report data.
+
+  Parameters
+  ----------
+  df : pandas.DataFrame
+      Node report or grouped report.
+
+  Returns
+  -------
+  pandas.DataFrame
+      Display copy with one decimal for resources and ``-`` for unknowns.
+  """
+  from pandas import isna
+
+  display_df = df.copy()
+  for column in ('TMem', 'PMem', 'TDisk', 'PDisk'):
+    if column in display_df:
+      display_df[column] = display_df[column].map(
+        lambda value: '-' if isna(value) else (f'{value:.1f}' if isinstance(value, (int, float)) else value)
+      )
+  return display_df
+
+
 def get_nodes(args):
   """
-  This function is used to get the information about the nodes and it will perform the following:
-  
-  1. Create a Session object.
-  2. Wait for the first net mon message via Session and show progress. 
-  3. Wait for the second net mon message via Session and show progress.  
-  4. Get the active nodes union via Session and display the nodes marking those peered vs non-peered.
+  Display discovered nodes with hardware totals and Deeploy allocations.
+
+  Parameters
+  ----------
+  args : argparse.Namespace
+      Node filters, address format, detail level, and grouping options.
+
+  Returns
+  -------
+  pandas.DataFrame
+      Numeric node report or grouped report. Memory and disk display columns
+      use GiB with one decimal, while balance formatting remains unchanged.
   """
   supervisor_addr = args.supervisor
   alias_filter = args.alias
@@ -245,6 +300,7 @@ def get_nodes(args):
     eth=args.eth,
     all_info=wide,
     return_session=True,
+    include_resources=True,
   )
   df, supervisor, super_alias, nr_supers, elapsed, sess = res
   if args.online:
@@ -264,7 +320,7 @@ def get_nodes(args):
   else:
     log_with_color(f"Ratio1 client v{version}: {addr} \n", color='b')
     log_with_color(
-      "{}odes on '{}' reported by <{}> '{}' in {:.1f}s ({} supervisors seen):".format(
+      "{}odes on '{}' reported by <{}> '{}' in {:.1f}s ({} supervisors seen; memory and disk in GiB):".format(
       prefix, network, supervisor, super_alias, elapsed, nr_supers), 
       color='b'
     )
@@ -287,10 +343,10 @@ def get_nodes(args):
       if explicit:
         log_with_color(f"{_format_explicit_grouped_nodes(df, column)}\n")
       else:
-        log_with_color(f"{grouped_df}\n")
+        log_with_color(f"{_format_node_resource_columns(grouped_df)}\n")
       return grouped_df
     
-    log_with_color(f"{df}\n")
+    log_with_color(f"{_format_node_resource_columns(df)}\n")
   return df
   
   
@@ -400,7 +456,8 @@ def get_apps(args):
   Returns
   -------
   None
-      Prints the discovered application view for the requested nodes.
+      Prints the discovered application view for the requested nodes. CPU
+      cores and configured RAM limits follow App in both table layouts.
   """
   verbose = args.verbose
   node = args.node
@@ -469,7 +526,7 @@ def get_apps(args):
       )
       
       if not wide:        
-        df_apps = df_apps[['Node Alias', 'Owner Alias', 'App', 'Plugin', 'Id', 'Probe', 'LastError']]
+        df_apps = df_apps[['Node Alias', 'Owner Alias', 'App', 'CPU', 'RAM', 'Plugin', 'Id', 'Probe', 'LastError']]
       df_apps = df_apps.sort_values(by=['Node Alias'], ascending=True)
       log_with_color(f"{df_apps}\n")
     #end if as_json

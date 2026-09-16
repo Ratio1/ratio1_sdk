@@ -41,6 +41,7 @@ from ..comm.heartbeat_observation import (
 from ..comm.message_buffer import ObservableMessageBuffer
 from ..logging import Logger
 from ..utils import load_dotenv
+from ..utils.resources import pipeline_allocations_gib, resource_size_gib
 from .payload import Payload
 from .pipeline import Pipeline
 from .webapp_pipeline import WebappPipeline
@@ -5344,6 +5345,7 @@ class GenericSession(BaseDecentrAIObject):
       debug=False,
       eth=False,
       all_info=False,
+      include_resources=False,
     ):
       """
       This function will return a Pandas dataframe  known nodes in the network based on
@@ -5384,6 +5386,12 @@ class GenericSession(BaseDecentrAIObject):
           
       all_info: bool, optional
           If True, will return all the information. Defaults to False.
+
+      include_resources : bool, optional
+          Include total memory/disk and Deeploy pipeline allocations in GiB.
+          Missing configs are requested from selected peered nodes with one
+          shared collection timeout, using ``timeout`` seconds. Missing data
+          remains unknown. Defaults to False.
           
       Returns
       -------
@@ -5410,6 +5418,10 @@ class GenericSession(BaseDecentrAIObject):
         'Zone' : PAYLOAD_DATA.NETMON_NODE_UTC,
         'Oracle' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
         'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
+        **({
+          'TMem': PAYLOAD_DATA.NETMON_NODE_TOTAL_MEM,
+          'TDisk': PAYLOAD_DATA.NETMON_NODE_TOTAL_DISK,
+        } if include_resources else {}),
         'R1FS ID'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ID,
         'R1FS On'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ONLINE,
         'R1FS Relay' : PAYLOAD_DATA.NETMON_NODE_R1FS_RELAY,
@@ -5442,6 +5454,7 @@ class GenericSession(BaseDecentrAIObject):
       )
       best_super = 'ERROR'
       best_super_alias = 'ERROR'
+      resource_nodes = []
       
       if len(self.__current_network_statuses) > 0:
         best_info = {}
@@ -5466,6 +5479,7 @@ class GenericSession(BaseDecentrAIObject):
             continue
           if supervisors_only and not is_supervisor:
             continue
+          resource_nodes.append(node_info.get(PAYLOAD_DATA.NETMON_ADDRESS))
           for key, column in reverse_mapping.items():
             if isinstance(key, int):
               # if the key is an integer, then it is a computed column
@@ -5503,6 +5517,8 @@ class GenericSession(BaseDecentrAIObject):
                 # res['$R1'].append(round(r1_balance,4))
             elif key == PAYLOAD_DATA.NETMON_WHITELIST:
               val = client_is_allowed
+            elif key in (PAYLOAD_DATA.NETMON_NODE_TOTAL_MEM, PAYLOAD_DATA.NETMON_NODE_TOTAL_DISK):
+              val = resource_size_gib(val, default_unit='g')
             elif key in [PAYLOAD_DATA.NETMON_STATUS_KEY, PAYLOAD_DATA.NETMON_NODE_VERSION]:
               val = val.split(' ')[0]
             res[column].append(val)                        
@@ -5523,6 +5539,29 @@ class GenericSession(BaseDecentrAIObject):
       df_res = pd.DataFrame(res)
       if alias_filter is not None:
         df_res = df_res[df_res['Alias'].str.contains(alias_filter, case=False, na=False)]
+      if include_resources:
+        # Keep transport addresses separate from ETH display addresses, and
+        # fetch only the filtered peered nodes with missing configurations.
+        selected_nodes = [resource_nodes[index] for index in df_res.index]
+        pending = [
+          node for node, peered in zip(selected_nodes, df_res['Peered'])
+          if peered and self._dct_online_nodes_pipelines.get(node) is None
+        ]
+        if pending and timeout > 0:
+          self.__request_pipelines_from_net_config_monitor(pending, force=True)
+          deadline = tm() + timeout
+          while pending:
+            pending = [node for node in pending if self._dct_online_nodes_pipelines.get(node) is None]
+            remaining = deadline - tm()
+            if not pending or remaining <= 0:
+              break
+            sleep(min(0.1, remaining))
+        allocations = [
+          pipeline_allocations_gib(self._dct_online_nodes_pipelines.get(node))
+          for node in selected_nodes
+        ]
+        df_res.insert(df_res.columns.get_loc('TMem') + 1, 'PMem', [item[0] for item in allocations])
+        df_res.insert(df_res.columns.get_loc('TDisk') + 1, 'PDisk', [item[1] for item in allocations])
       if not all_info:
         DROPPABLE = ['State', 'Last probe', 'R1FS ID', "Zone"]
         to_drop = [x for x in DROPPABLE if x in df_res.columns]
@@ -5646,9 +5685,10 @@ class GenericSession(BaseDecentrAIObject):
     Returns
     -------
 
-    list
-        A list of dictionaries containing the workload status
-        of the specified node.
+    list or pandas.DataFrame or None
+        Workload rows include CPU cores and RAM limits from each instance's
+        pipeline configuration, with ``-`` for unreported allocations. RAM
+        retains its configured units. JSON mode returns unmodified configs.
         
         
     """
@@ -5743,6 +5783,11 @@ class GenericSession(BaseDecentrAIObject):
             if len(instance_status) == 0:
               # this instance is only present in config but is NOT loaded so ignore it
               continue
+            resources = instance.config.get(DEEPLOY_CT.DEEPLOY_RESOURCES.CONTAINER_RESOURCES)
+            if not isinstance(resources, dict):
+              resources = {}
+            cpu = resources.get('cpu')
+            memory = resources.get('memory')
             start_time = instance_status.get(HB.ACTIVE_PLUGINS_INFO.INIT_TIMESTAMP)
             last_probe = instance_status.get(HB.ACTIVE_PLUGINS_INFO.EXEC_TIMESTAMP)
             last_data = instance_status.get(HB.ACTIVE_PLUGINS_INFO.LAST_PAYLOAD_TIME)
@@ -5761,6 +5806,8 @@ class GenericSession(BaseDecentrAIObject):
               'Owner' : pipeline_owner,
               'Owner Alias' : pipeline_alias,
               'App': pipeline_name,
+              'CPU': cpu if cpu is not None else '-',
+              'RAM': memory if memory is not None else '-',
               'Plugin': instance.signature,
               'Id': instance.instance_id,
               'Start' : dates[0],
