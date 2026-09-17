@@ -37,8 +37,30 @@ def resource_size_gib(value, default_unit="b"):
   return result if math.isfinite(result) and result >= 0 else None
 
 
-def pipeline_allocations_gib(pipelines):
-  """Sum memory and storage allocations across Deeploy plugin instances.
+def resource_cpu_cores(value):
+  """Read a non-negative CPU allocation or hardware core count.
+
+  Parameters
+  ----------
+  value : int, float, str or None
+      Core count, including numeric strings from container configuration.
+
+  Returns
+  -------
+  float or None
+      Cores, or None for missing, invalid, negative or non-finite data.
+  """
+  if isinstance(value, bool) or value is None:
+    return None
+  try:
+    cores = float(value)
+  except (TypeError, ValueError, OverflowError):
+    return None
+  return cores if math.isfinite(cores) and cores >= 0 else None
+
+
+def pipeline_allocations(pipelines):
+  """Sum CPU, memory and storage across Deeploy plugin instances.
 
   Parameters
   ----------
@@ -48,13 +70,13 @@ def pipeline_allocations_gib(pipelines):
 
   Returns
   -------
-  tuple[float or None, float or None]
-      Memory and storage totals in GiB. Missing allocation data makes only
-      that dimension unknown. Admin and non-Deeploy pipelines are excluded.
+  tuple[float or None, float or None, float or None]
+      CPU cores, memory GiB and storage GiB. Missing allocation data makes
+      only that dimension unknown. Admin and non-Deeploy pipelines are excluded.
   """
   if pipelines is None:
-    return None, None
-  totals = {"memory": 0.0, "storage": 0.0}
+    return None, None, None
+  totals = {"cpu": 0.0, "memory": 0.0, "storage": 0.0}
   for name, pipeline in pipelines.items():
     if str(name).lower() == "admin_pipeline" or not pipeline.config.get("IS_DEEPLOYED", False):
       continue
@@ -63,7 +85,24 @@ def pipeline_allocations_gib(pipelines):
       if not isinstance(resources, dict):
         resources = {}
       for key in totals:
-        size = resource_size_gib(resources.get(key))
+        value = resources.get(key)
+        size = resource_cpu_cores(value) if key == "cpu" else resource_size_gib(value)
         # Never turn a partial allocation sum into an apparently complete one.
         totals[key] = totals[key] + size if totals[key] is not None and size is not None else None
-  return totals["memory"], totals["storage"]
+  return totals["cpu"], totals["memory"], totals["storage"]
+
+
+def pipeline_allocations_gib(pipelines):
+  """Return memory and storage totals using the existing two-value interface.
+
+  Parameters
+  ----------
+  pipelines : dict or None
+      Cached SDK pipelines keyed by name, or None for unavailable configs.
+
+  Returns
+  -------
+  tuple[float or None, float or None]
+      Memory and storage totals in GiB, excluding admin and non-Deeploy jobs.
+  """
+  return pipeline_allocations(pipelines)[1:]

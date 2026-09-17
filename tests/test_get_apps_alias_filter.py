@@ -248,29 +248,35 @@ class TestGetAppsAliasFilter(unittest.TestCase):
 
     Notes
     -----
-    Runs real session row construction and CLI formatting with local fixtures.
+    Runs real row construction and formatting, including numeric-string CPU
+    limits, integer cores, rounding, zero, and missing or invalid values.
     """
     for wide in (False, True):
       with self.subTest(wide=wide):
         session = self._make_session()
         session.bc_engine = SimpleNamespace(evm_network="testnet")
-        pipeline = _FakePipeline()
-        pipeline.lst_plugin_instances[0].config = {
-          "CONTAINER_RESOURCES": {"cpu": 0.5, "memory": "512m"},
-        }
-        session.get_active_pipelines = lambda node: {"allocated-app": pipeline}
+        cpu_cases = [(0.5, "0.5"), (2, "2.0"), ("3", "3.0"), (0.26, "0.3"), (0, "0.0"), (None, "-"), ("bad", "-")]
+        pipelines = {}
+        for index, (cpu, _) in enumerate(cpu_cases):
+          pipeline = _FakePipeline()
+          pipeline.lst_plugin_instances[0].config = {
+            "CONTAINER_RESOURCES": {"cpu": cpu, "memory": "512m"},
+          }
+          pipelines[f"allocated-{index}"] = pipeline
+        session.get_active_pipelines = lambda node: pipelines
         argv = ["get", "apps", "--alias", "smart"] + (["--wide"] if wide else [])
         args = build_parser().parse_args(argv)
         with patch("ratio1.Session", return_value=session), \
              patch("ratio1.cli.nodes.log_with_color") as output, \
-             option_context("display.max_columns", None, "display.width", 1000):
+             option_context("display.max_columns", None, "display.width", 1000, "display.float_format", "{:.4f}".format):
           get_apps(args)
 
         table = output.call_args.args[0]
         header = table.splitlines()[0].split()
         app_index = header.index("App")
         self.assertEqual(header[app_index:app_index + 4], ["App", "CPU", "RAM", "Plugin"])
-        self.assertRegex(table, r"allocated-app\s+0\.5\s+512m\s+FAKE_PLUGIN")
+        for index, (_, expected) in enumerate(cpu_cases):
+          self.assertRegex(table, rf"allocated-{index}\s+{expected.replace('.', '[.]')}\s+512m\s+FAKE_PLUGIN")
         self.assertEqual("Start" in header, wide)
 
   def test_get_apps_passes_alias_filter_to_session(self):

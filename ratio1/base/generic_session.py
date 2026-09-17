@@ -41,7 +41,7 @@ from ..comm.heartbeat_observation import (
 from ..comm.message_buffer import ObservableMessageBuffer
 from ..logging import Logger
 from ..utils import load_dotenv
-from ..utils.resources import pipeline_allocations_gib, resource_size_gib
+from ..utils.resources import pipeline_allocations, resource_cpu_cores, resource_size_gib
 from .payload import Payload
 from .pipeline import Pipeline
 from .webapp_pipeline import WebappPipeline
@@ -5388,7 +5388,8 @@ class GenericSession(BaseDecentrAIObject):
           If True, will return all the information. Defaults to False.
 
       include_resources : bool, optional
-          Include total memory/disk and Deeploy pipeline allocations in GiB.
+          Include total and Deeploy-allocated CPU cores, memory and disk GiB
+          in TCPU, PCPU, TRAM, PRAM, TDISK and PDISK columns, in that order.
           Missing configs are requested from selected peered nodes with one
           shared collection timeout, using ``timeout`` seconds. Missing data
           remains unknown. Defaults to False.
@@ -5419,8 +5420,9 @@ class GenericSession(BaseDecentrAIObject):
         'Oracle' : PAYLOAD_DATA.NETMON_IS_SUPERVISOR,
         'Peered' : PAYLOAD_DATA.NETMON_WHITELIST,
         **({
-          'TMem': PAYLOAD_DATA.NETMON_NODE_TOTAL_MEM,
-          'TDisk': PAYLOAD_DATA.NETMON_NODE_TOTAL_DISK,
+          'TCPU': PAYLOAD_DATA.NETMON_NODE_TOTAL_CPU,
+          'TRAM': PAYLOAD_DATA.NETMON_NODE_TOTAL_MEM,
+          'TDISK': PAYLOAD_DATA.NETMON_NODE_TOTAL_DISK,
         } if include_resources else {}),
         'R1FS ID'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ID,
         'R1FS On'  : PAYLOAD_DATA.NETMON_NODE_R1FS_ONLINE,
@@ -5517,6 +5519,8 @@ class GenericSession(BaseDecentrAIObject):
                 # res['$R1'].append(round(r1_balance,4))
             elif key == PAYLOAD_DATA.NETMON_WHITELIST:
               val = client_is_allowed
+            elif key == PAYLOAD_DATA.NETMON_NODE_TOTAL_CPU:
+              val = resource_cpu_cores(val)
             elif key in (PAYLOAD_DATA.NETMON_NODE_TOTAL_MEM, PAYLOAD_DATA.NETMON_NODE_TOTAL_DISK):
               val = resource_size_gib(val, default_unit='g')
             elif key in [PAYLOAD_DATA.NETMON_STATUS_KEY, PAYLOAD_DATA.NETMON_NODE_VERSION]:
@@ -5557,11 +5561,12 @@ class GenericSession(BaseDecentrAIObject):
               break
             sleep(min(0.1, remaining))
         allocations = [
-          pipeline_allocations_gib(self._dct_online_nodes_pipelines.get(node))
+          pipeline_allocations(self._dct_online_nodes_pipelines.get(node))
           for node in selected_nodes
         ]
-        df_res.insert(df_res.columns.get_loc('TMem') + 1, 'PMem', [item[0] for item in allocations])
-        df_res.insert(df_res.columns.get_loc('TDisk') + 1, 'PDisk', [item[1] for item in allocations])
+        df_res.insert(df_res.columns.get_loc('TCPU') + 1, 'PCPU', [item[0] for item in allocations])
+        df_res.insert(df_res.columns.get_loc('TRAM') + 1, 'PRAM', [item[1] for item in allocations])
+        df_res.insert(df_res.columns.get_loc('TDISK') + 1, 'PDISK', [item[2] for item in allocations])
       if not all_info:
         DROPPABLE = ['State', 'Last probe', 'R1FS ID', "Zone"]
         to_drop = [x for x in DROPPABLE if x in df_res.columns]

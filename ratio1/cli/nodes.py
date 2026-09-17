@@ -4,6 +4,7 @@ import sys
 
 from time import time
 from ratio1.utils.config import log_with_color
+from ratio1.utils.resources import resource_cpu_cores
 from ratio1.const import SESSION_CT, COMMANDS, BASE_CT
 from ratio1._ver import __VER__ as version
 
@@ -11,6 +12,11 @@ from pandas import DataFrame
 from datetime import datetime
 
 GROUP_BY_LIST_VALUE = ""
+NODE_RESOURCE_LEGEND = (
+  "TCPU / PCPU: total / Deeploy-allocated CPU cores.\n"
+  "TRAM / PRAM: total / Deeploy-allocated RAM (GiB).\n"
+  "TDISK / PDISK: total / Deeploy-allocated disk (GiB), not current usage. '-' = unavailable."
+)
 
 
 def _get_netstats(
@@ -39,7 +45,7 @@ def _get_netstats(
   eth, all_info : bool, optional
       Address and table detail options.
   include_resources : bool, optional
-      Include hardware capacity and Deeploy allocations in GiB.
+      Include hardware capacity and Deeploy allocations in CPU cores and GiB.
 
   Returns
   -------
@@ -224,12 +230,12 @@ def _format_explicit_grouped_nodes(df, column):
   str
       Human-readable grouped node listing. Each group starts with the grouped
       field value and count, followed by indented node entries. Resource
-      fields retain the node table's one-decimal GiB display format.
+      fields retain the node table's one-decimal cores/GiB display format.
   """
   display_df = df[[column, "Alias", "Address"]].copy()
   display_df[column] = display_df[column].fillna("[missing]").replace("", "[empty]")
   grouped_df = _get_grouped_nodes(df, column)
-  display_values = _format_node_resource_columns(grouped_df)[column]
+  display_values = _format_resource_columns(grouped_df)[column]
   lines = []
   for index, group_row in grouped_df.iterrows():
     group_value = group_row[column]
@@ -242,13 +248,13 @@ def _format_explicit_grouped_nodes(df, column):
   return "\n".join(lines)
 
 
-def _format_node_resource_columns(df):
-  """Format GiB columns for display without modifying numeric report data.
+def _format_resource_columns(df):
+  """Format resource columns without modifying the underlying report data.
 
   Parameters
   ----------
   df : pandas.DataFrame
-      Node report or grouped report.
+      App, node or grouped node report. App RAM retains configured units.
 
   Returns
   -------
@@ -258,7 +264,9 @@ def _format_node_resource_columns(df):
   from pandas import isna
 
   display_df = df.copy()
-  for column in ('TMem', 'PMem', 'TDisk', 'PDisk'):
+  if 'CPU' in display_df:
+    display_df['CPU'] = display_df['CPU'].map(resource_cpu_cores)
+  for column in ('CPU', 'TCPU', 'PCPU', 'TRAM', 'PRAM', 'TDISK', 'PDISK'):
     if column in display_df:
       display_df[column] = display_df[column].map(
         lambda value: '-' if isna(value) else (f'{value:.1f}' if isinstance(value, (int, float)) else value)
@@ -278,8 +286,9 @@ def get_nodes(args):
   Returns
   -------
   pandas.DataFrame
-      Numeric node report or grouped report. Memory and disk display columns
-      use GiB with one decimal, while balance formatting remains unchanged.
+      Numeric node report or grouped report. CPU cores and memory/disk GiB
+      display with one decimal, while balance formatting remains unchanged.
+      A blue resource legend follows the printed table.
   """
   supervisor_addr = args.supervisor
   alias_filter = args.alias
@@ -343,10 +352,12 @@ def get_nodes(args):
       if explicit:
         log_with_color(f"{_format_explicit_grouped_nodes(df, column)}\n")
       else:
-        log_with_color(f"{_format_node_resource_columns(grouped_df)}\n")
+        log_with_color(f"{_format_resource_columns(grouped_df)}\n")
+      log_with_color(NODE_RESOURCE_LEGEND, color='b')
       return grouped_df
     
-    log_with_color(f"{_format_node_resource_columns(df)}\n")
+    log_with_color(f"{_format_resource_columns(df)}\n")
+    log_with_color(NODE_RESOURCE_LEGEND, color='b')
   return df
   
   
@@ -457,7 +468,7 @@ def get_apps(args):
   -------
   None
       Prints the discovered application view for the requested nodes. CPU
-      cores and configured RAM limits follow App in both table layouts.
+      cores (one decimal) and configured RAM limits follow App in both layouts.
   """
   verbose = args.verbose
   node = args.node
@@ -528,7 +539,7 @@ def get_apps(args):
       if not wide:        
         df_apps = df_apps[['Node Alias', 'Owner Alias', 'App', 'CPU', 'RAM', 'Plugin', 'Id', 'Probe', 'LastError']]
       df_apps = df_apps.sort_values(by=['Node Alias'], ascending=True)
-      log_with_color(f"{df_apps}\n")
+      log_with_color(f"{_format_resource_columns(df_apps)}\n")
     #end if as_json
   #end if res is not None
   return

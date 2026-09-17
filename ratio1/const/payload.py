@@ -218,6 +218,7 @@ class PAYLOAD_DATA:
   NETMON_NODE_R1FS_ONLINE = 'r1fs_online'
   NETMON_NODE_R1FS_RELAY = 'r1fs_relay'
   NETMON_NODE_COMM_RELAY = 'comm_relay'
+  NETMON_NODE_TOTAL_CPU = 'total_cpu_cores'
   NETMON_NODE_TOTAL_MEM = 'total_mem'
   NETMON_NODE_TOTAL_DISK = 'total_disk'
   NETMON_VERSION = 'NETMON_VERSION'
