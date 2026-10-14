@@ -1952,17 +1952,21 @@ class BaseBlockEngine(
   def get_dauth_job_secret_bundle(
     self,
     job_id,
+    revision,
     network=None,
     request_timeout=(60, 120),
   ):
     """
-    Fetch a signed dAuth secret bundle for a job.
+    Fetch a signed dAuth secret bundle for a specific job revision.
 
     Parameters
     ----------
     job_id : Any
       Identifier of the job whose secrets are requested. It is normalized to
       a stripped string before signing and comparison.
+
+    revision : str
+      Required immutable secret revision from DEEPLOY_SPECS.secret_revision.
 
     network : str, optional
       EVM network whose dAuth URL should be used. The engine network is used
@@ -1990,6 +1994,10 @@ class BaseBlockEngine(
     if not normalized_job_id:
       raise ValueError("Job ID is required for dAuth secret resolution.")
 
+    if not isinstance(revision, str) or not revision.strip():
+      raise ValueError("Secret revision is required for dAuth secret resolution.")
+    revision = revision.strip()
+
     selected_network = network if network is not None else self.evm_network
     network_data = self.get_network_data(selected_network)
     url = network_data[dAuth.EvmNetData.DAUTH_URL_KEY]
@@ -2001,6 +2009,7 @@ class BaseBlockEngine(
     request_nonce = hex(int(time() * 1000))
     signed_body = {
       "job_id": normalized_job_id,
+      "revision": revision,
       DAUTH_NONCE: request_nonce,
     }
     self.sign(signed_body)
@@ -2013,6 +2022,8 @@ class BaseBlockEngine(
     except requests.RequestException as exc:
       raise RuntimeError("dAuth secret request failed.") from exc
 
+    if response.status_code in (401, 403):
+      raise ValueError("dAuth secret request is not authorized.")
     if response.status_code != 200:
       raise RuntimeError(
         "dAuth secret request failed with HTTP status {}.".format(response.status_code)
@@ -2037,23 +2048,33 @@ class BaseBlockEngine(
       raise ValueError("dAuth secret response signature is invalid.")
     try:
       signer_eth_address = self.node_address_to_eth_address(verification.sender)
+    except Exception as exc:
+      raise ValueError("dAuth secret response signer is invalid.") from exc
+    try:
       is_dauth_oracle = self.web3_is_dauth_oracle(
         signer_eth_address,
         network=selected_network,
       )
     except Exception as exc:
-      raise ValueError("dAuth secret response signer is not authorized.") from exc
+      raise RuntimeError("dAuth oracle registry lookup is unavailable.") from exc
     if not is_dauth_oracle:
       raise ValueError("dAuth secret response signer is not authorized.")
 
     if result.get(DAUTH_NONCE) != request_nonce:
       raise ValueError("dAuth secret response nonce does not match the request.")
     if result.get("error") not in [None, ""]:
-      raise RuntimeError("dAuth secret request was rejected.")
+      if type(result.get("retryable")) is not bool:
+        raise ValueError("dAuth secret rejection is missing retryability information.")
+      if not result["retryable"]:
+        raise ValueError("dAuth secret request was rejected.")
+      raise RuntimeError("dAuth secret request is temporarily unavailable.")
     if result.get("status") != "success":
       raise ValueError("dAuth secret response status is invalid.")
     if result.get("job_id") != normalized_job_id:
       raise ValueError("dAuth secret response job ID does not match the request.")
+
+    if result.get("revision") != revision:
+      raise ValueError("dAuth secret response revision does not match the request.")
 
     encrypted_secret_bundle = result.get("encrypted_secret_bundle")
     if not isinstance(encrypted_secret_bundle, str) or not encrypted_secret_bundle:
@@ -2070,6 +2091,8 @@ class BaseBlockEngine(
       raise ValueError("dAuth secret bundle must be a dictionary.")
     if secret_bundle.get("job_id") != normalized_job_id:
       raise ValueError("dAuth secret bundle job ID does not match the request.")
+    if secret_bundle.get("revision") != revision:
+      raise ValueError("dAuth secret bundle revision does not match the request.")
     return secret_bundle
   
   

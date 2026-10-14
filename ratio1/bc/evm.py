@@ -38,6 +38,7 @@ Web3Vars = namedtuple(
 if not EE_VPN_IMPL:
   from web3 import Web3
   from web3.logs import DISCARD
+  from web3.exceptions import TransactionNotFound, Web3RPCError
 else:
   class Web3:
     """
@@ -250,7 +251,7 @@ class _EVMMixin:
       return self.get_network_data(self.evm_network)[dAuth.EvmNetData.DAUTH_R1_ADDR_KEY]
 
 
-    def _get_web3_vars(self, network=None) -> Web3Vars:
+    def _get_web3_vars(self, network=None, request_timeout=None) -> Web3Vars:
       if network is None:
         network = self.evm_network
         w3 = self.web3
@@ -273,8 +274,9 @@ class _EVMMixin:
         network_data[dAuth.EvmNetData.EE_EPOCH_INTERVALS_KEY]
       )
 
-      if w3 is None:
-        w3 = Web3(Web3.HTTPProvider(rpc_url))
+      if w3 is None or request_timeout is not None:
+        provider_kwargs = {} if request_timeout is None else {"request_kwargs": {"timeout": request_timeout}}
+        w3 = Web3(Web3.HTTPProvider(rpc_url, **provider_kwargs))
         self.P(f"Created temporary Web3 for {network=} via {rpc_url=}...", verbosity=2)
       #end if
       
@@ -1804,6 +1806,112 @@ class _EVMMixin:
         "new_owner": new_owner,
       }
 
+    def _build_node_update_transaction(self, job_id, nodes, w3vars, nonce_block=None):
+      """Build the existing PoAI update transaction without signing or broadcasting."""
+      assert isinstance(job_id, int), "Invalid job ID"
+      assert isinstance(nodes, list), "Nodes must be a list"
+
+      poai_manager_contract = w3vars.w3.eth.contract(
+        address=w3vars.poai_manager_address, abi=EVM_ABI_DATA.POAI_MANAGER_ABI
+      )
+
+      # Estimate gas fees for the node update.
+      gas_price = w3vars.w3.eth.gas_price  # This fetches the current suggested gas price from the network.
+      # Linear in node count covers _cacheNodesForJob + consensus + updateActiveNodes worst case.
+      estimated_gas = 700_000 + 150_000 * len(nodes)
+      gas_cost = estimated_gas * gas_price
+      # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
+      eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
+      if eth_balance < gas_cost:
+        raise Exception("Insufficient ETH balance to cover gas fees.")
+      # Get the transaction count for the nonce.
+      if nonce_block is None:
+        nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
+      else:
+        nonce = w3vars.w3.eth.get_transaction_count(self.eth_address, nonce_block)
+      # Programmatically determine the chainId.
+      chain_id = w3vars.w3.eth.chain_id
+
+      # Build the PoAI node update transaction.
+      tx = poai_manager_contract.functions.submitNodeUpdate(job_id, nodes).build_transaction({
+        'from': self.eth_address,
+        'nonce': nonce,
+        'gas': estimated_gas,
+        'gasPrice': gas_price,
+        'chainId': chain_id,
+      })
+      return tx
+
+    def web3_prepare_node_update(self, job_id, nodes, network=None, request_timeout=30):
+      """Sign a node update for durable storage before any broadcast.
+
+      Returns a JSON-safe descriptor containing raw_transaction, transaction_hash,
+      chain_id, nonce, and network. The signing key is never returned. Callers
+      must serialize nonce allocation until prepared transactions are broadcast;
+      the pending RPC nonce does not reserve an unbroadcast transaction.
+      """
+      w3vars = self._get_web3_vars(network, request_timeout=request_timeout)
+      tx = self._build_node_update_transaction(job_id, nodes, w3vars, nonce_block="pending")
+      signed = w3vars.w3.eth.account.sign_transaction(tx, self._get_eth_account().key)
+      raw = signed.raw_transaction
+      return {
+        "raw_transaction": Web3.to_hex(raw),
+        "transaction_hash": Web3.to_hex(keccak(raw)),
+        "chain_id": tx["chainId"],
+        "nonce": tx["nonce"],
+        "network": w3vars.network,
+      }
+
+    def web3_send_prepared_transaction(self, raw_transaction, network=None, request_timeout=30):
+      """Broadcast exactly the persisted signed bytes and return their hash.
+
+      Submission is not confirmation. RPC failures leave the transaction outcome
+      uncertain; callers must reconcile the persisted hash before creating a new
+      transaction. Repeating already-known bytes is a successful submission.
+      """
+      if not isinstance(raw_transaction, str) or not raw_transaction.startswith("0x"):
+        raise ValueError("Prepared transaction must be hex-encoded signed bytes.")
+      raw = Web3.to_bytes(hexstr=raw_transaction)
+      if not raw:
+        raise ValueError("Prepared transaction must not be empty.")
+      expected_hash = Web3.to_hex(keccak(raw))
+      w3vars = self._get_web3_vars(network, request_timeout=request_timeout)
+      try:
+        tx_hash = w3vars.w3.eth.send_raw_transaction(raw)
+      except Web3RPCError as exc:
+        if "already known" in str(exc).lower():
+          return expected_hash
+        raise
+      if Web3.to_hex(tx_hash) != expected_hash:
+        raise ValueError("RPC transaction hash does not match the prepared transaction.")
+      return expected_hash
+
+    def web3_get_transaction_receipt(self, transaction_hash, network=None, request_timeout=30):
+      """Return None when unmined, otherwise a JSON-safe receipt summary.
+
+      status=1 confirms execution; status=0 is a mined failure and must not be
+      retried as if pending. Transport errors propagate without implying either.
+      """
+      if not isinstance(transaction_hash, str) or not transaction_hash.startswith("0x"):
+        raise ValueError("Invalid transaction hash.")
+      requested_hash = Web3.to_bytes(hexstr=transaction_hash)
+      if len(requested_hash) != 32:
+        raise ValueError("Invalid transaction hash.")
+      w3vars = self._get_web3_vars(network, request_timeout=request_timeout)
+      try:
+        receipt = w3vars.w3.eth.get_transaction_receipt(transaction_hash)
+      except TransactionNotFound:
+        return None
+      if Web3.to_bytes(hexstr=Web3.to_hex(receipt["transactionHash"])) != requested_hash:
+        raise ValueError("Receipt transaction hash does not match the request.")
+      if receipt.get("status") not in (0, 1):
+        raise ValueError("Receipt is missing a valid execution status.")
+      return {
+        "transaction_hash": Web3.to_hex(requested_hash),
+        "status": receipt["status"],
+        "block_number": receipt["blockNumber"],
+      }
+
     def web3_submit_node_update(
       self,
       job_id: int,
@@ -1831,37 +1939,9 @@ class _EVMMixin:
       -------
         The transaction hash.
       """
-      assert isinstance(job_id, int), "Invalid job ID"
-      assert isinstance(nodes, list), "Nodes must be a list"
-
       w3vars = self._get_web3_vars(network)
       network = w3vars.network
-      poai_manager_contract = w3vars.w3.eth.contract(
-        address=w3vars.poai_manager_address, abi=EVM_ABI_DATA.POAI_MANAGER_ABI
-      )
-      
-      # Estimate gas fees for the token transfer.
-      gas_price = w3vars.w3.eth.gas_price  # This fetches the current suggested gas price from the network.
-      # Linear in node count covers _cacheNodesForJob + consensus + updateActiveNodes worst case.
-      estimated_gas = 700_000 + 150_000 * len(nodes)
-      gas_cost = estimated_gas * gas_price
-      # Check that the sender's ETH balance can cover gas costs plus an extra buffer.
-      eth_balance = w3vars.w3.eth.get_balance(self.eth_address)
-      if eth_balance < gas_cost:
-        raise Exception("Insufficient ETH balance to cover gas fees.")
-      # Get the transaction count for the nonce.
-      nonce = w3vars.w3.eth.get_transaction_count(self.eth_address)
-      # Programmatically determine the chainId.
-      chain_id = w3vars.w3.eth.chain_id
-
-      # Build the transaction for the ERC20 transfer.
-      tx = poai_manager_contract.functions.submitNodeUpdate(job_id, nodes).build_transaction({
-        'from': self.eth_address,
-        'nonce': nonce,
-        'gas': estimated_gas,
-        'gasPrice': gas_price,
-        'chainId': chain_id,
-      })
+      tx = self._build_node_update_transaction(job_id, nodes, w3vars, nonce_block="pending")
       self.P(f"Executing transaction on {network} via {w3vars.rpc_url}:\n {json.dumps(dict(tx), indent=2)}")
       
       # Sign the transaction using the internal account (via _get_eth_account).

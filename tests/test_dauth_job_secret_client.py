@@ -65,9 +65,10 @@ class _DauthClientHarness:
     return _ENCRYPTED_PAYLOADS.get(encrypted_data_b64)
 
 
-def _secret_bundle(job_id="7", secret_value="top-secret"):
+def _secret_bundle(job_id="7", secret_value="top-secret", revision="op:deploy"):
   return {
     "job_id": job_id,
+    "revision": revision,
     "job_secrets": {
       "plugins": {
         "CONTAINER_APP_RUNNER": [{
@@ -89,6 +90,7 @@ def _response_for(bundle=None, nonce=REQUEST_NONCE, **result_overrides):
   result = {
     "status": "success",
     "job_id": bundle["job_id"],
+    "revision": bundle["revision"],
     DAUTH_NONCE: nonce,
     "encrypted_secret_bundle": encrypted_secret_bundle,
     "EE_SIGN": "server-signature",
@@ -116,13 +118,14 @@ class TestDauthJobSecretClient(unittest.TestCase):
 
     result = self.engine.get_dauth_job_secret_bundle(
       7,
+      "op:deploy",
       request_timeout=(2, 5),
     )
 
     self.assertEqual(result, bundle)
     self.assertEqual(
       self.engine.signed_payloads,
-      [{"job_id": "7", DAUTH_NONCE: REQUEST_NONCE}],
+      [{"job_id": "7", "revision": "op:deploy", DAUTH_NONCE: REQUEST_NONCE}],
     )
     self.assertEqual(
       self.engine.verification_calls,
@@ -136,6 +139,7 @@ class TestDauthJobSecretClient(unittest.TestCase):
       json={
         "body": {
           "job_id": "7",
+          "revision": "op:deploy",
           DAUTH_NONCE: REQUEST_NONCE,
           "EE_SIGN": "request-signature",
           "EE_SENDER": "requester",
@@ -149,12 +153,12 @@ class TestDauthJobSecretClient(unittest.TestCase):
     bundle = _secret_bundle(job_id="7")
     post.return_value = _response_for(bundle)
 
-    result = self.engine.get_dauth_job_secret_bundle("  7  ")
+    result = self.engine.get_dauth_job_secret_bundle("  7  ", "op:deploy")
 
     self.assertEqual(result, bundle)
     self.assertEqual(
       self.engine.signed_payloads,
-      [{"job_id": "7", DAUTH_NONCE: REQUEST_NONCE}],
+      [{"job_id": "7", "revision": "op:deploy", DAUTH_NONCE: REQUEST_NONCE}],
     )
 
   @mock.patch("ratio1.bc.base.requests.post")
@@ -162,7 +166,7 @@ class TestDauthJobSecretClient(unittest.TestCase):
     for job_id in (None, "", "   "):
       with self.subTest(job_id=job_id):
         with self.assertRaisesRegex(ValueError, "Job ID is required"):
-          self.engine.get_dauth_job_secret_bundle(job_id)
+          self.engine.get_dauth_job_secret_bundle(job_id, "op:deploy")
 
     post.assert_not_called()
 
@@ -174,7 +178,7 @@ class TestDauthJobSecretClient(unittest.TestCase):
       os.environ,
       {DAUTH_ENV_KEY: "https://env.dauth.example/old/path/get_auth_data?debug=1"},
     ):
-      self.engine.get_dauth_job_secret_bundle("7", network="testnet")
+      self.engine.get_dauth_job_secret_bundle("7", "op:deploy", network="testnet")
     self.assertEqual(
       post.call_args.args[0],
       "https://default.dauth.example/get_secrets",
@@ -186,7 +190,7 @@ class TestDauthJobSecretClient(unittest.TestCase):
     post.return_value = _response_for()
     self.engine.default_dauth_url = "https://dauth.example/proxy/api/get_auth_data"
 
-    self.engine.get_dauth_job_secret_bundle("7")
+    self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
     self.assertEqual(
       post.call_args.args[0],
@@ -199,7 +203,7 @@ class TestDauthJobSecretClient(unittest.TestCase):
     self.engine.verification_valid = False
 
     with self.assertRaisesRegex(ValueError, "signature is invalid"):
-      self.engine.get_dauth_job_secret_bundle("7")
+      self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_valid_signature_from_non_dauth_oracle(self, post):
@@ -209,6 +213,7 @@ class TestDauthJobSecretClient(unittest.TestCase):
     with self.assertRaisesRegex(ValueError, "signer is not authorized"):
       self.engine.get_dauth_job_secret_bundle(
         "7",
+        "op:deploy",
         network="testnet",
       )
 
@@ -220,16 +225,33 @@ class TestDauthJobSecretClient(unittest.TestCase):
     post.return_value = response
 
     with self.assertRaisesRegex(RuntimeError, "HTTP status 503"):
-      self.engine.get_dauth_job_secret_bundle("7")
+      self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
     response.json.assert_not_called()
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_http_authorization_errors_are_terminal(self, post):
+    for status in (401, 403):
+      with self.subTest(status=status):
+        post.return_value = mock.Mock(status_code=status)
+        with self.assertRaisesRegex(ValueError, "not authorized"):
+          self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
+        post.return_value.json.assert_not_called()
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_registry_rpc_failure_is_retryable(self, post):
+    post.return_value = _response_for()
+    self.engine.web3_is_dauth_oracle = mock.Mock(side_effect=TimeoutError("RPC unavailable"))
+    with self.assertRaisesRegex(RuntimeError, "registry lookup is unavailable"):
+      self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
+    self.assertEqual(self.engine.decrypt_calls, [])
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_transport_failure_with_generic_error(self, post):
     post.side_effect = requests.ConnectionError("upstream connection failed")
 
     with self.assertRaisesRegex(RuntimeError, "dAuth secret request failed"):
-      self.engine.get_dauth_job_secret_bundle("7")
+      self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_malformed_responses(self, post):
@@ -253,14 +275,14 @@ class TestDauthJobSecretClient(unittest.TestCase):
       with self.subTest(response=response):
         post.return_value = response
         with self.assertRaises(ValueError):
-          self.engine.get_dauth_job_secret_bundle("7")
+          self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_response_nonce_mismatch_before_decryption(self, post):
     post.return_value = _response_for(nonce=hex((REQUEST_TIME - 1) * 1000))
 
     with self.assertRaisesRegex(ValueError, "nonce does not match"):
-      self.engine.get_dauth_job_secret_bundle("7")
+      self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
     self.assertEqual(self.engine.decrypt_calls, [])
 
@@ -270,18 +292,20 @@ class TestDauthJobSecretClient(unittest.TestCase):
     _ENCRYPTED_PAYLOADS["ciphertext-0"] = None
 
     with self.assertRaisesRegex(ValueError, "decryption failed"):
-      self.engine.get_dauth_job_secret_bundle("7")
+      self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_server_error_and_status_mismatch(self, post):
     for overrides, exception_type in [
-      ({"error": "not authorized"}, RuntimeError),
+      ({"error": "temporarily unavailable", "retryable": True}, RuntimeError),
+      ({"error": "not authorized", "retryable": False}, ValueError),
+      ({"error": "invalid error shape"}, ValueError),
       ({"status": "pending"}, ValueError),
     ]:
       with self.subTest(overrides=overrides):
         post.return_value = _response_for(**overrides)
         with self.assertRaises(exception_type):
-          self.engine.get_dauth_job_secret_bundle("7")
+          self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_result_and_bundle_job_id_mismatch(self, post):
@@ -294,14 +318,34 @@ class TestDauthJobSecretClient(unittest.TestCase):
       with self.subTest(response=response):
         post.return_value = response
         with self.assertRaisesRegex(ValueError, "job ID does not match"):
-          self.engine.get_dauth_job_secret_bundle("7")
+          self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_rejects_missing_or_invalid_revision_before_request(self, post):
+    for revision in (None, "", "  ", 1, True):
+      with self.subTest(revision=revision):
+        with self.assertRaisesRegex(ValueError, "Secret revision is required"):
+          self.engine.get_dauth_job_secret_bundle("7", revision)
+    post.assert_not_called()
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_rejects_result_and_encrypted_bundle_revision_mismatch(self, post):
+    for response in (
+      _response_for(revision="op:restore"),
+      _response_for(_secret_bundle(revision="op:restore"), revision="op:deploy"),
+      _response_for(revision=None),
+    ):
+      with self.subTest(response=response):
+        post.return_value = response
+        with self.assertRaisesRegex(ValueError, "revision does not match"):
+          self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_does_not_log_sensitive_request_or_response_content(self, post):
     secret_value = "must-never-appear-in-logs"
     post.return_value = _response_for(_secret_bundle(secret_value=secret_value))
 
-    self.engine.get_dauth_job_secret_bundle("7")
+    self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
     logged_text = "\n".join(self.engine.log_messages)
     self.assertNotIn(secret_value, logged_text)
