@@ -91,11 +91,9 @@ if __name__ == '__main__':
       api_url, auth, operation_id=accepted['operation_id'],
     )['result']
     if progress.get('phase') == 'completed':
-      settlement = progress.get('settlement', {}).get('status')
-      if progress['outcome'] != 'succeeded' or settlement in ('confirmed', 'failed'):
-        break
+      break
     time.sleep(progress.get('poll_after_ms', 2000) / 1000)
-  if progress['outcome'] != 'succeeded' or progress.get('settlement', {}).get('status') != 'confirmed':
+  if progress['outcome'] != 'succeeded':
     raise RuntimeError('Deployment failed; inspect the operation recovery details.')
   print('Deployment ready. Keeping it running for 60 seconds before whole-job deletion.')
   session.sleep(60)
