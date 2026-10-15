@@ -321,12 +321,43 @@ class TestDauthJobSecretClient(unittest.TestCase):
           self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
 
   @mock.patch("ratio1.bc.base.requests.post")
-  def test_rejects_missing_or_invalid_revision_before_request(self, post):
-    for revision in (None, "", "  ", 1, True):
+  def test_rejects_invalid_explicit_revision_before_request(self, post):
+    for revision in ("", "  ", 1, True):
       with self.subTest(revision=revision):
-        with self.assertRaisesRegex(ValueError, "Secret revision is required"):
+        with self.assertRaisesRegex(ValueError, "Secret revision must be"):
           self.engine.get_dauth_job_secret_bundle("7", revision)
     post.assert_not_called()
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_existing_unversioned_request_keeps_signature_and_bundle_checks(self, post):
+    bundle = _secret_bundle()
+    response = _response_for(bundle)
+    bundle.pop("revision")
+    ciphertext = response.json.return_value["result"]["encrypted_secret_bundle"]
+    _ENCRYPTED_PAYLOADS[ciphertext] = json.dumps(bundle)
+    response.json.return_value["result"].pop("revision")
+    post.return_value = response
+    self.assertEqual(self.engine.get_dauth_job_secret_bundle("7"), bundle)
+    self.assertNotIn("revision", post.call_args.kwargs["json"]["body"])
+    self.assertEqual(self.engine.signed_payloads, [{"job_id": "7", DAUTH_NONCE: REQUEST_NONCE}])
+    self.assertEqual(len(self.engine.verification_calls), 1)
+    self.assertEqual(self.engine.oracle_checks, [("0xserver", "mainnet")])
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_unversioned_request_rejects_versioned_response_or_decrypted_bundle(self, post):
+    for signed_revision in (None, "op:deploy"):
+      with self.subTest(signed_revision=signed_revision):
+        post.return_value = _response_for(revision=signed_revision)
+        with self.assertRaisesRegex(ValueError, "revision does not match"):
+          self.engine.get_dauth_job_secret_bundle("7")
+
+  @mock.patch("ratio1.bc.base.requests.post")
+  def test_explicit_revision_rejection_never_retries_without_revision(self, post):
+    post.return_value = _response_for(error="revoked", retryable=False, status="error")
+    with self.assertRaises(ValueError):
+      self.engine.get_dauth_job_secret_bundle("7", "op:deploy")
+    post.assert_called_once()
+    self.assertEqual(post.call_args.kwargs["json"]["body"]["revision"], "op:deploy")
 
   @mock.patch("ratio1.bc.base.requests.post")
   def test_rejects_result_and_encrypted_bundle_revision_mismatch(self, post):
