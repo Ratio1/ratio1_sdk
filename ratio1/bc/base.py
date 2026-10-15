@@ -1952,12 +1952,12 @@ class BaseBlockEngine(
   def get_dauth_job_secret_bundle(
     self,
     job_id,
-    revision,
+    revision=None,
     network=None,
     request_timeout=(60, 120),
   ):
     """
-    Fetch a signed dAuth secret bundle for a specific job revision.
+    Fetch signed dAuth secrets for a revision or an existing unversioned job.
 
     Parameters
     ----------
@@ -1965,8 +1965,11 @@ class BaseBlockEngine(
       Identifier of the job whose secrets are requested. It is normalized to
       a stripped string before signing and comparison.
 
-    revision : str
-      Required immutable secret revision from DEEPLOY_SPECS.secret_revision.
+    revision : str or None, optional
+      Immutable secret revision from DEEPLOY_SPECS.secret_revision. Omit only
+      for an existing unversioned pipeline; dAuth validates that it has not
+      transitioned to the revision-based lifecycle. Explicit revisions never
+      fall back to the unversioned lookup.
 
     network : str, optional
       EVM network whose dAuth URL should be used. The engine network is used
@@ -1994,9 +1997,10 @@ class BaseBlockEngine(
     if not normalized_job_id:
       raise ValueError("Job ID is required for dAuth secret resolution.")
 
-    if not isinstance(revision, str) or not revision.strip():
-      raise ValueError("Secret revision is required for dAuth secret resolution.")
-    revision = revision.strip()
+    if revision is not None:
+      if not isinstance(revision, str) or not revision.strip():
+        raise ValueError("Secret revision must be a non-empty string.")
+      revision = revision.strip()
 
     selected_network = network if network is not None else self.evm_network
     network_data = self.get_network_data(selected_network)
@@ -2009,9 +2013,10 @@ class BaseBlockEngine(
     request_nonce = hex(int(time() * 1000))
     signed_body = {
       "job_id": normalized_job_id,
-      "revision": revision,
       DAUTH_NONCE: request_nonce,
     }
+    if revision is not None:
+      signed_body["revision"] = revision
     self.sign(signed_body)
     try:
       response = requests.post(
