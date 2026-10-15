@@ -3866,6 +3866,8 @@ class GenericSession(BaseDecentrAIObject):
         port: int,
         signer_private_key_path: str,
         logger,
+        request_id: str,
+        job_id: int,
         target_nodes = [],
         signer_private_key_password='',
         ngrok_edge_label='',
@@ -3875,6 +3877,7 @@ class GenericSession(BaseDecentrAIObject):
         container_resources=None,
         name="simple_container",
         target_nodes_count=0,
+        request_timeout=(10, 30),
         **kwargs
     ):
       """
@@ -3883,8 +3886,18 @@ class GenericSession(BaseDecentrAIObject):
       This method deploys a Docker container to specified edge nodes through the Deeploy service.
       It handles authentication, network validation, payload signing, and API communication.
 
+      HTTP 202 returns a durable operation_id, not workload readiness. Persist
+      request_id before calling and reuse it after timeout or lost acceptance;
+      poll deeploy_get_deployment_status for execution and recovery progress.
+
       Parameters
       ----------
+      request_id : str
+          Caller-persisted stable mutation identity, reused after uncertain acceptance.
+      job_id : int
+          Existing paid job to deploy.
+      request_timeout : float or tuple
+          HTTP connect/read timeout, default (10, 30) seconds.
       docker_image : str
           The Docker image name to deploy (e.g., 'nginx:latest', 'myapp:v1.0')
           
@@ -3959,6 +3972,7 @@ class GenericSession(BaseDecentrAIObject):
       ...     port=80,
       ...     signer_private_key_path="/path/to/private_key.pem",
       ...     logger=my_logger,
+      ...     request_id="persisted-create-id", job_id=7,
       ...     target_nodes_count=2,
       ...     name="my_web_server"
       ... )
@@ -3970,6 +3984,7 @@ class GenericSession(BaseDecentrAIObject):
       ...     port=8080,
       ...     signer_private_key_path="/path/to/key.pem",
       ...     logger=my_logger,
+      ...     request_id="persisted-create-id", job_id=7,
       ...     target_nodes=["node1_address", "node2_address"],
       ...     ngrok_edge_label="my-app-edge",
       ...     container_resources={"cpu": 1, "memory": "512m"}
@@ -3979,30 +3994,7 @@ class GenericSession(BaseDecentrAIObject):
       if target_nodes_count == 0 and len(target_nodes) == 0:
         raise ValueError("You must specify at least one target node to deploy the container app.")
 
-      # Check if PK exists
-      if not os.path.isfile(signer_private_key_path):
-        raise ValueError("Private key path is not valid.")
-
-      # Create a block engine instance with the private key
-      block_engine = DefaultBlockEngine(
-        log=logger,
-        name="deeploy_launch_container_app",
-        config={
-          BCct.K_PEM_FILE: signer_private_key_path,
-          BCct.K_PASSWORD: signer_private_key_password,
-        }
-      )
-
-      current_network, api_base_url = self.__validate_deeploy_network_and_get_api_url(block_engine)
-
-      request_data = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
-        DEEPLOY_CT.DEEPLOY_KEYS.APP_ALIAS: name,
-        DEEPLOY_CT.DEEPLOY_KEYS.PLUGIN_SIGNATURE: DEEPLOY_CT.DEEPLOY_PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER,
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
-      }}
-
-      request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS] = {
+      app_params = {
         DEEPLOY_CT.DEEPLOY_RESOURCES.CONTAINER_RESOURCES: container_resources,
         DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CR: docker_cr,
         DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_CR_USER: docker_cr_username,
@@ -4017,31 +4009,25 @@ class GenericSession(BaseDecentrAIObject):
         DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_IMAGE: docker_image,
         DEEPLOY_CT.DEEPLOY_KEYS.APP_PARAMS_PORT: port,
       }
-      try:
-        # Set the nonce for the request
-        nonce = f"0x{int(time.time() * 1000):x}"
-        request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.NONCE] = nonce
-
-        # Sign the payload using eth_sign_payload
-        signature = block_engine.eth_sign_payload(
-          payload=request_data[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST],
-          indent=1,
-          no_hash=True,
-          message_prefix="Please sign this message for Deeploy: "
-        )
-
-        # Send request
-        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_data)
-        return response.json()
-      except Exception as e:
-        logger.P(f"Error during deeploy_launch_container_app: {e}", color='r', show=True)
-        raise e
+      api_base_url, request_body = self.__generate_deeploy_request(
+        logger=logger, signer_private_key_path=signer_private_key_path,
+        signer_private_key_password=signer_private_key_password,
+        app_alias=name, signature=DEEPLOY_CT.DEEPLOY_PLUGIN_SIGNATURES.CONTAINER_APP_RUNNER,
+        target_nodes=target_nodes, target_nodes_count=target_nodes_count,
+        app_params=app_params, request_params={"request_id": request_id, "job_id": job_id},
+      )
+      return self.__post_deeploy_request(
+        api_base_url, DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE,
+        request_body, request_timeout,
+      )
 
 
     def deeploy_simple_telegram_bot(
         self,
         signer_private_key_path: str,
         logger,
+        request_id: str,
+        job_id: int,
         target_nodes = [],
         target_nodes_count=0,
         signer_private_key_password='',
@@ -4054,6 +4040,7 @@ class GenericSession(BaseDecentrAIObject):
         telegram_bot_token_env_key=ENVIRONMENT.TELEGRAM_BOT_TOKEN_ENV_KEY,
         telegram_bot_name=None,
         telegram_bot_name_env_key=ENVIRONMENT.TELEGRAM_BOT_NAME_ENV_KEY,
+        request_timeout=(10, 30),
         **kwargs
     ):
       """
@@ -4063,8 +4050,18 @@ class GenericSession(BaseDecentrAIObject):
       through the Deeploy service. It processes Python functions, converts them to deployable format, and handles 
       authentication, network validation, payload signing, and API communication.
 
+      HTTP 202 returns a durable operation_id, not workload readiness. Persist
+      request_id before calling and reuse it after timeout or lost acceptance;
+      poll deeploy_get_deployment_status for execution and recovery progress.
+
       Parameters
       ----------
+      request_id : str
+          Caller-persisted stable mutation identity, reused after uncertain acceptance.
+      job_id : int
+          Existing paid job to deploy.
+      request_timeout : float or tuple
+          HTTP connect/read timeout, default (10, 30) seconds.
       signer_private_key_path : str
           Path to the PEM file containing the private key used for signing the deployment request
           
@@ -4153,6 +4150,7 @@ class GenericSession(BaseDecentrAIObject):
       >>> response = session.deeploy_simple_telegram_bot(
       ...     signer_private_key_path="/path/to/private_key.pem",
       ...     logger=my_logger,
+      ...     request_id="persisted-create-id", job_id=7,
       ...     target_nodes_count=2,
       ...     name="echo_bot",
       ...     message_handler=my_message_handler,
@@ -4174,6 +4172,7 @@ class GenericSession(BaseDecentrAIObject):
       >>> response = session.deeploy_simple_telegram_bot(
       ...     signer_private_key_path="/path/to/key.pem",
       ...     logger=my_logger,
+      ...     request_id="persisted-create-id", job_id=7,
       ...     target_nodes=["node1_address", "node2_address"],
       ...     name="smart_bot",
       ...     message_handler=handle_message,
@@ -4213,8 +4212,7 @@ class GenericSession(BaseDecentrAIObject):
       if len(func_args) != 2:
         raise ValueError("The message handler function must have exactly 3 arguments: `plugin`, `message` and `user`.")
 
-      obfuscated_token = telegram_bot_token[:4] + "*" * (len(telegram_bot_token) - 4)
-      self.P(f"Creating telegram bot {telegram_bot_name} with token {obfuscated_token}...", color='b')
+      self.P(f"Creating telegram bot {telegram_bot_name}...", color='b')
 
 
       #####################################################
@@ -4236,21 +4234,22 @@ class GenericSession(BaseDecentrAIObject):
         signature=signature,
         target_nodes=target_nodes,
         target_nodes_count=target_nodes_count,
-        app_params=app_params
+        app_params=app_params,
+        request_params={"request_id": request_id, "job_id": job_id},
       )
 
 
-      try:
-        # Send request
-        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_body)
-        return response.json()
-      except Exception as e:
-        logger.P(f"Error during deeploy_simple_telegram_bot: {e}", color='r', show=True)
-        raise e
+      return self.__post_deeploy_request(
+        api_base_url, DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE,
+        request_body, request_timeout,
+      )
+
 
     def deeploy_custom_code(self,
                             signer_private_key_path: str,
                             logger,
+                            request_id: str,
+                            job_id: int,
                             custom_code=None,
                             target_nodes=[],
                             target_nodes_count=0,
@@ -4258,11 +4257,22 @@ class GenericSession(BaseDecentrAIObject):
                             name="deeploy_custom_code",
                             signature=PLUGIN_SIGNATURES.CUSTOM_EXEC_01,
                             config={},
+                            request_timeout=(10, 30),
                             ):
       """
       Deploy custom Python code on the Ratio1 Edge Protocol network using the Deeploy API.
+      HTTP 202 returns a durable operation_id, not workload readiness. Persist
+      request_id before calling and reuse it after timeout or lost acceptance;
+      poll deeploy_get_deployment_status for execution and recovery progress.
+
       Parameters
       ----------
+      request_id : str
+          Caller-persisted stable mutation identity, reused after uncertain acceptance.
+      job_id : int
+          Existing paid job to deploy.
+      request_timeout : float or tuple
+          HTTP connect/read timeout, default (10, 30) seconds.
       signer_private_key_path : str
           Path to the PEM file containing the private key used for signing the deployment request
           
@@ -4326,112 +4336,155 @@ class GenericSession(BaseDecentrAIObject):
         signature=signature,
         target_nodes=target_nodes,
         target_nodes_count=target_nodes_count,
-        app_params=app_params
+        app_params=app_params,
+        request_params={"request_id": request_id, "job_id": job_id},
       )
 
-      try:
-        # Send request
-        response = requests.post(f"{api_base_url}/{DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE}", json=request_body)
-        return response.json()
-      except Exception as e:
-        logger.P(f"Error during deeploy_custom_code: {e}", color='r', show=True)
-        raise e
+      return self.__post_deeploy_request(
+        api_base_url, DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.CREATE_PIPELINE,
+        request_body, request_timeout,
+      )
 
 
-    def deeploy_close(self, logger,
-                      signer_private_key_path: str,
-                      app_id: str,
-                      target_nodes: list[str],
-                      signer_private_key_password='',
-                      **kwargs
-                      ):
-      """
-      Close and remove a previously deployed containerized application from the Ratio1 Edge Protocol network using the Deeploy API.
-      
-      This method terminates and removes a Docker container deployment from specified edge nodes through the Deeploy service.
-      It handles authentication, network validation, payload signing, and API communication for the deletion operation.
+    def deeploy_close(self, logger, signer_private_key_path: str,
+                      app_id: str, request_id: str, job_id: int, expected_revision: int,
+                      signer_private_key_password='', request_timeout=(10, 30)):
+      """Accept deletion of an entire job and return its durable operation.
 
       Parameters
       ----------
       logger : Logger
-          Logger instance for recording deletion activities and errors
-          
-      signer_private_key_path : str
-          Path to the PEM file containing the private key used for signing the deletion request
-          
+          SDK logger used by the request signer.
+      signer_private_key_path, signer_private_key_password : str
+          Signing key path and optional password.
       app_id : str
-          Unique identifier of the deployed application to be closed/removed
-          
-      target_nodes : list[str]
-          List of node addresses where the application should be removed from
-          
-      signer_private_key_password : str, optional
-          Password for the private key file if it's encrypted. Defaults to ''
-          
-      **kwargs : dict
-          Additional parameters passed to the deletion request
+          Current application identifier.
+      request_id : str
+          Caller-persisted identity. Reuse exactly this ID after uncertain acceptance.
+      job_id : int
+          Paid job whose entire placement will be stopped.
+      expected_revision : int
+          Last observed revision; stale mutations are rejected by Deeploy.
+      request_timeout : float or tuple
+          Bounded HTTP timeout, defaulting to 10 seconds to connect and 30 to read.
 
       Returns
       -------
       dict
-          JSON response from the Deeploy API containing deletion status and details
-
-      Raises
-      ------
-      ValueError
-          - If the private key file path is invalid or doesn't exist
-          - If no oracles are found for the wallet on the current network
-          
-      Exception
-          If there's an error during the deletion process (network, API, signing, etc.)
-
-      Notes
-      -----
-      - The method automatically validates network configuration and oracle availability
-      - The deletion request is cryptographically signed using the provided private key
-      - The function creates a temporary blockchain engine instance for this operation
-      - This operation will permanently remove the application and cannot be undone
-      - All running containers associated with the app_id will be stopped and removed
-
-      Examples
-      --------
-      Close an application on specific nodes:
-      
-      >>> response = session.deeploy_close(
-      ...     logger=my_logger,
-      ...     signer_private_key_path="/path/to/private_key.pem",
-      ...     app_id="my_app_12345",
-      ...     target_nodes=["node1_address", "node2_address"]
-      ... )
-      
-      Close an application with encrypted private key:
-      
-      >>> response = session.deeploy_close(
-      ...     logger=my_logger,
-      ...     signer_private_key_path="/path/to/encrypted_key.pem",
-      ...     app_id="web_server_67890",
-      ...     target_nodes=["node1_address"],
-      ...     signer_private_key_password="my_secure_password"
-      ... )
-
-      See Also
-      --------
-      deeploy_launch_container_app : Deploy a new containerized application
+          HTTP 202 acceptance containing operation_id; poll until cleanup completes.
+          Acceptance does not mean workloads have stopped. Partial deletion is unsupported.
       """
-
-
+      if type(expected_revision) is not int or expected_revision < 1:
+        raise ValueError("expected_revision must be a positive integer.")
       api_base_url, request_body = self.__generate_deeploy_request(
-        logger=logger,
-        signer_private_key_path=signer_private_key_path,
+        logger=logger, signer_private_key_path=signer_private_key_path,
         signer_private_key_password=signer_private_key_password,
-        request_params={
-          DEEPLOY_CT.DEEPLOY_KEYS.APP_ID: app_id,
-          DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES: target_nodes,
-        }
+        request_params={"app_id": app_id, "request_id": request_id,
+                        "job_id": job_id, "expected_revision": expected_revision},
+      )
+      return self.__post_deeploy_request(
+        api_base_url, DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE,
+        request_body, request_timeout,
       )
 
-      endpoint = DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.DELETE_PIPELINE
-      response = requests.post(f"{api_base_url}/{endpoint}", json=request_body)
+    def deeploy_get_read_auth(self, logger, signer_private_key_path,
+                              signer_private_key_password=''):
+      """Sign the nonce-only envelope once for repeated status reads.
+
+      Parameters
+      ----------
+      logger : Logger
+          SDK logger used by the request signer.
+      signer_private_key_path, signer_private_key_password : str
+          Signing key path and optional password.
+
+      Returns
+      -------
+      tuple
+          Configured API base URL and reusable signed auth dictionary. Pass these
+          to deeploy_get_deployment_status; renew auth when the API returns 401.
+      """
+      url, body = self.__generate_deeploy_request(
+        logger, signer_private_key_path, signer_private_key_password,
+      )
+      return url, body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST]
+
+    def deeploy_get_deployment_status(self, api_base_url, auth, *, operation_id=None,
+                                      job_id=None, request_id=None, kind=None,
+                                      events_limit=None, after_event_cursor=None,
+                                      request_timeout=(10, 30)):
+      """Read operation progress from any Deeploy oracle using reusable auth.
+
+      Parameters
+      ----------
+      api_base_url : str
+          Selected oracle URL, including its Deeploy API base path.
+      auth : dict
+          Nonce-only signed dictionary returned by deeploy_get_read_auth.
+      operation_id, request_id : str, optional
+          Select an operation directly or recover an uncertain acceptance using
+          request_id plus job_id and kind. Omit both to read the job's latest operation.
+      job_id : int, optional
+          Job selector or scope for request_id lookup.
+      kind : str, optional
+          Operation kind when recovering an uncertain acceptance.
+      events_limit : int, optional
+          Maximum recent events requested from the server.
+      after_event_cursor : int, optional
+          Resume the event page after this server-provided cursor.
+      request_timeout : float or tuple
+          Bounded HTTP connect/read timeout.
+
+      Returns
+      -------
+      dict
+          Progress, per-node state, recovery and freshness. Polling transport errors
+          do not indicate deployment failure; keep the last observed operation.
+      """
+      if operation_id and request_id:
+        raise ValueError("Choose operation_id or request_id, not both.")
+      if not operation_id and not request_id and job_id is None:
+        raise ValueError("operation_id, request_id or job_id is required.")
+      if request_id and (job_id is None or kind is None):
+        raise ValueError("request_id lookup requires job_id and kind.")
+      if set(auth) != {"nonce", "EE_ETH_SIGN", "EE_ETH_SENDER"}:
+        raise ValueError("auth must be a signed nonce-only Deeploy envelope.")
+      request = dict(auth)
+      request.update({key: value for key, value in dict(
+        operation_id=operation_id, job_id=job_id, request_id=request_id, kind=kind,
+        events_limit=events_limit, after_event_cursor=after_event_cursor,
+      ).items() if value is not None})
+      return self.__post_deeploy_request(
+        api_base_url, DEEPLOY_CT.DEEPLOY_REQUEST_PATHS.GET_DEPLOYMENT_STATUS,
+        {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: request}, request_timeout,
+      )
+
+    def __post_deeploy_request(self, api_base_url, endpoint, body, request_timeout):
+      """Send one bounded HTTP request without retrying a mutation implicitly.
+
+      Parameters
+      ----------
+      api_base_url, endpoint : str
+          Deeploy destination and endpoint name.
+      body : dict
+          Signed request envelope.
+      request_timeout : float or tuple
+          Positive finite connect/read timeout, required for every request.
+
+      Returns
+      -------
+      dict
+          API JSON, including HTTP 202 acceptance. HTTP failures remain exceptions
+          so callers can distinguish admission uncertainty from operation failure.
+      """
+      import math
+      timeouts = request_timeout if isinstance(request_timeout, tuple) else (request_timeout,)
+      if not timeouts or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                             or not math.isfinite(value) or value <= 0 for value in timeouts):
+        raise ValueError("request_timeout must contain positive finite seconds.")
+      response = requests.post(f"{api_base_url.rstrip('/')}/{endpoint}", json=body,
+                               timeout=request_timeout)
+      response.raise_for_status()
       return response.json()
 
     def __generate_deeploy_request(self,
@@ -4513,7 +4566,8 @@ class GenericSession(BaseDecentrAIObject):
       ...     signature="CONTAINER_APP_RUNNER",
       ...     target_nodes=["node1_address", "node2_address"],
       ...     target_nodes_count=0,
-      ...     app_params={"image": "nginx:latest", "port": 80}
+      ...     app_params={"image": "nginx:latest", "port": 80},
+      ...     request_params={"request_id": "persisted-create-id", "job_id": 7}
       ... )
       
       Generate a request for deleting an application (no signature/app_alias needed):
@@ -4522,14 +4576,20 @@ class GenericSession(BaseDecentrAIObject):
       ...     logger=my_logger,
       ...     signer_private_key_path="/path/to/private_key.pem",
       ...     signer_private_key_password="",
-      ...     request_params={"app_id": "my_app_12345", "target_nodes": ["node1_address"]}
+      ...     request_params={"app_id": "my_app_12345", "job_id": 7,
+      ...                     "request_id": "persisted-delete-id", "expected_revision": 1}
       ... )
       """
 
-      request_body = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: {
-        DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT: target_nodes_count,
-        **request_params
-      }}
+      if request_params:
+        request_id = request_params.get("request_id")
+        if not isinstance(request_id, str) or not request_id.strip():
+          raise ValueError("A caller-persisted request_id is required.")
+        if type(request_params.get("job_id")) is not int or request_params["job_id"] < 0:
+          raise ValueError("job_id must be a nonnegative integer.")
+      request_body = {DEEPLOY_CT.DEEPLOY_KEYS.REQUEST: dict(request_params)}
+      if signature is not None:
+        request_body[DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES_COUNT] = target_nodes_count
 
       # Add creation-specific fields only if provided
       if app_alias is not None:

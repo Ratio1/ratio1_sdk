@@ -19,6 +19,10 @@ class DEEPLOY_KEYS:
   APPS = "apps"
   APP_ID = "app_id"
   NONCE = "nonce"
+  REQUEST_ID = "request_id"
+  JOB_ID = "job_id"
+  EXPECTED_REVISION = "expected_revision"
+  OPERATION_ID = "operation_id"
   APP_ALIAS = "app_alias"
   PLUGIN_SIGNATURE = "plugin_signature"
   TARGET_NODES = "target_nodes"
@@ -83,6 +87,7 @@ class DEEPLOY_REQUEST_PATHS:
   CREATE_PIPELINE = "create_pipeline"
   DELETE_PIPELINE = "delete_pipeline"
   GET_APPS = "get_apps"
+  GET_DEPLOYMENT_STATUS = "get_deployment_status"
 
 
 class DEEPLOY_RESOURCES:
@@ -131,6 +136,8 @@ class DEEPLOY_POLICY_VALUES:
   ALWAYS = "always"
 
 DEEPLOY_CREATE_REQUEST = {
+  "request_id": "caller-persisted-create-id",
+  "job_id": 7,
   "app_alias" : "some_app_name", 
   "plugin_signature" : "SOME_PLUGIN_01",
   "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)
@@ -214,6 +221,8 @@ DEEPLOY_CREATE_REQUEST = {
 ###################################################################################################################
 
 DEEPLOY_CREATE_REQUEST_CONTAINER_APP = {
+  "request_id": "caller-persisted-create-id",
+  "job_id": 7,
   "app_alias" : "some_app_name", 
   "plugin_signature" : "CONTAINER_APP_RUNNER",
   "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)
@@ -288,6 +297,8 @@ DEEPLOY_CREATE_REQUEST_CONTAINER_APP = {
 }
 
 DEEPLOY_CREATE_REQUEST_SERVICE_APP = {
+  "request_id": "caller-persisted-create-id",
+  "job_id": 7,
   "app_alias" : "service_<service>_etc", 
   "plugin_signature" : "CONTAINER_APP_RUNNER",
   "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)
@@ -357,6 +368,8 @@ DEEPLOY_CREATE_REQUEST_SERVICE_APP = {
 }
 
 DEEPLOY_CREATE_REQUEST_NATIVE_APPS = {
+  "request_id": "caller-persisted-create-id",
+  "job_id": 7,
   "app_alias" : "some_app_name", 
   "plugin_signature" : "SOME_PLUGIN_01",
   "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)
@@ -432,13 +445,12 @@ DEEPLOY_GET_APPS_REQUEST = {
 }
 
 DEEPLOY_DELETE_REQUEST = {
-  "app_id" : "target_app_name_id_returned_by_get_apps_or_create_pipeline",
-  "target_nodes" : [
-    "0xai_target_node_1",
-    "0xai_target_node_2",
-  ],
-  "nonce" : hex(int(time() * 1000)), # recoverable via int(nonce, 16)
-}  
+  "app_id": "target_app_name_id_returned_by_get_apps_or_create_pipeline",
+  "job_id": 7,
+  "request_id": "caller-persisted-delete-id",
+  "expected_revision": 1,
+  "nonce": hex(int(time() * 1000)),
+}
 
 DEEPLOY_INSTANCE_COMMAND_REQUEST = {
   "app_id" : "target_app_name_id_returned_by_get_apps_or_create_pipeline",
