@@ -1949,6 +1949,98 @@ class BaseBlockEngine(
     raise NotImplementedError()
 
 
+  def reconcile_dauth_job_secrets(self, payload, network=None, request_timeout=(10, 60)):
+    """
+    Reconcile and persist a job's secrets on dAuth without fetching its secrets.
+
+    Parameters
+    ----------
+    payload : dict
+      Job ID, expected_pipeline_cid and prepared pipeline_configs keyed by node.
+      Optional identity_aliases contains pairs of current and source plugin
+      identities for generated scale-up instances. The protocol oracle signs
+      this body; dAuth reuses hidden values from the current bound bundle.
+    network : str, optional
+      Network whose configured dAuth endpoint and oracle registry are used.
+      Defaults to the engine network.
+    request_timeout : tuple or float, optional
+      Explicit HTTP timeout, defaulting to ``(10, 60)`` seconds.
+
+    Returns
+    -------
+    dict
+      Authenticated result containing job_id, redacted pipeline_configs and
+      pipeline_cid. No secret bundle or deployment rollback state is returned.
+
+    Raises
+    ------
+    ValueError
+      If the payload, response or response authentication is invalid.
+    RuntimeError
+      If signing, transport or the reconciliation operation fails.
+
+    Notes
+    -----
+    The caller must be a protocol oracle. This mutating request is never retried:
+    a timeout does not establish whether dAuth persisted the result. Deployment
+    failure does not restore the previous metadata or secrets. Request and
+    response bodies are never logged by this method.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("pipeline_configs"), dict):
+      raise ValueError("Invalid dAuth reconciliation payload.")
+    signed_body = deepcopy(payload)
+    selected_network = network if network is not None else self.evm_network
+    url = self.get_network_data(selected_network)[dAuth.EvmNetData.DAUTH_URL_KEY]
+    reconcile_url = url.replace("/get_auth_data", "/reconcile_job_secrets")
+    signed_body[DAUTH_NONCE] = hex(int(time() * 1000))
+    try:
+      self.sign(signed_body)
+    except Exception:
+      raise RuntimeError("dAuth reconciliation request could not be signed.") from None
+    try:
+      response = requests.post(reconcile_url, json={"body": signed_body}, timeout=request_timeout)
+    except requests.RequestException:
+      raise RuntimeError("dAuth reconciliation transport could not be confirmed.") from None
+    if response.status_code != 200:
+      raise RuntimeError("dAuth reconciliation service is unavailable.")
+    try:
+      response_data = response.json()
+    except (TypeError, ValueError):
+      raise ValueError("Invalid dAuth reconciliation response.") from None
+    result = response_data.get("result") if isinstance(response_data, dict) else None
+    if not isinstance(result, dict):
+      raise ValueError("Invalid dAuth reconciliation response.")
+    try:
+      verification = self.verify(result, log_hash_sign_fails=False)
+    except Exception:
+      raise ValueError("Invalid dAuth reconciliation response signature.") from None
+    if not getattr(verification, "valid", False):
+      raise ValueError("Invalid dAuth reconciliation response signature.")
+    try:
+      signer_eth = self.node_address_to_eth_address(verification.sender)
+      authorized = self.web3_is_dauth_oracle(signer_eth, network=selected_network)
+    except Exception:
+      raise ValueError("Unauthorized dAuth reconciliation response signer.") from None
+    if not authorized:
+      raise ValueError("Unauthorized dAuth reconciliation response signer.")
+    if result.get(DAUTH_NONCE) != signed_body[DAUTH_NONCE]:
+      raise ValueError("dAuth reconciliation response nonce mismatch.")
+    if result.get("status") != "success" or result.get("error") not in (None, ""):
+      raise RuntimeError("dAuth rejected secret reconciliation.")
+    configs = result.get("pipeline_configs")
+    if (
+      result.get("job_id") != str(payload.get("job_id"))
+      or not isinstance(result.get("pipeline_cid"), str)
+      or not result["pipeline_cid"]
+      or not isinstance(configs, dict)
+      or not configs
+      or configs.keys() != payload["pipeline_configs"].keys()
+      or any(not isinstance(config, dict) for config in configs.values())
+    ):
+      raise ValueError("Invalid dAuth reconciliation result.")
+    return result
+
+
   def get_dauth_job_secret_bundle(
     self,
     job_id,
