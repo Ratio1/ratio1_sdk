@@ -498,3 +498,5 @@ actor_to_docs_handoff:
 - 2026-10-14: Bound deployed job-secret requests and responses to required immutable secret revisions; removed unversioned client requests.
 
 - 2026-10-15: Restore unversioned SDK requests only for existing persisted pipelines, including node restart; dAuth rejects this path after revision metadata or deletion appears. Explicit revision validation remains strict.
+
+- 2026-10-20: `reconcile_dauth_job_secrets` also transports signed lifecycle prepare/status/commit/revoke/delete actions, binding replies to the operation, plan and action without returning secret bundles. No HTTP retries; the existing coordinator journal owns uncertain preparation and finalization recovery.

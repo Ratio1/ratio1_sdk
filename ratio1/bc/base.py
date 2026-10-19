@@ -1960,6 +1960,10 @@ class BaseBlockEngine(
       Optional identity_aliases contains pairs of current and source plugin
       identities for generated scale-up instances. The protocol oracle signs
       this body; dAuth reuses hidden values from the current bound bundle.
+      Lifecycle requests instead include a signed ``operation`` and an ``action``
+      (prepare, status, commit, revoke or delete). Preparation supplies fresh
+      secret fragments for the operation's immutable redacted R1FS plan;
+      publication supplies a coordinator-signed pointer. No bundle is fetched.
     network : str, optional
       Network whose configured dAuth endpoint and oracle registry are used.
       Defaults to the engine network.
@@ -1970,7 +1974,9 @@ class BaseBlockEngine(
     -------
     dict
       Authenticated result containing job_id, redacted pipeline_configs and
-      pipeline_cid. No secret bundle or deployment rollback state is returned.
+      pipeline_cid. Lifecycle results bind operation_id, plan_cid and action;
+      prepare/status return a boolean prepared flag. Neither form returns a
+      secret bundle. The lifecycle caller owns retries of its stable operation.
 
     Raises
     ------
@@ -1983,10 +1989,20 @@ class BaseBlockEngine(
     -----
     The caller must be a protocol oracle. This mutating request is never retried:
     a timeout does not establish whether dAuth persisted the result. Deployment
-    failure does not restore the previous metadata or secrets. Request and
-    response bodies are never logged by this method.
+    failure does not restore metadata in the unversioned path. Lifecycle
+    preparation leaves the active pointer unchanged; commit/delete publish only
+    at the coordinator's finalization step. Request and response bodies are
+    never logged by this method.
     """
-    if not isinstance(payload, dict) or not isinstance(payload.get("pipeline_configs"), dict):
+    if not isinstance(payload, dict):
+      raise ValueError("Invalid dAuth reconciliation payload.")
+    operation = payload.get("operation")
+    if "operation" in payload:
+      if not isinstance(operation, dict) or payload.get("action") not in ("prepare", "status", "commit", "revoke", "delete"):
+        raise ValueError("Invalid dAuth deployment-secret payload.")
+      if payload["action"] in ("commit", "delete") and not isinstance(payload.get("pointer"), dict):
+        raise ValueError("Invalid dAuth deployment publication pointer.")
+    elif not isinstance(payload.get("pipeline_configs"), dict):
       raise ValueError("Invalid dAuth reconciliation payload.")
     signed_body = deepcopy(payload)
     selected_network = network if network is not None else self.evm_network
@@ -2027,6 +2043,23 @@ class BaseBlockEngine(
       raise ValueError("dAuth reconciliation response nonce mismatch.")
     if result.get("status") != "success" or result.get("error") not in (None, ""):
       raise RuntimeError("dAuth rejected secret reconciliation.")
+    if operation is not None:
+      if (
+        result.get("job_id") != str(payload.get("job_id"))
+        or result.get("operation_id") != operation.get("operation_id")
+        or result.get("plan_cid") != operation.get("plan_cid")
+        or result.get("action") != payload["action"]
+      ):
+        raise ValueError("Invalid dAuth deployment-secret result.")
+      if payload["action"] in ("prepare", "status") and type(result.get("prepared")) is not bool:
+        raise ValueError("Invalid dAuth preparation status.")
+      if payload["action"] == "prepare" and not result["prepared"]:
+        raise RuntimeError("dAuth deployment-secret preparation is incomplete.")
+      if payload["action"] in ("commit", "delete") and (
+        "pipeline_cid" not in result or result["pipeline_cid"] != payload["pointer"].get("pipeline_cid")
+      ):
+        raise ValueError("Invalid dAuth publication result.")
+      return result
     configs = result.get("pipeline_configs")
     if (
       result.get("job_id") != str(payload.get("job_id"))
