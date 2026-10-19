@@ -1,4 +1,4 @@
-"""Verify the SDK-owned dAuth update transport without network access."""
+"""Verify the SDK-owned dAuth reconciliation transport without network access."""
 import copy
 import traceback
 import unittest
@@ -12,28 +12,30 @@ from test_dauth_job_secret_client import _DauthClientHarness, REQUEST_TIME, REQU
 
 class _UpdateClientHarness(_DauthClientHarness):
   """
-  Bind the update API to the existing isolated dAuth engine fixture.
+  Bind the reconciliation API to the existing isolated dAuth engine fixture.
 
   Notes
   -----
   Signature and oracle checks use fixture results; HTTP is always mocked.
   """
-  request_dauth_job_update = BaseBlockEngine.request_dauth_job_update
+  reconcile_dauth_job_secrets = BaseBlockEngine.reconcile_dauth_job_secrets
 
 
-class TestDauthJobUpdateClient(unittest.TestCase):
+class TestDauthSecretReconciliationClient(unittest.TestCase):
   """
-  Cover request integrity, response authentication and bounded retry behavior.
+  Cover request integrity, response authentication and single-attempt transport.
 
   Notes
   -----
-  Deployment receipt semantics remain covered by Edge integration tests.
+  Secret reconciliation semantics remain covered by Edge integration tests.
   """
   def setUp(self):
     """Prepare a signed-response fixture and mock the clock and HTTP boundary."""
     self.engine = _UpdateClientHarness()
-    self.payload = {'action': 'stage', 'wallet_request': {'secret': 'private-token', 'EE_ETH_SIGN': 'wallet-signature'}}
-    self.result = {'status': 'success', 'nonce': REQUEST_NONCE, 'receipt': {'operation_id': 'op'},
+    self.payload = {'job_id': '7', 'expected_pipeline_cid': 'old-cid',
+                    'pipeline_configs': {'worker': {'ENV': {'TOKEN': 'private-token'}}}}
+    self.result = {'status': 'success', 'nonce': REQUEST_NONCE, 'job_id': '7',
+                   'pipeline_cid': 'new-cid', 'pipeline_configs': {'worker': {}},
                    'EE_SIGN': 'server-signature', 'EE_SENDER': 'server'}
     self.response = mock.Mock(status_code=200)
     self.response.json.return_value = {'result': self.result}
@@ -44,42 +46,20 @@ class TestDauthJobUpdateClient(unittest.TestCase):
     self.post = post.start()
     self.addCleanup(post.stop)
 
-  def test_signs_all_actions_and_checks_selected_network_without_mutating_payload(self):
-    """Keep operation data intact and authenticate each supported transport action."""
+  def test_signs_request_and_checks_selected_network_without_mutating_payload(self):
+    """Keep operation data intact and authenticate the selected-network reply."""
     self.engine.default_dauth_url = 'https://dauth.example/proxy/get_auth_data'
-    for action in ('stage', 'commit', 'rollback'):
-      with self.subTest(action=action):
-        self.payload['action'] = action
-        original = copy.deepcopy(self.payload)
-        result = self.engine.request_dauth_job_update(self.payload, network='testnet', request_timeout=(2, 5))
-        self.assertEqual(result, self.result)
-        self.assertEqual(self.payload, original)
-        self.assertEqual(self.engine.signed_payloads[-1], {**original, 'nonce': REQUEST_NONCE})
-        self.assertEqual(self.engine.network_data_calls[-1], 'testnet')
-        self.assertEqual(self.engine.oracle_checks[-1], ('0xserver', 'testnet'))
-        self.assertEqual(self.engine.verification_calls[-1][1], {'log_hash_sign_fails': False})
-        self.assertEqual(self.post.call_args.args[0], 'https://dauth.example/proxy/stage_job_update')
-        self.assertEqual(self.post.call_args.kwargs['timeout'], (2, 5))
-    self.assertEqual(self.engine.log_messages, [])
-
-  def test_transport_retry_uses_fresh_signing_of_identical_frozen_operation(self):
-    """Retry once without carrying authentication or mutable nested data forward."""
-    self.clock.side_effect = [REQUEST_TIME, REQUEST_TIME + 1]
-    self.result['nonce'] = hex((REQUEST_TIME + 1) * 1000)
-    self.post.side_effect = [requests.Timeout('private-token'), self.response]
     original = copy.deepcopy(self.payload)
-    self.engine.request_dauth_job_update(self.payload)
-    self.assertEqual(self.post.call_count, 2)
-    first = self.post.call_args_list[0].kwargs['json']['body']
-    second = self.post.call_args_list[1].kwargs['json']['body']
-    self.assertNotEqual(first['nonce'], second['nonce'])
-    self.assertNotIn('EE_SIGN', self.engine.signed_payloads[1])
-    self.assertEqual(first['wallet_request'], second['wallet_request'])
-    first['wallet_request']['secret'] = 'changed-after-send'
-    self.assertEqual(second['wallet_request'], original['wallet_request'])
+    result = self.engine.reconcile_dauth_job_secrets(self.payload, network='testnet', request_timeout=(2, 5))
+    self.assertEqual(result, self.result)
     self.assertEqual(self.payload, original)
-    self.assertEqual(self.engine.network_data_calls, ['mainnet'])
-    self.assertEqual(self.post.call_args.kwargs['timeout'], (10, 60))
+    self.assertEqual(self.engine.signed_payloads[-1], {**original, 'nonce': REQUEST_NONCE})
+    self.assertEqual(self.engine.network_data_calls[-1], 'testnet')
+    self.assertEqual(self.engine.oracle_checks[-1], ('0xserver', 'testnet'))
+    self.assertEqual(self.engine.verification_calls[-1][1], {'log_hash_sign_fails': False})
+    self.assertEqual(self.post.call_args.args[0], 'https://dauth.example/proxy/reconcile_job_secrets')
+    self.assertEqual(self.post.call_args.kwargs['timeout'], (2, 5))
+    self.assertEqual(self.engine.log_messages, [])
 
   def test_rejects_malformed_http_and_unauthenticated_or_unsuccessful_responses(self):
     """Reject invalid envelopes without retrying or exposing their body contents."""
@@ -92,6 +72,10 @@ class TestDauthJobUpdateClient(unittest.TestCase):
       ('nonce', 200, {'result': {**self.result, 'nonce': 'wrong'}}, True, True),
       ('status', 200, {'result': {**self.result, 'status': 'fail'}}, True, True),
       ('error', 200, {'result': {**self.result, 'error': 'private-token'}}, True, True),
+      ('job', 200, {'result': {**self.result, 'job_id': '8'}}, True, True),
+      ('cid', 200, {'result': {**self.result, 'pipeline_cid': ''}}, True, True),
+      ('nodes', 200, {'result': {**self.result, 'pipeline_configs': {'other': {}}}}, True, True),
+      ('config', 200, {'result': {**self.result, 'pipeline_configs': {'worker': []}}}, True, True),
     ]
     for name, status, data, valid, oracle in cases:
       with self.subTest(case=name):
@@ -101,12 +85,12 @@ class TestDauthJobUpdateClient(unittest.TestCase):
         self.engine.verification_valid = valid
         self.engine.dauth_oracle = oracle
         with self.assertRaises((ValueError, RuntimeError)) as caught:
-          self.engine.request_dauth_job_update(self.payload)
+          self.engine.reconcile_dauth_job_secrets(self.payload)
         self.assertEqual(self.post.call_count, 1)
         self.assertNotIn('private-token', str(caught.exception) + str(self.engine.log_messages))
     self.response.json.assert_called()
 
-  def test_dependency_failures_remain_credential_safe_and_retries_are_bounded(self):
+  def test_dependency_failures_remain_credential_safe_and_transport_is_not_retried(self):
     """Suppress credential-bearing exception chains from external dependencies."""
     for dependency in ('sign', 'verify', 'web3_is_dauth_oracle', 'json', 'post'):
       with self.subTest(dependency=dependency):
@@ -119,13 +103,13 @@ class TestDauthJobUpdateClient(unittest.TestCase):
           owner = self.response if dependency == 'json' else self.engine
           patcher = mock.patch.object(owner, dependency, side_effect=failure)
         with patcher as failed, self.assertRaises((ValueError, RuntimeError)) as caught:
-          self.engine.request_dauth_job_update(self.payload)
-        self.assertEqual(failed.call_count, 2 if dependency == 'post' else 1)
+          self.engine.reconcile_dauth_job_secrets(self.payload)
+        self.assertEqual(failed.call_count, 1)
         formatted = ''.join(traceback.format_exception(type(caught.exception), caught.exception, caught.exception.__traceback__))
         self.assertNotIn('private-token', formatted + str(self.engine.log_messages))
         self.assertTrue(caught.exception.__suppress_context__)
     with self.assertRaises(ValueError):
-      self.engine.request_dauth_job_update(None)
+      self.engine.reconcile_dauth_job_secrets(None)
 
 
 if __name__ == '__main__':
