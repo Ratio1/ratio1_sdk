@@ -1949,6 +1949,93 @@ class BaseBlockEngine(
     raise NotImplementedError()
 
 
+  def request_dauth_job_update(self, payload, network=None, request_timeout=(10, 60)):
+    """
+    Send an authenticated dAuth job-update staging or settlement request.
+
+    Parameters
+    ----------
+    payload : dict
+      Operation body for ``/stage_job_update``. The caller supplies stage,
+      commit or rollback data; this method adds node authentication without
+      mutating the body or its nested signed wallet request.
+    network : str, optional
+      Network whose configured dAuth endpoint and oracle registry are used.
+      Defaults to the engine network.
+    request_timeout : tuple or float, optional
+      Explicit HTTP timeout, defaulting to ``(10, 60)`` seconds.
+
+    Returns
+    -------
+    dict
+      Successful response result after signature, registered dAuth signer and
+      nonce validation. The caller validates deployment receipts and plan data.
+
+    Raises
+    ------
+    ValueError
+      If the payload, response or response authentication is invalid.
+    RuntimeError
+      If signing fails, transport fails twice, HTTP fails or dAuth rejects the
+      operation. Errors omit request, response and credential details.
+
+    Notes
+    -----
+    One transport failure is retried with the identical operation payload and
+    fresh node authentication. The server must make these operations idempotent;
+    an exhausted timeout does not establish whether the operation was applied.
+    Request and response bodies are never logged by this method.
+    """
+    if not isinstance(payload, dict):
+      raise ValueError("dAuth update payload must be a dictionary.")
+    operation_payload = deepcopy(payload)
+    selected_network = network if network is not None else self.evm_network
+    url = self.get_network_data(selected_network)[dAuth.EvmNetData.DAUTH_URL_KEY]
+    update_url = url.replace("/get_auth_data", "/stage_job_update")
+    for attempt in range(2):
+      # Rebuild authentication from the frozen operation, never a prior signed
+      # body. A retry must not alter the embedded wallet request or plan.
+      signed_body = deepcopy(operation_payload)
+      signed_body[DAUTH_NONCE] = hex(int(time() * 1000))
+      try:
+        self.sign(signed_body)
+      except Exception:
+        raise RuntimeError("dAuth update request could not be signed.") from None
+      try:
+        response = requests.post(update_url, json={"body": signed_body}, timeout=request_timeout)
+        break
+      except requests.RequestException:
+        if attempt:
+          raise RuntimeError("dAuth update transport could not be confirmed.") from None
+    if response.status_code != 200:
+      raise RuntimeError("dAuth update staging service is unavailable.")
+    try:
+      response_data = response.json()
+    except (TypeError, ValueError):
+      raise ValueError("Invalid dAuth update response.") from None
+    result = response_data.get("result") if isinstance(response_data, dict) else None
+    if not isinstance(result, dict):
+      raise ValueError("Invalid dAuth update response.")
+    try:
+      verification = self.verify(result, log_hash_sign_fails=False)
+    except Exception:
+      raise ValueError("Invalid dAuth update response signature.") from None
+    if not getattr(verification, "valid", False):
+      raise ValueError("Invalid dAuth update response signature.")
+    try:
+      signer_eth = self.node_address_to_eth_address(verification.sender)
+      authorized = self.web3_is_dauth_oracle(signer_eth, network=selected_network)
+    except Exception:
+      raise ValueError("Unauthorized dAuth update response signer.") from None
+    if not authorized:
+      raise ValueError("Unauthorized dAuth update response signer.")
+    if result.get(DAUTH_NONCE) != signed_body[DAUTH_NONCE]:
+      raise ValueError("dAuth update response nonce mismatch.")
+    if result.get("status") != "success" or result.get("error") not in (None, ""):
+      raise RuntimeError("dAuth rejected the update staging operation.")
+    return result
+
+
   def get_dauth_job_secret_bundle(
     self,
     job_id,
