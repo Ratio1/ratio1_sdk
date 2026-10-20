@@ -96,6 +96,17 @@ class DeeployAsyncClientTests(unittest.TestCase):
     with self.assertRaises(ValueError):
       self.session.deeploy_get_deployment_status(url, auth, request_id='persisted-id')
 
+  def test_delete_accepts_legacy_revision_zero_and_rejects_invalid_revisions(self):
+    args = {key: value for key, value in self.args.items() if key != 'target_nodes'}
+    self.session.deeploy_close(app_id='app', expected_revision=0, **args)
+    self.assertEqual(self.signed[-1]['expected_revision'], 0)
+    self.assertTrue(self.post.call_args.args[0].endswith('/delete_pipeline'))
+    self.post.reset_mock()
+    for revision in (-1, True, False, 1.5, '0', None):
+      with self.subTest(revision=revision), self.assertRaises(ValueError):
+        self.session.deeploy_close(app_id='app', expected_revision=revision, **args)
+    self.post.assert_not_called()
+
   def test_http_auth_and_admission_errors_remain_observable(self):
     self.response.raise_for_status.side_effect = requests.HTTPError(response=self.response)
     with self.assertRaises(requests.HTTPError) as caught:

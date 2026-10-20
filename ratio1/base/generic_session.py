@@ -4364,7 +4364,8 @@ class GenericSession(BaseDecentrAIObject):
       job_id : int
           Paid job whose entire placement will be stopped.
       expected_revision : int
-          Last observed revision; stale mutations are rejected by Deeploy.
+          Revision of the current pipeline, or 0 for an existing pipeline
+          without revision metadata. Stale mutations are rejected by Deeploy.
       request_timeout : float or tuple
           Bounded HTTP timeout, defaulting to 10 seconds to connect and 30 to read.
 
@@ -4374,8 +4375,8 @@ class GenericSession(BaseDecentrAIObject):
           HTTP 202 acceptance containing operation_id; poll until cleanup completes.
           Acceptance does not mean workloads have stopped. Partial deletion is unsupported.
       """
-      if type(expected_revision) is not int or expected_revision < 1:
-        raise ValueError("expected_revision must be a positive integer.")
+      if type(expected_revision) is not int or expected_revision < 0:
+        raise ValueError("expected_revision must be a nonnegative integer.")
       api_base_url, request_body = self.__generate_deeploy_request(
         logger=logger, signer_private_key_path=signer_private_key_path,
         signer_private_key_password=signer_private_key_password,
