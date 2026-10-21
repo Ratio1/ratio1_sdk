@@ -3,6 +3,8 @@ import os
 
 from collections import namedtuple
 from copy import deepcopy
+from threading import Lock
+from time import monotonic
 
 from datetime import timezone, datetime
 
@@ -16,6 +18,10 @@ from ..const.evm_net import EVM_NET_DATA, EvmNetData
 EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
   'true', '1', 'yes', 'y', 't', 'on'
 ]
+
+_ORACLE_REGISTRY_TTL = 10 * 60
+_ORACLE_REGISTRY_CACHE = {}
+_ORACLE_REGISTRY_CACHE_LOCK = Lock()
 
 Web3Vars = namedtuple(
   "Web3Vars", [  
@@ -982,61 +988,97 @@ class _EVMMixin:
       return result
 
 
+    def _get_cached_oracle_registry(self, w3vars, address, abi, method):
+      """Read one registry through a process-wide, ten-minute cache.
+
+      Parameters
+      ----------
+      w3vars : Web3Vars
+        Resolved network and RPC endpoint.
+      address : str
+        Registry contract address.
+      abi : list
+        Contract ABI containing the registry list method.
+      method : str
+        Zero-argument contract method returning oracle addresses.
+
+      Returns
+      -------
+      list
+        A copy of the registry addresses, including an empty registry.
+
+      Notes
+      -----
+      One lock per registry serializes refreshes across engines and threads.
+      Expired entries are never served on RPC failure; the exception propagates.
+      Changes to registry membership can take up to ten minutes to be observed.
+      """
+      key = (w3vars.network.lower(), w3vars.rpc_url, address.lower(), method)
+      with _ORACLE_REGISTRY_CACHE_LOCK:
+        entry = _ORACLE_REGISTRY_CACHE.setdefault(key, {"lock": Lock()})
+      with entry["lock"]:
+        if "addresses" not in entry or monotonic() >= entry["expires_at"]:
+          contract = w3vars.w3.eth.contract(address=address, abi=abi)
+          started_at = monotonic()
+          addresses = tuple(getattr(contract.functions, method)().call())
+          entry.update(addresses=addresses, expires_at=started_at + _ORACLE_REGISTRY_TTL)
+        return list(entry["addresses"])
+
+
     def web3_get_oracles(self, network=None, debug=False) -> list:
       """
-      Get the list of oracles from the contract
+      Get the oracle list, cached for ten minutes per network and contract.
 
       Parameters
       ----------
       network : str, optional
         The network to use. The default is None.
+      debug : bool, optional
+        Log the selected network and RPC endpoint.
 
       Returns
       -------
       list
-        The list of oracles addresses.
+        A copy of the oracle addresses. Expired-cache refresh errors propagate.
       """
       w3vars = self._get_web3_vars(network)
-      contract = w3vars.w3.eth.contract(
-        address=w3vars.controller_contract_address, 
-        abi=EVM_ABI_DATA.CONTROLLER_ABI,
-      )
       if debug:
         self.P(f"Getting oracles for {w3vars.network} via {w3vars.rpc_url}...")
 
-      result = contract.functions.getOracles().call()
-      return result    
+      return self._get_cached_oracle_registry(
+        w3vars, w3vars.controller_contract_address, EVM_ABI_DATA.CONTROLLER_ABI, "getOracles",
+      )
 
 
     def web3_get_dauth_oracles(self, network=None, debug=False) -> list:
       """
-      Get the list of dAuth oracles from the registry contract.
+      Get the dAuth oracle list, cached for ten minutes per network and contract.
 
       Parameters
       ----------
       network : str, optional
         The network to use. The default is None.
+      debug : bool, optional
+        Log the selected network and RPC endpoint.
 
       Returns
       -------
       list
-        The list of dAuth oracle addresses.
+        A copy of the dAuth addresses. Expired-cache refresh errors propagate.
       """
       w3vars = self._get_web3_vars(network)
-      contract = w3vars.w3.eth.contract(
-        address=w3vars.dauth_oracle_registry_address,
-        abi=EVM_ABI_DATA.DAUTH_ORACLE_REGISTRY_ABI,
-      )
       if debug:
         self.P(f"Getting dAuth oracles for {w3vars.network} via {w3vars.rpc_url}...")
 
-      result = contract.functions.getDAuthOracles().call()
-      return result
+      return self._get_cached_oracle_registry(
+        w3vars, w3vars.dauth_oracle_registry_address,
+        EVM_ABI_DATA.DAUTH_ORACLE_REGISTRY_ABI, "getDAuthOracles",
+      )
 
 
     def web3_is_dauth_oracle(self, address: str, network=None, debug=False) -> bool:
       """
-      Check if the address is a dAuth oracle in the registry contract.
+      Check membership using the shared ten-minute dAuth registry cache.
 
       Parameters
       ----------
@@ -1045,27 +1087,23 @@ class _EVMMixin:
 
       network : str, optional
         The network to use. The default is None.
+      debug : bool, optional
+        Log the selected network and RPC endpoint.
 
       Returns
       -------
       bool
-        True if the address is a dAuth oracle, False otherwise.
+        True if the address is in the cached registry, False otherwise.
+        Expired-cache refresh errors propagate rather than denying membership.
       """
       if EE_VPN_IMPL:
         self.P("VPN implementation. Skipping Ethereum check.", color='r')
         return False
       assert self.is_valid_eth_address(address), "Invalid Ethereum address"
 
-      w3vars = self._get_web3_vars(network)
-      contract = w3vars.w3.eth.contract(
-        address=w3vars.dauth_oracle_registry_address,
-        abi=EVM_ABI_DATA.DAUTH_ORACLE_REGISTRY_ABI,
-      )
-      if debug:
-        self.P(f"Checking if {address} ({w3vars.network}) is a dAuth oracle...")
-
-      result = contract.functions.isDAuthOracle(address).call()
-      return result
+      return address.lower() in {
+        oracle.lower() for oracle in self.web3_get_dauth_oracles(network=network, debug=debug)
+      }
 
     
     def web3_get_balance_eth(self, address=None, network=None):
