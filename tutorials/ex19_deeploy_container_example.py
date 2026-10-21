@@ -18,6 +18,8 @@ What you need:
 - A PEM private key file for signing requests
 - Target node addresses where you want to deploy
 - A Docker image to deploy (publicly accessible)
+- DEEPLOY_JOB_ID, DEEPLOY_CREATE_REQUEST_ID and DEEPLOY_DELETE_REQUEST_ID configured
+  in the environment; reuse the same request IDs after uncertain acceptance
 
 Example Usage:
 -------------
@@ -41,10 +43,9 @@ Example Usage:
    ```
 
 The script will:
-1. Launch the container on the specified nodes
+1. Submit the configured paid job and poll until the deployment is ready
 2. Wait for 60 seconds to allow testing
-3. Automatically close/stop the deployed application
-4. Clean up resources
+3. Submit whole-job deletion and poll until stops and cleanup are confirmed
 
 Container Resources:
 ------------------
@@ -73,6 +74,8 @@ For production use, you may want to:
 - Use environment variables for configuration
 """
 import json
+import os
+import time
 
 from ratio1.logging import Logger
 from ratio1.const import DEEPLOY_CT
@@ -80,6 +83,10 @@ from ratio1.const import DEEPLOY_CT
 from ratio1 import Session
 
 if __name__ == '__main__':
+  # Configure these once before submission; retain the same IDs after timeout/restart.
+  job_id = int(os.environ['DEEPLOY_JOB_ID'])
+  create_request_id = os.environ['DEEPLOY_CREATE_REQUEST_ID']
+  delete_request_id = os.environ['DEEPLOY_DELETE_REQUEST_ID']
   # we do not set up any node as we will not use direct SDK deployment but rather the Deeploy API
   session = Session()
   logger = Logger("DEEPLOY", base_folder=".", app_folder="deeploy_launch_container_app")
@@ -101,38 +108,39 @@ if __name__ == '__main__':
     target_nodes=target_nodes,
     # target_nodes_count=0,  # if you want to deploy to all nodes, set this to 0
     logger=logger,
+    request_id=create_request_id,
+    job_id=job_id,
   )
 
   session.P(json.dumps(launch_result))
-
-  if launch_result and launch_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT].get(DEEPLOY_CT.DEEPLOY_KEYS.STATUS) == DEEPLOY_CT.DEEPLOY_STATUS.FAIL:
-    session.P("Deeploy app launch failed:", launch_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT].get(DEEPLOY_CT.DEEPLOY_KEYS.ERROR, 'Unknown error'))
-    exit(1)
-  print("Deeploy app launched successfully.")
-
+  accepted = launch_result['result']
+  print('Deployment accepted; waiting for node readiness and any required recovery.')
+  api_url, auth = session.deeploy_get_read_auth(logger, private_key_path)
+  while True:
+    progress = session.deeploy_get_deployment_status(
+      api_url, auth, operation_id=accepted['operation_id'],
+    )['result']
+    if progress.get('phase') == 'completed':
+      break
+    time.sleep(progress.get('poll_after_ms', 2000) / 1000)
+  if progress['outcome'] != 'succeeded':
+    raise RuntimeError('Deployment failed; inspect the operation recovery details.')
+  print('Deployment ready. Keeping it running for 60 seconds before whole-job deletion.')
   session.sleep(60)
-
-  # no neeed for further `sess.deploy()` as the `deeploy_*` methods handle the deployment automatically
-  # now we interpret the launch_result and extract app-id, etc
-  # ...
-
-  # if all ok sleep for a while to allow app testing (say 60 seconds)
-
-  # finally use deeploy close
-
   close_result = session.deeploy_close(
-    app_id=launch_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT][DEEPLOY_CT.DEEPLOY_KEYS.APP_ID],
-    target_nodes=launch_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT][DEEPLOY_CT.DEEPLOY_KEYS.REQUEST][DEEPLOY_CT.DEEPLOY_KEYS.TARGET_NODES],
-    signer_private_key_path=private_key_path,
-    logger=logger
+    app_id=accepted['app_id'], job_id=job_id,
+    request_id=delete_request_id, expected_revision=accepted['revision'],
+    signer_private_key_path=private_key_path, logger=logger,
   )
-
   session.P(json.dumps(close_result))
-
-  if close_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT] and close_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT].get(DEEPLOY_CT.DEEPLOY_KEYS.STATUS) == DEEPLOY_CT.DEEPLOY_STATUS.FAIL:
-    session.P(f"Closing deployed container faild. {close_result[DEEPLOY_CT.DEEPLOY_KEYS.RESULT].get(DEEPLOY_CT.DEEPLOY_KEYS.ERROR, 'Unknown error')}")
-    exit(2)
-
-  session.P("Demo run successfully!")
-
+  while True:
+    progress = session.deeploy_get_deployment_status(
+      api_url, auth, operation_id=close_result['result']['operation_id'],
+    )['result']
+    if progress.get('phase') == 'completed':
+      break
+    time.sleep(progress.get('poll_after_ms', 2000) / 1000)
+  if progress['outcome'] != 'succeeded':
+    raise RuntimeError('Deletion did not complete successfully; inspect operation details.')
+  print('Whole-job deletion confirmed.')
   session.close()

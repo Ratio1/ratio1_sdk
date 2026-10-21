@@ -111,6 +111,58 @@ class TestDauthSecretReconciliationClient(unittest.TestCase):
     with self.assertRaises(ValueError):
       self.engine.reconcile_dauth_job_secrets(None)
 
+  def lifecycle(self, action):
+    """Build a reference-only lifecycle request and its authenticated response."""
+    self.payload = dict(job_id='7', action=action, operation=dict(operation_id='op', plan_cid='plan'))
+    self.result.update(action=action, operation_id='op', plan_cid='plan', prepared=True)
+    if action in ('commit', 'delete'):
+      self.payload['pointer'] = {'pipeline_cid': None if action == 'delete' else 'cid'}
+      self.result['pipeline_cid'] = self.payload['pointer']['pipeline_cid']
+
+  def test_lifecycle_actions_keep_operation_identity_and_use_one_request(self):
+    """Lifecycle retries belong to the coordinator, including status recovery."""
+    for action in ('prepare', 'status', 'commit', 'revoke', 'delete'):
+      with self.subTest(action=action):
+        self.lifecycle(action)
+        self.post.reset_mock()
+        original = copy.deepcopy(self.payload)
+        self.assertEqual(self.engine.reconcile_dauth_job_secrets(self.payload), self.result)
+        self.assertEqual(self.payload, original)
+        self.post.assert_called_once()
+        self.assertEqual(self.post.call_args.kwargs['json']['body']['operation'], original['operation'])
+    self.lifecycle('status')
+    self.result['prepared'] = False
+    self.assertFalse(self.engine.reconcile_dauth_job_secrets(self.payload)['prepared'])
+
+  def test_lifecycle_rejects_wrong_scope_incomplete_preparation_and_wrong_publication(self):
+    """An authenticated reply must still match the exact requested action."""
+    cases = [('prepare', 'operation_id', 'other'), ('prepare', 'plan_cid', 'other'),
+             ('prepare', 'action', 'commit'), ('prepare', 'prepared', None),
+             ('prepare', 'prepared', False), ('commit', 'pipeline_cid', 'other'),
+             ('delete', 'pipeline_cid', 'other')]
+    for action, field, value in cases:
+      with self.subTest(action=action, field=field, value=value):
+        self.lifecycle(action)
+        self.result[field] = value
+        self.post.reset_mock()
+        with self.assertRaises((ValueError, RuntimeError)):
+          self.engine.reconcile_dauth_job_secrets(self.payload)
+        self.post.assert_called_once()
+    self.lifecycle('delete')
+    del self.result['pipeline_cid']
+    with self.assertRaises(ValueError):
+      self.engine.reconcile_dauth_job_secrets(self.payload)
+
+  def test_lifecycle_rejects_invalid_action_and_pointer_before_http(self):
+    """Malformed mutation requests must not reach the external service."""
+    for action, operation, pointer in [('unknown', {}, {}), ('prepare', None, {}),
+                                       ('commit', {}, None), ('delete', {}, [])]:
+      with self.subTest(action=action, pointer=pointer):
+        self.post.reset_mock()
+        with self.assertRaises(ValueError):
+          self.engine.reconcile_dauth_job_secrets(dict(job_id='7', action=action, operation=operation, pointer=pointer))
+        self.post.assert_not_called()
+
 
 if __name__ == '__main__':
   unittest.main()

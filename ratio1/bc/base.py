@@ -1960,6 +1960,10 @@ class BaseBlockEngine(
       Optional identity_aliases contains pairs of current and source plugin
       identities for generated scale-up instances. The protocol oracle signs
       this body; dAuth reuses hidden values from the current bound bundle.
+      Lifecycle requests instead include a signed ``operation`` and an ``action``
+      (prepare, status, commit, revoke or delete). Preparation supplies fresh
+      secret fragments for the operation's immutable redacted R1FS plan;
+      publication supplies a coordinator-signed pointer. No bundle is fetched.
     network : str, optional
       Network whose configured dAuth endpoint and oracle registry are used.
       Defaults to the engine network.
@@ -1970,7 +1974,9 @@ class BaseBlockEngine(
     -------
     dict
       Authenticated result containing job_id, redacted pipeline_configs and
-      pipeline_cid. No secret bundle or deployment rollback state is returned.
+      pipeline_cid. Lifecycle results bind operation_id, plan_cid and action;
+      prepare/status return a boolean prepared flag. Neither form returns a
+      secret bundle. The lifecycle caller owns retries of its stable operation.
 
     Raises
     ------
@@ -1983,10 +1989,20 @@ class BaseBlockEngine(
     -----
     The caller must be a protocol oracle. This mutating request is never retried:
     a timeout does not establish whether dAuth persisted the result. Deployment
-    failure does not restore the previous metadata or secrets. Request and
-    response bodies are never logged by this method.
+    failure does not restore metadata in the unversioned path. Lifecycle
+    preparation leaves the active pointer unchanged; commit/delete publish only
+    at the coordinator's finalization step. Request and response bodies are
+    never logged by this method.
     """
-    if not isinstance(payload, dict) or not isinstance(payload.get("pipeline_configs"), dict):
+    if not isinstance(payload, dict):
+      raise ValueError("Invalid dAuth reconciliation payload.")
+    operation = payload.get("operation")
+    if "operation" in payload:
+      if not isinstance(operation, dict) or payload.get("action") not in ("prepare", "status", "commit", "revoke", "delete"):
+        raise ValueError("Invalid dAuth deployment-secret payload.")
+      if payload["action"] in ("commit", "delete") and not isinstance(payload.get("pointer"), dict):
+        raise ValueError("Invalid dAuth deployment publication pointer.")
+    elif not isinstance(payload.get("pipeline_configs"), dict):
       raise ValueError("Invalid dAuth reconciliation payload.")
     signed_body = deepcopy(payload)
     selected_network = network if network is not None else self.evm_network
@@ -2027,6 +2043,23 @@ class BaseBlockEngine(
       raise ValueError("dAuth reconciliation response nonce mismatch.")
     if result.get("status") != "success" or result.get("error") not in (None, ""):
       raise RuntimeError("dAuth rejected secret reconciliation.")
+    if operation is not None:
+      if (
+        result.get("job_id") != str(payload.get("job_id"))
+        or result.get("operation_id") != operation.get("operation_id")
+        or result.get("plan_cid") != operation.get("plan_cid")
+        or result.get("action") != payload["action"]
+      ):
+        raise ValueError("Invalid dAuth deployment-secret result.")
+      if payload["action"] in ("prepare", "status") and type(result.get("prepared")) is not bool:
+        raise ValueError("Invalid dAuth preparation status.")
+      if payload["action"] == "prepare" and not result["prepared"]:
+        raise RuntimeError("dAuth deployment-secret preparation is incomplete.")
+      if payload["action"] in ("commit", "delete") and (
+        "pipeline_cid" not in result or result["pipeline_cid"] != payload["pointer"].get("pipeline_cid")
+      ):
+        raise ValueError("Invalid dAuth publication result.")
+      return result
     configs = result.get("pipeline_configs")
     if (
       result.get("job_id") != str(payload.get("job_id"))
@@ -2044,17 +2077,24 @@ class BaseBlockEngine(
   def get_dauth_job_secret_bundle(
     self,
     job_id,
+    revision=None,
     network=None,
     request_timeout=(60, 120),
   ):
     """
-    Fetch a signed dAuth secret bundle for a job.
+    Fetch signed dAuth secrets for a revision or an existing unversioned job.
 
     Parameters
     ----------
     job_id : Any
       Identifier of the job whose secrets are requested. It is normalized to
       a stripped string before signing and comparison.
+
+    revision : str or None, optional
+      Immutable secret revision from DEEPLOY_SPECS.secret_revision. Omit only
+      for an existing unversioned pipeline; dAuth validates that it has not
+      transitioned to the revision-based lifecycle. Explicit revisions never
+      fall back to the unversioned lookup.
 
     network : str, optional
       EVM network whose dAuth URL should be used. The engine network is used
@@ -2082,6 +2122,11 @@ class BaseBlockEngine(
     if not normalized_job_id:
       raise ValueError("Job ID is required for dAuth secret resolution.")
 
+    if revision is not None:
+      if not isinstance(revision, str) or not revision.strip():
+        raise ValueError("Secret revision must be a non-empty string.")
+      revision = revision.strip()
+
     selected_network = network if network is not None else self.evm_network
     network_data = self.get_network_data(selected_network)
     url = network_data[dAuth.EvmNetData.DAUTH_URL_KEY]
@@ -2095,6 +2140,8 @@ class BaseBlockEngine(
       "job_id": normalized_job_id,
       DAUTH_NONCE: request_nonce,
     }
+    if revision is not None:
+      signed_body["revision"] = revision
     self.sign(signed_body)
     try:
       response = requests.post(
@@ -2105,6 +2152,8 @@ class BaseBlockEngine(
     except requests.RequestException as exc:
       raise RuntimeError("dAuth secret request failed.") from exc
 
+    if response.status_code in (401, 403):
+      raise ValueError("dAuth secret request is not authorized.")
     if response.status_code != 200:
       raise RuntimeError(
         "dAuth secret request failed with HTTP status {}.".format(response.status_code)
@@ -2129,23 +2178,33 @@ class BaseBlockEngine(
       raise ValueError("dAuth secret response signature is invalid.")
     try:
       signer_eth_address = self.node_address_to_eth_address(verification.sender)
+    except Exception as exc:
+      raise ValueError("dAuth secret response signer is invalid.") from exc
+    try:
       is_dauth_oracle = self.web3_is_dauth_oracle(
         signer_eth_address,
         network=selected_network,
       )
     except Exception as exc:
-      raise ValueError("dAuth secret response signer is not authorized.") from exc
+      raise RuntimeError("dAuth oracle registry lookup is unavailable.") from exc
     if not is_dauth_oracle:
       raise ValueError("dAuth secret response signer is not authorized.")
 
     if result.get(DAUTH_NONCE) != request_nonce:
       raise ValueError("dAuth secret response nonce does not match the request.")
     if result.get("error") not in [None, ""]:
-      raise RuntimeError("dAuth secret request was rejected.")
+      if type(result.get("retryable")) is not bool:
+        raise ValueError("dAuth secret rejection is missing retryability information.")
+      if not result["retryable"]:
+        raise ValueError("dAuth secret request was rejected.")
+      raise RuntimeError("dAuth secret request is temporarily unavailable.")
     if result.get("status") != "success":
       raise ValueError("dAuth secret response status is invalid.")
     if result.get("job_id") != normalized_job_id:
       raise ValueError("dAuth secret response job ID does not match the request.")
+
+    if result.get("revision") != revision:
+      raise ValueError("dAuth secret response revision does not match the request.")
 
     encrypted_secret_bundle = result.get("encrypted_secret_bundle")
     if not isinstance(encrypted_secret_bundle, str) or not encrypted_secret_bundle:
@@ -2162,6 +2221,8 @@ class BaseBlockEngine(
       raise ValueError("dAuth secret bundle must be a dictionary.")
     if secret_bundle.get("job_id") != normalized_job_id:
       raise ValueError("dAuth secret bundle job ID does not match the request.")
+    if secret_bundle.get("revision") != revision:
+      raise ValueError("dAuth secret bundle revision does not match the request.")
     return secret_bundle
   
   
