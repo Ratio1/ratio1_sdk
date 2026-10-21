@@ -20,14 +20,15 @@ class OracleRegistryCacheTests(unittest.TestCase):
     self.clock = patch.object(evm, "monotonic", return_value=100).start()
     self.addCleanup(patch.stopall)
     self.web3 = patch.object(evm, "Web3").start()
-    self.contract = self.web3.return_value.eth.contract.return_value
+    self.w3 = Mock()
+    self.contract = self.w3.eth.contract.return_value
     self.oracles = self.contract.functions.getOracles.return_value.call
     self.dauth = self.contract.functions.getDAuthOracles.return_value.call
     self.oracles.return_value = [ORACLE]
     self.dauth.return_value = [ORACLE]
     self.engine = evm._EVMMixin()
     self.vars = SimpleNamespace(
-      network="devnet", rpc_url="https://rpc.invalid",
+      network="devnet", rpc_url="https://rpc.invalid", w3=self.w3,
       controller_contract_address=OTHER, dauth_oracle_registry_address=ORACLE,
     )
     self.engine._get_web3_vars = Mock(return_value=self.vars)
@@ -40,9 +41,8 @@ class OracleRegistryCacheTests(unittest.TestCase):
         getattr(self.engine, name)().clear()
         self.assertEqual(getattr(second, name)(), [ORACLE])
         self.assertEqual(call.call_count, 1)
-    self.web3.HTTPProvider.assert_called_with(
-      "https://rpc.invalid", request_kwargs={"timeout": (10, 30)},
-    )
+    self.web3.assert_not_called()
+    self.web3.HTTPProvider.assert_not_called()
 
   def test_refresh_at_ten_minutes_and_failure_never_grants_stale_membership(self):
     self.assertTrue(self.engine.web3_is_dauth_oracle(ORACLE))

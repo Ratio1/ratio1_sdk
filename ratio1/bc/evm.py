@@ -1018,9 +1018,7 @@ class _EVMMixin:
         entry = _ORACLE_REGISTRY_CACHE.setdefault(key, {"lock": Lock()})
       with entry["lock"]:
         if "addresses" not in entry or monotonic() >= entry["expires_at"]:
-          # Bound the RPC while leaving other registries free to refresh.
-          w3 = Web3(Web3.HTTPProvider(w3vars.rpc_url, request_kwargs={"timeout": (10, 30)}))
-          contract = w3.eth.contract(address=address, abi=abi)
+          contract = w3vars.w3.eth.contract(address=address, abi=abi)
           started_at = monotonic()
           addresses = tuple(getattr(contract.functions, method)().call())
           entry.update(addresses=addresses, expires_at=started_at + _ORACLE_REGISTRY_TTL)
