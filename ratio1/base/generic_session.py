@@ -2161,7 +2161,9 @@ class GenericSession(BaseDecentrAIObject):
       -----
       This method also applies the addressed-payload subscription rollout flag
       from `EE_DISABLE_ADDRESSED_PAYLOAD_SUBS` and ensures `EE_ID` and `EE_ADDR`
-      are present in the final config.
+      are present in the final config. The ordered JSON array in
+      `EE_MQTT_HOSTS` is inherited only when the effective primary matches
+      `EE_MQTT_HOST`; an unrelated explicit broker keeps its own configuration.
       """
 
 
@@ -2219,6 +2221,14 @@ class GenericSession(BaseDecentrAIObject):
         raise ValueError("Error: No host specified for ratio1 Edge Protocol network connection")
       if self._config.get(comm_ct.HOST, None) is None:
         self._config[comm_ct.HOST] = host
+
+      if (
+        comm_ct.HOSTS not in self._config
+        and self._config[comm_ct.HOST] == os.getenv(ENVIRONMENT.EE_MQTT_HOST)
+      ):
+        hosts = os.getenv(ENVIRONMENT.EE_MQTT_HOSTS)
+        if hosts:
+          self._config[comm_ct.HOSTS] = hosts
 
       possible_port_values = [
         port,

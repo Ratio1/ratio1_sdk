@@ -8,6 +8,7 @@
 # prevent the client from ever connecting.
 
 import os
+import json
 import traceback
 from collections import deque
 from threading import Event, Lock
@@ -39,6 +40,9 @@ class MQTTWrapper(BaseCommWrapper):
                verbosity=1,
                **kwargs):
     self._mqttc = None
+    self._broker_hosts = None
+    self._broker_index = 0
+    self._active_host = None
     self.debug_errors = debug_errors if verbosity <=1 else True
     self._thread_name = None
     self.connected = False
@@ -111,6 +115,18 @@ class MQTTWrapper(BaseCommWrapper):
 
     self.P(f"Initializing MQTTWrapper using Paho MQTT v{mqtt_version}")
     return
+
+  @property
+  def cfg_host(self):
+    """Return the endpoint currently used by this communicator.
+
+    Returns
+    -------
+    str
+      Last attempted broker, or the configured primary before connecting.
+      The shared session configuration is never changed during failover.
+    """
+    return self._active_host or super().cfg_host
 
   @property
   def comm_log_prefix(self):
@@ -579,6 +595,41 @@ class MQTTWrapper(BaseCommWrapper):
     return {x1: x2 for x1, x2 in self._disconnected_log}
 
   def server_connect(self, max_retries=5):
+    """Connect in candidate order, retaining a successful broker on reconnect.
+
+    Parameters
+    ----------
+    max_retries : int, optional
+      Attempt budget, expanded to visit every candidate at least once. A
+      single-host configuration retains its existing retry budget.
+
+    Returns
+    -------
+    dict
+      Connection status and a message naming the actual broker attempted.
+
+    Notes
+    -----
+    HOSTS accepts a list of hostnames or its JSON encoding from dAuth. The
+    configured HOST remains first. All candidates share port, TLS, and auth
+    settings and must belong to the same MQTT messaging network. Failed client
+    generations are released before advancing, so late callbacks cannot revive
+    them. Callers retain their existing backoff after an unsuccessful burst.
+    """
+    # Sessions finalize their shared config after constructing the wrappers.
+    if self._broker_hosts is None:
+      hosts = self._config.get(COMMS.HOSTS) or []
+      if isinstance(hosts, str):
+        hosts = json.loads(hosts)
+      if not isinstance(hosts, (list, tuple)) or any(
+        not isinstance(host, str) or not host.strip() for host in hosts
+      ):
+        raise ValueError("MQTT HOSTS must be a list of nonempty hostnames.")
+      self._broker_hosts = list(dict.fromkeys(
+        [self._config[COMMS.HOST]] + [host.strip() for host in hosts]
+      ))
+
+    max_attempts = max(max_retries, len(self._broker_hosts))
     max_sleep = 2
     sleep_time = 0.01
     nr_retry = 1
@@ -587,7 +638,11 @@ class MQTTWrapper(BaseCommWrapper):
     sleep_iter = None
     comtype = self._comm_type[:7] if self._comm_type is not None else 'CUSTOM'
 
-    while nr_retry <= max_retries:
+    while nr_retry <= max_attempts:
+      self._active_host = self._broker_hosts[self._broker_index]
+      mqttc = None
+      exception = None
+      sleep_iter = 0
       try:
         # 1. create a unique client id
         client_uid = self.log.get_unique_id()
@@ -622,6 +677,11 @@ class MQTTWrapper(BaseCommWrapper):
       if has_connection:
         break
 
+      # Stop even a client that timed out waiting for CONNACK before replacing
+      # it. Its Paho loop must not keep reconnecting to the failed broker.
+      if mqttc is not None and self.connection is mqttc:
+        self.release(expected_client=mqttc)
+      self._broker_index = (self._broker_index + 1) % len(self._broker_hosts)
       nr_retry += 1
     # endwhile
 
@@ -653,7 +713,7 @@ class MQTTWrapper(BaseCommWrapper):
       msg = 'MQTT (Paho) conn to {}:{} failed after {} retr ({} trials) (reason:{})'.format(
         self.cfg_host,
         self.cfg_port,
-        nr_retry,
+        nr_retry - 1,
         self._nr_full_retries,
         reason
       )
@@ -667,12 +727,6 @@ class MQTTWrapper(BaseCommWrapper):
       'msg': msg,
       'msg_type': msg_type
     }
-
-    # if release was not called from on_disconnect, basically
-    # this method of checking self._mqttc is not None is not
-    # very reliable, as race conditions can occur
-    if not has_connection and self.connection is mqttc:
-      self.release(expected_client=mqttc)
 
     return dct_ret
 
