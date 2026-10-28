@@ -103,6 +103,27 @@ This mode has no heartbeat subscription. It updates discovery state only from fr
 
 `filter_workers` remains an application-level filter. It runs after MQTT delivery, so it does not reduce broker traffic. Callback queues are bounded and reject the newest message when full. Inspect `get_heartbeat_observation_status()` for readiness, trust rejections, topics, freshness, and queue counters, or `get_callback_queue_status()` for queue-only details.
 
+### MQTT Broker Failover
+
+dAuth supplies the selected primary in `EE_MQTT_HOST` and an ordered JSON array
+in `EE_MQTT_HOSTS`. Sessions inherit the alternatives when their effective host
+matches `EE_MQTT_HOST`. An explicit `HOSTS` entry in the session configuration
+takes precedence; `HOSTS: []` keeps a single host. A custom primary does not inherit
+another connection's environment candidates.
+
+The MQTT wrapper accepts `HOSTS` as a hostname list or its JSON encoding, tries
+`HOST` first, and advances after a socket error, rejected CONNACK, or connection
+acknowledgment timeout. A failed burst visits every candidate at least once,
+even when `max_retries` is smaller than the list. A successful host is retained
+for reconnects, and failed clients are stopped before replacement. All candidates
+must share the port, credentials, TLS trust configuration, and messaging network.
+Separate communicators may connect to different members of that network.
+This does not replay messages that were in flight when a connection was lost.
+
+Older dAuth servers still work through the single-host path. For Edge nodes,
+deploy this SDK together with Core's `EE_MQTT_HOSTS` forwarding support. Revert to
+single-host behavior by configuring `HOSTS: []` and restarting the session/node.
+
 ## Quick Start Guides
 
 Starting with version 2.6+, the Ratio1 SDK automatically performs self-configuration using **dAuth**—the Ratio1 decentralized self-authentication system. To begin integrating with the Ratio1 network, follow these steps:

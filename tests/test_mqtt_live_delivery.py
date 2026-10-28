@@ -40,6 +40,50 @@ def _new_client(client_id):
 @unittest.skipUnless(os.environ.get(LIVE_HOST_ENV), "isolated MQTT broker not configured")
 class TestMqttLiveDelivery(unittest.TestCase):
 
+  def test_broker_failover_delivers_and_resubscribes_after_disconnect(self):
+    """An unavailable loopback endpoint falls through to the isolated broker."""
+    host = os.environ[LIVE_HOST_ENV]
+    port = int(os.environ.get(LIVE_PORT_ENV, "1883"))
+    failed_host = "127.0.0.2" if host != "127.0.0.2" else "127.0.0.3"
+    topic = "ecomms-failover-" + uuid4().hex
+    received = threading.Event()
+    config = {
+      COMMS.HOST: failed_host, COMMS.HOSTS: [failed_host, host],
+      COMMS.PORT: port, COMMS.USER: "", COMMS.PASS: "",
+      COMMS.EE_ADDR: "0xai_SDK", COMMS.QOS: 1, COMMS.SECURED: 0,
+      COMMS.COMMUNICATION_CTRL_CHANNEL: {COMMS.TOPIC: topic},
+    }
+    wrapper = MQTTWrapper(
+      log=_Log(), config=config, recv_buff=[],
+      send_channel_name=COMMS.COMMUNICATION_CTRL_CHANNEL,
+      recv_channel_name=COMMS.COMMUNICATION_CTRL_CHANNEL,
+      recv_topics=[topic], require_suback=True,
+      on_message=lambda *args: received.set(), verbosity=99,
+    )
+    try:
+      self.assertTrue(wrapper.server_connect(max_retries=1)["has_connection"])
+      self.assertEqual(wrapper.cfg_host, host)
+      self.assertEqual(config[COMMS.HOST], failed_host)
+      self.assertTrue(wrapper.subscribe(max_retries=1)["has_connection"])
+      wrapper.send("before-disconnect")
+      self.assertTrue(received.wait(5), "fallback broker did not deliver")
+      old = wrapper.connection
+      old.disconnect()
+      deadline = time.monotonic() + 5
+      while wrapper.connection is not None and time.monotonic() < deadline:
+        time.sleep(.01)
+      self.assertIsNone(wrapper.connection)
+      self.assertFalse(wrapper.receive_ready)
+      received.clear()
+      self.assertTrue(wrapper.server_connect(max_retries=1)["has_connection"])
+      self.assertIsNot(wrapper.connection, old)
+      self.assertEqual(wrapper.cfg_host, host)
+      self.assertTrue(wrapper.subscribe(max_retries=1)["has_connection"])
+      wrapper.send("after-reconnect")
+      self.assertTrue(received.wait(5), "replacement missed its subscription")
+    finally:
+      wrapper.release()
+
   def test_receive_resubscribes_after_disconnect_during_ready_publication(self):
     host = os.environ[LIVE_HOST_ENV]
     port = int(os.environ.get(LIVE_PORT_ENV, '1883'))
