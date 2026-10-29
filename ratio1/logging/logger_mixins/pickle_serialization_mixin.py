@@ -166,12 +166,15 @@ class _PickleSerializationMixin(object):
       # endif compressed or not
     except Exception as e:
       err_msg = e
-      try:
-        if os.path.exists(datafile):
-          os.remove(tmp_path)
-      except:
-        pass
       P(f"  FAILED pickle save! Error: {err_msg}")
+    finally:
+      # A successful save has already renamed the temp file; any failure path
+      # (including errors caught above) must not leave it behind.
+      try:
+        if os.path.exists(tmp_path):
+          os.remove(tmp_path)
+      except OSError:
+        pass
     return datafile
 
 
