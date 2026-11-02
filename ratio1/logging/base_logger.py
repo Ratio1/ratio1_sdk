@@ -672,31 +672,47 @@ class BaseLogger(object):
 
   def lock_resource(self, str_res):
     """
-    Possible critical failure:
-    
-    1. base plugin runs try stuff etc
-    2. plugin runs lock
-    3. threading.Lock() fails
-    4. base plugin runs except
-    5. except locks in log (no output) due to _lock_table_mutex.acquire(blocking=True)
-    6. any thread running lock_reource will hang with NO LOG OUTPUT
-    """
-    result = None
-    self._lock_table_mutex.acquire(blocking=True)
-    try:
-      if str_res not in self._lock_table:
-        self._lock_table[str_res] = threading.Lock()
-    except:
-      print("**************************************************************\nPANIC: Failed to create lock for resource '{}'\n**************************************************************".format(str_res))
-    finally:
-      self._lock_table_mutex.release()
+    Acquire the named lock, creating it on first use.
 
-    if str_res in self._lock_table:      
-      self._lock_table[str_res].acquire(blocking=True)
+    Parameters
+    ----------
+    str_res : str
+      The resource to lock.
+
+    Returns
+    -------
+    threading.Lock or None
+      The acquired lock, or None when the lock could not be created.
+
+    Notes
+    -----
+    Only the first use of a resource takes `_lock_table_mutex`. Entries are
+    added under that mutex and never removed or replaced, so a lookup without
+    it either finds the final lock or falls through to the creation path.
+    Taking the shared mutex on every call queued all named locks of the
+    process, unrelated resources included, behind one mutex.
+
+    If lock creation fails, a PANIC line is printed and None is returned
+    without blocking, so the caller is not left hanging with no log output.
+    """
+    lock = self._lock_table.get(str_res)
+    if lock is None:
+      with self._lock_table_mutex:
+        try:
+          # Re-check: another thread may have created it after our lookup.
+          lock = self._lock_table.get(str_res)
+          if lock is None:
+            lock = threading.Lock()
+            self._lock_table[str_res] = lock
+        except:
+          lock = None
+          print("**************************************************************\nPANIC: Failed to create lock for resource '{}'\n**************************************************************".format(str_res))
+
+    if lock is not None:
+      lock.acquire(blocking=True)
       self._lock_table_identities[str_res] = threading.get_ident()
-      result = self._lock_table[str_res]
-      
-    return result
+
+    return lock
   
   def unlock_resource(self, str_res):
     if str_res in self._lock_table:
