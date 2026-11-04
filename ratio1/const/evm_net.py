@@ -883,10 +883,10 @@ EVM_NET_CONSTANTS = {
     EvmNetConstants.EE_NET_MON_01_SUPERVISOR_LOG_TIME_KEY: None,  # Default is None, meaning no logging.
     EvmNetConstants.NET_CONFIG_MONITOR_SHOW_EACH_KEY: None,  # Default is None, meaning no periodic logging.
     EvmNetConstants.SEED_NODES_ADDRESSES_KEY: [
-      "0xai_AhIJ3DBFqK9SBucb-oPsqmcFOOKGHp1f39SokncPTLGM",  # r1s-01
-      "0xai_Anhht_bgTBHFHcEQFWm908pzEwZ9vqY5V3-Y36LhRy4S",  # r1s-02
-      "0xai_AvqQFaKEJFRYXyAFNSlfzfMQC3UpMBLOMtqzPFenlB_E",  # r1s-03
-      "0xai_A9Eu5b2QEfdkD4IRTxt8f2XcbDhotWBZkKMESlMTfGJT",  # r1s-04
+      "0xai_AocDj_WAPQY64zovZhJihKlM6yphdWCG7I8Ywm27Zqmt",  # r1s-01
+      "0xai_AxDX6Aeh4vJMXvUGE6FAIHUqtO_7iDTeEqiZM5uyUG5d",  # r1s-02
+      "0xai_A2Piwh-P28AWgk8FtowOBnIdppxMafypLhnA2yGiz55o",  # r1s-03
+      "0xai_A4Kx6qlHH1Oh74SCKJQKCkObQJFdwe07VRWXMyaPo65t",  # r1s-04
     ],
     EvmNetConstants.EE_ORACLE_SYNC_USE_R1FS_KEY: False,  # Do not use R1FS for oracle sync in mainnet.
     EvmNetConstants.ORACLE_SYNC_BLOCKCHAIN_PRESENCE_MIN_THRESHOLD_KEY: 0.3,
