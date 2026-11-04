@@ -2341,10 +2341,8 @@ class BaseBlockEngine(
             server_addr = dct_result.get(
               BCctbase.SENDER, dAuth.DAUTH_ADDR_UNK
             )
-            if debug:
-              self.P(f"Response received from {server_alias} <{server_addr}>:\n {json.dumps(dct_response, indent=2)}")
-            else:
-              self.P(f"Response received from {server_alias} <{server_addr}>,")
+            # never log the response body: it carries the node's env secrets
+            self.P(f"Response received from {server_alias} <{server_addr}>.")
             ver_result = self.verify(dct_result)
             if ver_result.valid:
               self.P(f"Signature from {server_alias} <{server_addr}> is valid.", color='g')
@@ -2375,10 +2373,11 @@ class BaseBlockEngine(
                     v = json.dumps(v)
                 except:
                   v = str(v)
+                # key names only, never the values
                 if k not in os.environ:
-                  self.P(f"  Adding key `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` to env.", color='y')
+                  self.P(f"  Adding key `{k}` to env.", color='y')
                 else:
-                  self.P(f"  Overwrite  `{k}{'=' + str(v) + ' ({})'.format(type(v).__name__) if debug else ''}` in env.", color='y')
+                  self.P(f"  Overwrite  `{k}` in env.", color='y')
                 if add_env:
                   os.environ[k] = v
                 #endif add to env
@@ -2391,7 +2390,7 @@ class BaseBlockEngine(
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')
         except Exception as exc:
-          self.P(f"Error in dAuth URL request: {exc}. Received: {dct_response}", color='r')
+          self.P(f"Error in dAuth URL request: {exc}", color='r')
           # Request failed somewhere so dct_env will be set again to None.
           dct_env = None
         #end try
