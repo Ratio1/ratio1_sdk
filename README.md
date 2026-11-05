@@ -42,7 +42,7 @@ Installing the Ratio1 SDK is straightforward and is intended for development and
 To install the Ratio1 SDK, run:
 
 ```shell
-pip install ratio1_sdk --upgrade
+pip install ratio1 --upgrade
 ```
 
 ### Development Installation
@@ -260,7 +260,7 @@ To accelerate prime number discovery, this example demonstrates deploying the ta
 #### 1. Modify the Prime Number Generator
 
 ```python
-from ratio1_sdk import CustomPluginTemplate
+from ratio1 import CustomPluginTemplate
 
 def remote_brute_force_prime_number_generator(plugin: CustomPluginTemplate):
     def is_prime(n):
@@ -285,7 +285,7 @@ def remote_brute_force_prime_number_generator(plugin: CustomPluginTemplate):
 #### 2. Connect to the Network and Select a Node
 
 ```python
-from ratio1_sdk import Session
+from ratio1 import Session
 from time import sleep
 
 def on_heartbeat(session: Session, node: str, heartbeat: dict):
@@ -307,7 +307,7 @@ if __name__ == '__main__':
 #### 3. Deploy the Distributed Job
 
 ```python
-from ratio1_sdk import DistributedCustomCodePresets as Presets
+from ratio1 import DistributedCustomCodePresets as Presets
 
 _, _ = session.create_chain_dist_custom_job(
     node=node,
