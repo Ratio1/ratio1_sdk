@@ -916,6 +916,31 @@ EVM_NET_CONSTANTS = {
   },
 }
 
+# ND license contract events. A relink emits UnlinkNode for the previous node
+# and LinkNode for the new one; both carry the license owner that sent it.
+_ND_ABI = [
+  {
+    "anonymous": False,
+    "inputs": [
+      {"indexed": True, "internalType": "address", "name": "to", "type": "address"},
+      {"indexed": True, "internalType": "uint256", "name": "licenseId", "type": "uint256"},
+      {"indexed": False, "internalType": "address", "name": "nodeAddress", "type": "address"}
+    ],
+    "name": "LinkNode",
+    "type": "event"
+  },
+  {
+    "anonymous": False,
+    "inputs": [
+      {"indexed": True, "internalType": "address", "name": "owner", "type": "address"},
+      {"indexed": True, "internalType": "uint256", "name": "licenseId", "type": "uint256"},
+      {"indexed": False, "internalType": "address", "name": "oldNodeAddress", "type": "address"}
+    ],
+    "name": "UnlinkNode",
+    "type": "event"
+  }
+]
+
 class EVM_ABI_DATA:
   ERC20_ABI = _ERC20_ABI
   POAI_MANAGER_ABI = _POAI_MANAGER_ABI
@@ -924,3 +949,4 @@ class EVM_ABI_DATA:
   DAUTH_ORACLE_REGISTRY_ABI = _DAUTH_ORACLE_REGISTRY_ABI
   PROXY_ABI = _PROXY_ABI
   CONTROLLER_ABI = _CONTROLLER_ABI
+  ND_ABI = _ND_ABI
