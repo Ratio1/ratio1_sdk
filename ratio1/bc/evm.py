@@ -1649,8 +1649,15 @@ class _EVMMixin:
       -------
       list[dict]
         Events in chain order. Each has `event` ("LinkNode" or "UnlinkNode"),
-        `license_id`, `owner` (the license owner that sent the transaction),
-        `node_address`, `block_number` and `log_index`.
+        `license_id`, `owner` (the transaction sender), `node_address`,
+        `block_number` and `log_index`.
+
+      Notes
+      -----
+      Events are not paired; do not assume a `LinkNode` follows an `UnlinkNode`.
+      Transferring or burning a license unlinks its node with no link, and a
+      relink can take two transactions in different ranges. For a transfer,
+      `owner` is the transfer's sender (the seller or an approved operator).
       """
       w3vars = self._get_web3_vars(network)
       contract = w3vars.w3.eth.contract(
