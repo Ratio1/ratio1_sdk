@@ -1612,6 +1612,85 @@ class _EVMMixin:
       self.P(f"Active jobs found: {len(jobs)}", verbosity=2)
       return jobs
 
+    def web3_get_block_number(self, network: str = None):
+      """
+      Return the latest block number of the network.
+
+      Parameters
+      ----------
+      network : str, optional
+        The network to use. Defaults to the current engine network.
+
+      Returns
+      -------
+      int
+        The latest block number.
+      """
+      w3vars = self._get_web3_vars(network)
+      return int(w3vars.w3.eth.block_number)
+
+    def web3_get_nd_link_events(self, from_block: int, to_block: int, network: str = None):
+      """
+      Return the ND `LinkNode` and `UnlinkNode` events in a block range.
+
+      Both events are read with a single `eth_getLogs` call, so the range must
+      fit the RPC block-range limit.
+
+      Parameters
+      ----------
+      from_block : int
+        First block of the range (inclusive).
+      to_block : int
+        Last block of the range (inclusive).
+      network : str, optional
+        The network to use. Defaults to the current engine network.
+
+      Returns
+      -------
+      list[dict]
+        Events in chain order. Each has `event` ("LinkNode" or "UnlinkNode"),
+        `license_id`, `owner` (the transaction sender), `node_address`,
+        `block_number` and `log_index`.
+
+      Notes
+      -----
+      Events are not paired; do not assume a `LinkNode` follows an `UnlinkNode`.
+      Transferring or burning a license unlinks its node with no link, and a
+      relink can take two transactions in different ranges. For a transfer,
+      `owner` is the transfer's sender (the seller or an approved operator).
+      """
+      w3vars = self._get_web3_vars(network)
+      contract = w3vars.w3.eth.contract(
+        address=to_checksum_address(w3vars.nd_contract_address),
+        abi=EVM_ABI_DATA.ND_ABI,
+      )
+      events_by_topic = {
+        "0x" + keccak(text="LinkNode(address,uint256,address)").hex(): (contract.events.LinkNode(), "to", "nodeAddress"),
+        "0x" + keccak(text="UnlinkNode(address,uint256,address)").hex(): (contract.events.UnlinkNode(), "owner", "oldNodeAddress"),
+      }
+      self.P(f"`eth_getLogs` ND links {from_block}..{to_block} on {w3vars.network} via {w3vars.rpc_url}", verbosity=2)
+      raw_logs = w3vars.w3.eth.get_logs({
+        "address": contract.address,
+        "topics": [list(events_by_topic)],
+        "fromBlock": int(from_block),
+        "toBlock": int(to_block),
+      })
+
+      events = []
+      for raw_log in raw_logs:
+        event, owner_key, node_key = events_by_topic["0x" + bytes(raw_log["topics"][0]).hex()]
+        args = event.process_log(raw_log)["args"]
+        events.append({
+          "event": event.event_name,
+          "license_id": int(args["licenseId"]),
+          "owner": to_checksum_address(args[owner_key]),
+          "node_address": to_checksum_address(args[node_key]),
+          "block_number": int(raw_log["blockNumber"]),
+          "log_index": int(raw_log["logIndex"]),
+        })
+      events.sort(key=lambda item: (item["block_number"], item["log_index"]))
+      return events
+
     def web3_submit_attestation(
       self,
       function_name: str,
