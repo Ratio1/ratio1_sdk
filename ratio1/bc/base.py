@@ -11,7 +11,7 @@ from collections import defaultdict
 from hashlib import sha256, md5
 from threading import Event, Lock, Thread
 from copy import deepcopy
-from time import monotonic, time
+from time import monotonic, sleep, time
 
 try:
   from ver import __VER__ as app_version
@@ -2254,6 +2254,7 @@ class BaseBlockEngine(
     Returns
     -------
     None if the URL is invalid or the request failed.
+    {} if the oracle was busy (503/504/524/429 or a timeout): the caller may try again later.
     dict with the dAuth information if the request got status 200(if errors occured, but
     the status is still 200, an empty dictionary will be returned).
     """
@@ -2389,6 +2390,11 @@ class BaseBlockEngine(
             done = True
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')
+            if response.status_code in (429, 503, 504, 524):
+              dct_env = {}  # a busy oracle, not a bad URL: worth asking again later
+        except requests.exceptions.Timeout as exc:
+          self.P(f"dAuth request timed out: {exc}", color='r')
+          dct_env = {}  # a busy oracle, not a bad URL: worth asking again later
         except Exception as exc:
           self.P(f"Error in dAuth URL request: {exc}", color='r')
           # Request failed somewhere so dct_env will be set again to None.
@@ -2397,6 +2403,11 @@ class BaseBlockEngine(
         tries += 1
         if tries >= max_tries:
           done = True    
+        elif not done:
+          # Pause (about 2, 4, 8, 16 s, jittered) instead of asking again at once.
+          pause_s = min(30, 2 ** tries) * np.random.uniform(0.5, 1.5)
+          self.P(f"Retrying dAuth in {pause_s:.0f}s...")
+          sleep(pause_s)
       #end while
     else:
       # Invalid URL, thus dct_env will remain None

@@ -3,6 +3,8 @@ import os
 import unittest
 from unittest import mock
 
+import requests
+
 from ratio1.bc.base import BaseBlockEngine
 from test_dauth_job_secret_client import _DauthClientHarness
 
@@ -89,6 +91,25 @@ class TestDauthAutocompleteLogging(unittest.TestCase):
     self.assertIsNone(result)
     self.assertIn("Error in dAuth URL request: whitelist failed", self._logs())
     self.assertNotIn(SECRET_VALUE, self._logs())
+
+  def test_busy_oracle_is_retryable_and_paced(self):
+    """A 503 is not a bad URL: return {} so the node retries, pausing between tries."""
+    self.response.status_code = 503
+    self.response.text = "busy"
+    with mock.patch("ratio1.bc.base.sleep") as pause:
+      result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=3)
+    self.assertEqual(result, {})
+    self.assertEqual(pause.call_count, 2)
+
+  def test_timeout_is_retryable_but_an_outage_is_not(self):
+    """A timeout is a busy oracle ({}); a 530 (no tunnel) still means stop (None)."""
+    timeout = requests.exceptions.ReadTimeout("slow")
+    with mock.patch("ratio1.bc.base.requests.post", side_effect=timeout):
+      result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=1)
+    self.assertEqual(result, {})
+    self.response.status_code = 530
+    result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=1)
+    self.assertIsNone(result)
 
 
 if __name__ == "__main__":
