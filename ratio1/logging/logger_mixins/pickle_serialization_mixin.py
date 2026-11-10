@@ -147,7 +147,8 @@ class _PickleSerializationMixin(object):
         P("Saving uncompressed pikle (lock:{}) : {} ".format(locking, datafile))
         with self.managed_lock_resource(datafile, condition=locking):
           try:
-            with open(tmp_path, 'wb') as fhandle:
+            # 1 MiB buffer: one syscall (and one GIL handoff) per ~16 pickle frames of 64 KB, not one per frame.
+            with open(tmp_path, 'wb', buffering=1 << 20) as fhandle:
               pickle.dump(data, fhandle, protocol=pickle.HIGHEST_PROTOCOL)
               fhandle.flush()
               os.fsync(fhandle.fileno())  # ensure data is written to disk
