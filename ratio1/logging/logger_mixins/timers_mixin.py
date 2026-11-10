@@ -131,8 +131,10 @@ class _TimersMixin(object):
     self.timer_level[section] += 1
     self.opened_timers[section].append(sname)
 
-    faulty_timers = self._get_section_faulty_timers(section)
-    if len(faulty_timers) > 0 and not self._timer_error[section]:
+    # Only the timer started here can have just become faulty: scan the section only then.
+    ctimer = self.timers[section][sname]
+    if (ctimer['START_COUNT'] - ctimer['STOP_COUNT']) > 1 and not self._timer_error[section]:
+      faulty_timers = self._get_section_faulty_timers(section)
       self.P("Something is wrong with the timers in section '{}':".format(section), color='r')
       for ft in faulty_timers:
         self.P("  {}: {}".format(ft, self.timers[section][ft]), color='r')
