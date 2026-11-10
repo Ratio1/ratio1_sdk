@@ -55,6 +55,7 @@ class R1FSReadPathTests(unittest.TestCase):
     engine._R1FSEngine__run_command = run_command
     engine._R1FSEngine__publish_cid_to_relay = publish
     engine._R1FSEngine__relay_retry_queue = {}
+    engine._R1FSEngine__relay_busy = threading.Lock()
     engine._R1FSEngine__relay_publication_status = {}
     engine._R1FSEngine__ipfs_started = True
     engine._R1FSEngine__DEFAULT_SECRET = "ratio1"
@@ -64,6 +65,12 @@ class R1FSReadPathTests(unittest.TestCase):
     engine.P = lambda *args, **kwargs: None
     engine.Pd = lambda *args, **kwargs: None
     return engine
+
+  def _release_relay(self, engine):
+    """Let the hung relay API answer, then wait for the background relay pass to end."""
+    engine.relay_gate.set()
+    self.assertTrue(engine._R1FSEngine__relay_busy.acquire(timeout=10))
+    engine._R1FSEngine__relay_busy.release()
 
   def test_missing_cid_read_is_bounded_by_the_caller_timeout_not_a_90s_pin(self):
     engine = self._engine(reachable=False)
@@ -79,6 +86,25 @@ class R1FSReadPathTests(unittest.TestCase):
     engine = self._engine(pin_fails=True)
     self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
     self.assertEqual(engine.commands, [("get", 10), ("pin", 10)])
+
+  def test_reads_leave_the_relay_queue_to_one_background_pass(self):
+    engine = self._engine()
+    engine._R1FSEngine__relay_retry_queue["QmQueued"] = {"cid": "QmQueued", "queued_at": "t0"}
+    engine.relay_gate.clear()  # a synchronous drain would hold these reads on the hung relay API
+    self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
+    self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)  # a pass runs: kick dropped
+    self._release_relay(engine)
+    self.assertEqual(engine.relay_calls, [("QmQueued", "r1fs-relay")])
+
+  def test_missing_cid_is_healed_in_the_background_before_the_queue_drain(self):
+    engine = self._engine(reachable=False)
+    engine.relay_accepts = True  # even when the relay finds it, the reader does not wait for a second get
+    engine._R1FSEngine__relay_retry_queue["QmQueued"] = {"cid": "QmQueued", "queued_at": "t0"}
+    engine.relay_gate.clear()
+    self.assertIsNone(engine.get_json("QmMissing", timeout=10, show_logs=False))
+    self.assertEqual(engine.commands, [("get", 10)])
+    self._release_relay(engine)
+    self.assertEqual(engine.relay_calls, [("QmMissing", "r1fs-relay"), ("QmQueued", "r1fs-relay")])
 
 
 if __name__ == "__main__":

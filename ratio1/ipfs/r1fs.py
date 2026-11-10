@@ -76,7 +76,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 DEFAULT_SECRET = "ratio1"
 DEFAULT_FILENAME_JSON = "data.json"
 
-from threading import RLock
+from threading import Lock, RLock, Thread
 
 __VER__ = "0.2.2"
 
@@ -267,6 +267,7 @@ class R1FSEngine:
       self.__peers = []
       self.__samehost_fix_attempted = False
       self.__relay_retry_queue = {}
+      self.__relay_busy = Lock()  # one background relay pass at a time
       self.__relay_publication_status = {}
       self.__relay_config_warning_flags = set()
       
@@ -754,7 +755,6 @@ class R1FSEngine:
       bool
           ``True`` when the relay accepted the self-heal request.
       """
-      self.__retry_queued_relay_publications(context=f"download of {cid}", show_logs=show_logs)
       return self.__publish_cid_to_relay(
         cid=cid,
         source_path=None,
@@ -765,6 +765,22 @@ class R1FSEngine:
         show_logs=show_logs,
         raise_on_error=False,
       )
+
+    def __relay_in_background(self, heal_cid: str = None, show_logs: bool = True):
+      """Off the caller's thread, one pass at a time: ask the relay to fetch `heal_cid`, then retry queued publications."""
+      if not (heal_cid or self.__relay_retry_queue) or not self.__relay_busy.acquire(blocking=False):
+        return
+      def work():
+        try:
+          if heal_cid:
+            self.__attempt_download_self_heal(cid=heal_cid, show_logs=show_logs)
+          self.__retry_queued_relay_publications(context="background pass", show_logs=show_logs)
+        finally:
+          self.__relay_busy.release()
+      try:
+        Thread(target=work, name="r1fs-relay", daemon=True).start()
+      except Exception:
+        self.__relay_busy.release()
     
 
     def _get_swarm_peers(self):
@@ -2416,7 +2432,6 @@ class R1FSEngine:
           if show_logs:
             self.P(msg, color='r')
           return None
-      self.__retry_queued_relay_publications(context=f"download request for {cid}", show_logs=show_logs)
       
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
@@ -2464,18 +2479,8 @@ class R1FSEngine:
       except Exception as e:
         download_error = str(e)
         self.P(f"Initial ipfs get failed for {cid}: {download_error}", color='y')
-        healed = self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
-        if healed:
-          try:
-            self.__run_command(
-              ["ipfs", "get", cid, "-o", local_folder],
-              timeout=ipfs_timeout,
-              raise_on_error=True,
-              show_logs=show_logs
-            )
-            download_error = None
-          except Exception as retry_error:
-            download_error = f"{download_error}; retry after relay self-heal failed: {retry_error}"
+      # Relay work never runs on the reader's thread; a missing CID is fetched by the relay for the next read.
+      self.__relay_in_background(heal_cid=cid if download_error else None, show_logs=show_logs)
       if download_error is not None:
         if raise_on_error:
           raise RuntimeError(f"Failed to download CID {cid}: {download_error}")
