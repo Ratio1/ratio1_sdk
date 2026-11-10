@@ -1888,11 +1888,11 @@ class R1FSEngine:
 
 
     @require_ipfs_started
-    def __pin_add(self, cid: str) -> str:
+    def __pin_add(self, cid: str, timeout: float = IPFSCt.TIMEOUT) -> str:
       """
       Explicitly pin a CID (and fetch its data) so it appears in the local pinset.
       """
-      res = self.__run_command(["ipfs", "pin", "add", cid])
+      res = self.__run_command(["ipfs", "pin", "add", cid], timeout=timeout)
       self.Pd(f"{res}")
       return res  
 
@@ -2423,30 +2423,6 @@ class R1FSEngine:
         
       key = self._hash_secret(secret)
 
-      if pin:
-        try:
-          pin_result = self.__pin_add(cid)
-        except Exception as e:
-          self.P(f"Initial pin/add failed for {cid}: {e}", color='y')
-          healed = self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
-          if healed:
-            try:
-              pin_result = self.__pin_add(cid)
-            except Exception as retry_error:
-              msg = f"Error pinning CID {cid} after relay self-heal: {retry_error}"
-              if raise_on_error:
-                raise RuntimeError(msg)
-              self.P(msg, color='r')
-              return None
-          else:
-            msg = f"Error pinning CID {cid}: {e}"
-            if raise_on_error:
-              raise RuntimeError(msg)
-            self.P(msg, color='r')
-            return None
-        #end try
-      #end if pin
-
       if local_folder is None:
         local_folder = self.__downloads_dir # default downloads directory
       
@@ -2506,6 +2482,13 @@ class R1FSEngine:
         self.P(f"Failed to download CID {cid}: {download_error}", color='r')
         return None
       download_elapsed_time = time.time() - start_time
+      if pin:
+        # Pin after the get: `ipfs get` stored every block locally, so this pin is local and
+        # quick, and the caller's timeout (not a fixed 90 s pin) bounds the network fetch.
+        try:
+          self.__pin_add(cid, timeout=ipfs_timeout)
+        except Exception as e:
+          self.P(f"Pin after download failed for {cid}: {e}", color='y')
 
       # Expect exactly one file
       if not os.path.isdir(local_folder):
