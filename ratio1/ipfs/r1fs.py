@@ -1888,11 +1888,18 @@ class R1FSEngine:
 
 
     @require_ipfs_started
-    def __pin_add(self, cid: str) -> str:
+    def __pin_add(self, cid: str, timeout: float = None) -> str:
       """
       Explicitly pin a CID (and fetch its data) so it appears in the local pinset.
+
+      Parameters
+      ----------
+      cid : str
+          CID to pin.
+      timeout : float, optional
+          Seconds allowed for the pin command. Default ``IPFSCt.TIMEOUT``.
       """
-      res = self.__run_command(["ipfs", "pin", "add", cid])
+      res = self.__run_command(["ipfs", "pin", "add", cid], timeout=timeout or IPFSCt.TIMEOUT)
       self.Pd(f"{res}")
       return res  
 
@@ -2347,6 +2354,7 @@ class R1FSEngine:
       raise_on_error: bool = False,
       show_logs: bool = True,
       return_absolute_path: bool = True,
+      max_seconds: float = None,
     ) -> str:
       """
       Retrieve an encrypted file from R1FS by CID, decrypt with AES-GCM in streaming mode.
@@ -2380,6 +2388,14 @@ class R1FSEngine:
 
       return_absolute_path : bool, optional
         If True, return the absolute path to the restored plaintext file.
+
+      max_seconds : float, optional
+        Overall time budget of the call, for callers that must not wait long (for
+        example a request handler). With a budget, every IPFS command (pin and get)
+        is limited to the time that is left, and the relay retries and the relay
+        self-heal, which can each take tens of seconds, are skipped. Without it the
+        call behaves as before: only the get is limited by ``timeout`` and a failed
+        pin or get is retried after a relay self-heal.
 
       Returns
       -------
@@ -2416,7 +2432,16 @@ class R1FSEngine:
           if show_logs:
             self.P(msg, color='r')
           return None
-      self.__retry_queued_relay_publications(context=f"download request for {cid}", show_logs=show_logs)
+      deadline = time.time() + max_seconds if max_seconds else None
+
+      def time_left(default):
+        # Seconds the next IPFS command may take: the default, capped by what is left of the budget.
+        if deadline is None:
+          return default
+        return max(0.1, min(default, deadline - time.time()))
+
+      if deadline is None:
+        self.__retry_queued_relay_publications(context=f"download request for {cid}", show_logs=show_logs)
       
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
@@ -2425,10 +2450,10 @@ class R1FSEngine:
 
       if pin:
         try:
-          pin_result = self.__pin_add(cid)
+          pin_result = self.__pin_add(cid, timeout=time_left(IPFSCt.TIMEOUT))
         except Exception as e:
           self.P(f"Initial pin/add failed for {cid}: {e}", color='y')
-          healed = self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
+          healed = deadline is None and self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
           if healed:
             try:
               pin_result = self.__pin_add(cid)
@@ -2475,7 +2500,7 @@ class R1FSEngine:
       if show_logs:
         self.Pd(f"Downloading file {cid} to {local_folder}")
       # IPFS get the single ciphertext file
-      ipfs_timeout = timeout if timeout else 90  # or IPFSCt.TIMEOUT
+      ipfs_timeout = time_left(timeout if timeout else 90)  # or IPFSCt.TIMEOUT
       start_time = time.time()
       download_error = None
       try:
@@ -2488,7 +2513,7 @@ class R1FSEngine:
       except Exception as e:
         download_error = str(e)
         self.P(f"Initial ipfs get failed for {cid}: {download_error}", color='y')
-        healed = self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
+        healed = deadline is None and self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
         if healed:
           try:
             self.__run_command(
@@ -2718,6 +2743,7 @@ class R1FSEngine:
       pin: bool = True,
       raise_on_error: bool = False,
       show_logs: bool = True,
+      max_seconds: float = None,
     ):
       """
       Retrieve and deserialize a JSON file from R1FS by CID.
@@ -2745,6 +2771,9 @@ class R1FSEngine:
 
       show_logs : bool, optional
         If True, logs steps via self.P / self.Pd. Default True.
+
+      max_seconds : float, optional
+        Overall time budget of the call; see ``get_file``.
 
       Returns
       -------
@@ -2781,7 +2810,8 @@ class R1FSEngine:
         pin=pin,
         raise_on_error=raise_on_error,
         show_logs=show_logs,
-        return_absolute_path=True
+        return_absolute_path=True,
+        max_seconds=max_seconds,
       )
       
       if file_path is None:
