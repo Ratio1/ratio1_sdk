@@ -4,9 +4,11 @@ import shutil
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from ratio1.ipfs import r1fs
 from ratio1.ipfs.r1fs import IPFSCt, R1FSEngine
 
 KEY = b"k" * 32
@@ -105,6 +107,17 @@ class R1FSReadPathTests(unittest.TestCase):
     self.assertEqual(engine.commands, [("get", 10)])
     self._release_relay(engine)
     self.assertEqual(engine.relay_calls, [("QmMissing", "r1fs-relay"), ("QmQueued", "r1fs-relay")])
+
+  def test_relay_unpin_is_bounded(self):
+    engine = self._engine()
+    engine._R1FSEngine__ipfs_relay_api = "https://relay.invalid"
+    engine._R1FSEngine__ipfs_api_key_username = engine._R1FSEngine__ipfs_api_key_password = "x"
+    engine._R1FSEngine__ipfs_certificate_path = None
+    engine._R1FSEngine__uploaded_files = {}
+    hung_relay = r1fs.requests.Timeout("the relay API did not answer")
+    with mock.patch.object(r1fs.requests, "post", side_effect=hung_relay) as post:
+      self.assertFalse(engine.unpin_file("QmGone", show_logs=False))
+    self.assertEqual(post.call_args.kwargs.get("timeout"), IPFSCt.RELAY_PIN_TIMEOUT_SECONDS)
 
 
 if __name__ == "__main__":

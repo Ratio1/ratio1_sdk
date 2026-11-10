@@ -2964,7 +2964,8 @@ class R1FSEngine:
             response = requests.post(
               request_url,
               auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
-              verify=self.__ipfs_certificate_path
+              verify=self.__ipfs_certificate_path,
+              timeout=IPFSCt.RELAY_PIN_TIMEOUT_SECONDS,
             )
 
             if response.status_code == 200:
