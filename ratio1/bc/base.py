@@ -1,4 +1,5 @@
 import os
+import sys
 import base64
 import json
 import binascii
@@ -17,10 +18,14 @@ try:
   from ver import __VER__ as app_version
 except:
   app_version = None
-try:
-  from naeural_core.main.ver import __VER__ as core_version
-except:
-  core_version = None
+# Only a node, which loads naeural_core before the SDK, reports a core version. An SDK-first process
+# (a client on a machine that also has the core installed) must not: oracles would treat it as a node.
+core_version = None
+if 'naeural_core' in sys.modules:
+  try:
+    from naeural_core.main.ver import __VER__ as core_version
+  except:
+    core_version = None
 
 
 
@@ -2304,6 +2309,7 @@ class BaseBlockEngine(
       eth_short = self.eth_address[:6] + '...' + self.eth_address[-4:]
       while not done:
         self.P(f"<{eth_short}> ({network}) dAuth with `{url}`... (try {tries + 1} / {max_tries})")
+        busy = False  # this try met a busy oracle: worth a pause and another try
         try:
           if debug_data:
             to_send = {
@@ -2390,10 +2396,14 @@ class BaseBlockEngine(
             done = True
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')
-            if response.status_code in (429, 503, 504, 524):
-              dct_env = {}  # a busy oracle, not a bad URL: worth asking again later
+            busy = response.status_code in (429, 503, 504, 524)
+            dct_env = {} if busy else None  # {}: a busy oracle, not a bad URL: worth asking again later
+        except requests.exceptions.ConnectTimeout as exc:
+          self.P(f"Error in dAuth URL request: {exc}", color='r')
+          dct_env = None  # nothing answered at that address: not a busy oracle
         except requests.exceptions.Timeout as exc:
           self.P(f"dAuth request timed out: {exc}", color='r')
+          busy = True
           dct_env = {}  # a busy oracle, not a bad URL: worth asking again later
         except Exception as exc:
           self.P(f"Error in dAuth URL request: {exc}", color='r')
@@ -2403,8 +2413,9 @@ class BaseBlockEngine(
         tries += 1
         if tries >= max_tries:
           done = True    
-        elif not done:
-          # Pause (about 2, 4, 8, 16 s, jittered) instead of asking again at once.
+        elif busy:
+          # Pause (about 2, 4, 8, 16 s, jittered) before asking a busy oracle again. Other failures
+          # are retried at once, as before.
           pause_s = min(30, 2 ** tries) * np.random.uniform(0.5, 1.5)
           self.P(f"Retrying dAuth in {pause_s:.0f}s...")
           sleep(pause_s)
