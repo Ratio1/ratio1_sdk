@@ -103,6 +103,43 @@ class _TimersMixin(object):
     return
 
   def start_timer(self, sname, section=None):
+    """
+    Start the named timer in a timers section.
+
+    Records the start time, counts the start, links the timer in the section's timers graph under the
+    timer that is currently open (or under ROOT) and pushes it on the section's stack of open timers.
+    It then checks whether this timer was started again without being stopped (START_COUNT - STOP_COUNT
+    above 1) and, the first time that happens in the section, logs every faulty timer of the section.
+
+    Only the timer started here is checked: a timer can become faulty only in its own start_timer, so
+    the warning still fires the first time it happens, while the usual balanced start/stop no longer
+    scans every timer of the section. That scan ran on every start (several per plugin lap, over
+    sections of 10-20+ timers) and showed up in GIL samples on starved nodes.
+
+    Parameters
+    ----------
+    sname : str
+      Name of the timer to start; it is created on its first start.
+    section : str, optional
+      Timers section; None means the default section, which may only be used from the main thread.
+
+    Returns
+    -------
+    float or int
+      The `perf_counter()` value stored as the start time, or -1 when the logger is not in DEBUG mode
+      (then only the section is created and nothing is timed).
+
+    Raises
+    ------
+    AssertionError
+      When the default section is used from a thread other than the main thread.
+
+    Examples
+    --------
+    >>> log.start_timer('process', section='my_plugin')
+    >>> do_work()
+    >>> log.end_timer('process', section='my_plugin')
+    """
     section = section or self.default_timers_section
     if section == self.default_timers_section:
       assert self.is_main_thread, "Attempted to run threaded timer '{}' without section".format(sname)
@@ -131,9 +168,12 @@ class _TimersMixin(object):
     self.timer_level[section] += 1
     self.opened_timers[section].append(sname)
 
-    # Only the timer started here can have just become faulty: scan the section only then.
+    # Only the timer started here can have just become faulty: scan the section only then, instead of
+    # scanning every timer of the section on every start.
     ctimer = self.timers[section][sname]
     if (ctimer['START_COUNT'] - ctimer['STOP_COUNT']) > 1 and not self._timer_error[section]:
+      # Rare path (this timer was started again without a stop): list all faulty timers of the section
+      # once for the report below.
       faulty_timers = self._get_section_faulty_timers(section)
       self.P("Something is wrong with the timers in section '{}':".format(section), color='r')
       for ft in faulty_timers:
