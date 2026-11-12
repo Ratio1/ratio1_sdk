@@ -76,7 +76,13 @@ class dAuth:
   DAUTH_SENDER_TYPE_SDK = 'sdk'
   DAUTH_SENDER_TYPE_NODE = 'node'
   DAUTH_SENDER_ETH = 'sender_eth_addr'
-  
+
+  # set by dAuth to the requester's address when the requester's key is revoked
+  DAUTH_REVOKED = 'revoked_node'
+  # announcement, signed by a revoked node key, of the node's new key
+  DAUTH_KEY_ROTATION = 'node_key_rotation'
+  DAUTH_KEY_ROTATION_PURPOSE = 'ratio1-node-key-rotation'
+
 # end class dAuth
 
 ETH_ENABLED_ENV_KEY = 'EE_ETH_ENABLED'
