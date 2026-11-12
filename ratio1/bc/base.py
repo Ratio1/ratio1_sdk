@@ -6,6 +6,7 @@ import json
 import binascii
 import numpy as np
 import datetime
+import shutil
 import uuid
 import requests
 
@@ -461,6 +462,8 @@ class BaseBlockEngine(
     self._first_checks_done = defaultdict(lambda: False) # used to store the first check results
     
     self.__private_key = None
+    # dAuth oracle address that reported this key as revoked in the last dAuth call
+    self.dauth_revoked_by = None
     self.__verbosity = verbosity
     self.__public_key = None    
     self.__password = config.get(BCct.K_PASSWORD)    
@@ -594,7 +597,77 @@ class BaseBlockEngine(
       self.P("Address: {}".format(self.address), boxed=True, color='g', verbosity=1)
     self.P("Allowed list of senders: {}".format(self.allowed_list), verbosity=1)
     return
-  
+
+
+  def rotate_private_key(self):
+    """
+    Replace a revoked node key with a new one.
+
+    The new key is created first so the current (revoked) key can sign the
+    announcement that names its successor. The new key and the announcement are
+    written and flushed before the key file is touched; the old key is copied to
+    `<key file>.revoked-<UTC time>` (kept, never deleted) and the new key file then
+    replaces the old one atomically, so a key file exists at every moment. A run
+    interrupted before that replacement leaves the old key active and the rotation
+    simply runs again.
+
+    Returns
+    -------
+    dict
+      The announcement `{purpose, network, new_node}`, signed by the old key.
+    """
+    new_private_key = self._create_new_sk()
+    new_address = self._pk_to_address(self._get_pk(private_key=new_private_key))
+    announcement = {
+      'purpose': dAuth.DAUTH_KEY_ROTATION_PURPOSE,
+      'network': self.evm_network,
+      'new_node': new_address,
+    }
+    self.sign(announcement)
+    new_fn = self.__pem_file + '.new'
+    self._sk_to_text(private_key=new_private_key, password=self.__password, fn=new_fn)
+    with open(self.__node_key_announcement_file + '.tmp', 'w') as fh:
+      json.dump(announcement, fh)
+    for fn in (new_fn, self.__node_key_announcement_file + '.tmp'):
+      with open(fn, 'rb') as fh:
+        os.fsync(fh.fileno())
+    os.replace(self.__node_key_announcement_file + '.tmp', self.__node_key_announcement_file)
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    archive_fn = "{}.revoked-{}".format(self.__pem_file, stamp)
+    shutil.copy2(self.__pem_file, archive_fn)
+    os.replace(new_fn, self.__pem_file)
+    self.P("Revoked key kept in {}".format(archive_fn), color='y')
+    self.__private_key = None
+    self._init()
+    if self.address != new_address:
+      raise RuntimeError("The new key file could not be loaded.")
+    return announcement
+
+
+  @property
+  def __node_key_announcement_file(self):
+    return self.__pem_file + '.rotation.json'
+
+
+  def pending_node_key_announcement(self):
+    """
+    The announcement saved by `rotate_private_key` that dAuth has not answered yet, or
+    None. An announcement that names another key than the current one is ignored.
+    """
+    try:
+      with open(self.__node_key_announcement_file) as fh:
+        announcement = json.load(fh)
+    except FileNotFoundError:
+      return None
+    return announcement if announcement.get('new_node') == self.address else None
+
+
+  def node_key_announcement_done(self):
+    """Stop announcing: the saved announcement is kept as `<file>.done`."""
+    os.replace(self.__node_key_announcement_file, self.__node_key_announcement_file + '.done')
+    return
+
+
   @property
   def private_key(self):
     return self.__private_key
@@ -2340,6 +2413,7 @@ class BaseBlockEngine(
     in_env = False
     url = dauth_endp
     dct_response = {}
+    self.dauth_revoked_by = None
 
     # Network handling
     if network is None:
@@ -2421,6 +2495,17 @@ class BaseBlockEngine(
               # Invalid response signature, thus return {}
               return {}
 
+            # Revoked-key verdict: trusted only from a registered dAuth oracle, since
+            # the node replaces its key on it. One registry read, only in this case.
+            revoked_address = dct_dauth.get(dAuth.DAUTH_REVOKED)
+            if revoked_address is not None and revoked_address == self.address:
+              try:
+                if self.web3_is_dauth_oracle(self.node_address_to_eth_address(server_addr), network=network):
+                  self.dauth_revoked_by = server_addr
+                  self.P(f"dAuth oracle {server_alias} <{server_addr}> reports this node key as revoked.", color='r')
+              except Exception as exc:
+                self.P(f"Could not check dAuth oracle <{server_addr}>: {exc}", color='r')
+
             # whitelist
             whitelist = dct_dauth.pop(dAuth.DAUTH_WHITELIST, [])
             if isinstance(whitelist, (str, list)) and len(whitelist) > 0:
@@ -2500,3 +2585,100 @@ class BaseBlockEngine(
     if return_full_data:
       return dct_response
     return dct_env
+
+
+  def dauth_announce_node_key(self, announcement, network=None, request_timeout=(30, 60)):
+    """
+    Send dAuth the announcement that maps a revoked node key to this engine's key.
+
+    dAuth keeps only the first new key announced for each revoked key. The request is
+    signed by this engine (the new key); `announcement` is the one returned by
+    `rotate_private_key`, signed by the revoked key.
+
+    Parameters
+    ----------
+    announcement : dict
+      Announcement signed by the revoked key.
+    network : str, optional
+      EVM network; defaults to the engine's network.
+    request_timeout : tuple, optional
+      Connect and read timeouts for the HTTP request.
+
+    Returns
+    -------
+    dict
+      dAuth's signed answer: `new_node` (the address stored for the revoked key, None
+      if none) and `confirmed` (True once dAuth's peers confirmed that address).
+    """
+    selected_network = network if network is not None else self.evm_network
+    # same endpoint choice as `dauth_autocomplete`: the configured one, else the network's
+    url = os.environ.get(DAUTH_ENV_KEY) or self.get_network_data(selected_network)[dAuth.EvmNetData.DAUTH_URL_KEY]
+    announce_url = url.replace("/get_auth_data", "/announce_node_key")
+    body = {
+      dAuth.DAUTH_KEY_ROTATION: announcement,
+      DAUTH_NONCE: hex(int(time() * 1000)),
+    }
+    self.sign(body)
+    response = requests.post(announce_url, json={"body": body}, timeout=request_timeout)
+    if response.status_code != 200:
+      raise RuntimeError("dAuth node key announcement failed with HTTP status {}.".format(response.status_code))
+    result = response.json().get("result")
+    verification = self.verify(result, log_hash_sign_fails=False) if isinstance(result, dict) else None
+    if verification is None or not verification.valid:
+      raise ValueError("Invalid dAuth node key announcement response.")
+    # The answer ends the retries, so it must come from a dAuth oracle and be about this request.
+    if not self.web3_is_dauth_oracle(self.node_address_to_eth_address(verification.sender), network=selected_network):
+      raise ValueError("Unauthorized dAuth node key announcement response signer.")
+    if result.get(DAUTH_NONCE) != body[DAUTH_NONCE]:
+      raise ValueError("dAuth node key announcement response nonce mismatch.")
+    if result.get("error"):
+      raise RuntimeError("dAuth refused the node key announcement: {}".format(result["error"]))
+    if result.get("old_node") != announcement.get(BCct.SENDER):
+      raise ValueError("dAuth node key announcement response is for another node.")
+    return result
+
+
+  def verify_node_key_rotation(self, proof):
+    """
+    Check a node key rotation proof: the request built by `dauth_announce_node_key`,
+    signed by the new key, carrying the announcement signed by the replaced key.
+
+    Parameters
+    ----------
+    proof : dict
+      The signed request.
+
+    Returns
+    -------
+    tuple
+      `(old_node, new_node)` internal addresses.
+
+    Raises
+    ------
+    ValueError
+      If the proof is malformed, for another network, or a signature is invalid.
+    """
+    announcement = proof.get(dAuth.DAUTH_KEY_ROTATION) if isinstance(proof, dict) else None
+    if not isinstance(announcement, dict):
+      raise ValueError("Missing node key announcement.")
+    old_node = announcement.get(BCct.SENDER)
+    new_node = announcement.get('new_node')
+    if (
+      announcement.get('purpose') != dAuth.DAUTH_KEY_ROTATION_PURPOSE
+      or announcement.get('network') != self.evm_network
+      or not isinstance(old_node, str) or not isinstance(new_node, str)
+      or not isinstance(proof.get(BCct.SENDER), str)
+    ):
+      raise ValueError("Invalid node key announcement.")
+    new_eth = self.node_address_to_eth_address(new_node).lower()
+    if (
+      self.node_address_to_eth_address(proof[BCct.SENDER]).lower() != new_eth
+      or self.node_address_to_eth_address(old_node).lower() == new_eth
+    ):
+      raise ValueError("Invalid node key announcement.")
+    if (
+      not self.verify(announcement, log_hash_sign_fails=False).valid
+      or not self.verify(proof, log_hash_sign_fails=False).valid
+    ):
+      raise ValueError("Invalid node key announcement signature.")
+    return old_node, new_node
