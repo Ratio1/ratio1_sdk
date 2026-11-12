@@ -2330,7 +2330,17 @@ class R1FSEngine:
 
     def __start_daemon(self, max_attempts=10, sleep_time=2):
       """
-      Start the local IPFS daemon and wait for its API to respond.
+      Start the local IPFS daemon with an empty Bootstrap list, then dial its bootstrap peers.
+
+      The daemon dials the peers of its Bootstrap list while it is still being built,
+      before its block exchange (Bitswap) starts to watch connections. A connection
+      opened that early is never used for block requests for as long as it lives:
+      the peer answers pings and relays circuits, but this node never asks it for a
+      block. A relay on the same host completes the handshake in about a millisecond
+      and loses this race on most starts. So the configured peers are held back: the
+      list is emptied before the daemon is launched, and once the daemon API answers
+      (the block exchange is running by then) each held-back peer is dialed and put
+      back in the list.
 
       Parameters
       ----------
@@ -2342,8 +2352,35 @@ class R1FSEngine:
       Returns
       -------
       bool
-          ``True`` when the daemon becomes reachable.
+          ``True`` when the daemon becomes reachable. ``False`` when it does not answer
+          within ``max_attempts`` checks; the Bootstrap list is then left empty, and the
+          next start through ``maybe_start_ipfs`` writes it again.
+
+      Raises
+      ------
+      Exception
+          When ``ipfs bootstrap rm --all`` or ``ipfs bootstrap add`` fails (raised by
+          the command runner).
+
+      Notes
+      -----
+      After the start the repository holds the same Bootstrap list as before, so the
+      running daemon re-dials a lost peer exactly as it did. A peer that cannot be
+      dialed right after the start is said in red and still put back in the list; the
+      relay check in ``maybe_start_ipfs`` then decides whether R1FS is started.
+
+      Examples
+      --------
+      >>> # in maybe_start_ipfs, after the relay was written to the Bootstrap list
+      >>> self.__start_daemon()
+      True
       """
+      # The peers the daemon would dial while it is still being built (the assigned relay).
+      held_back_peers = self.__get_bootstrap_list()
+      if not held_back_peers:
+        self.P("No bootstrap peer is configured: the daemon is started alone and nothing is dialed after its start.", color='r')
+      # Start with an empty Bootstrap list, so no connection exists before the block exchange watches them.
+      self.__run_command(["ipfs", "bootstrap", "rm", "--all"])
       self.P("Starting IPFS daemon in background...")
       subprocess.Popen(
         ["ipfs", "daemon", "--enable-gc", "--migrate=true"],
@@ -2354,6 +2391,14 @@ class R1FSEngine:
         ipfs_daemon_running = self.is_ipfs_daemon_running()
         if ipfs_daemon_running:
           self.P("IPFS daemon started successfully.", color='g')
+          # Only now dial the held-back peers and give them back to the daemon.
+          for multiaddr in held_back_peers:
+            # The API answers, so the block exchange is running: a connection opened now is one it uses.
+            connected, output, errors = self.__swarm_connect(multiaddr)
+            if not connected:
+              self.P(f"Bootstrap peer {multiaddr} could not be dialed after the daemon start: {errors or output}", color='r')
+            # Back in the Bootstrap list, so the running daemon re-dials the peer after a lost connection as before.
+            self.__bootstrap_add(multiaddr)
           return True
         self.P(f"Check {attempt + 1}/{max_attempts} IPFS running: {ipfs_daemon_running}", color='r')
         time.sleep(sleep_time)

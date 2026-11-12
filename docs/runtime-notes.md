@@ -104,6 +104,18 @@ for the area you change. Keep each entry current: edit or delete it when the cod
 
 - `R1FSEngine` transfers through an IPFS relay configured by `EE_IPFS_RELAY`,
   `EE_SWARM_KEY_CONTENT_BASE64` and `EE_IPFS_RELAY_API`; downloads land under `_local_cache/_output`.
+- The daemon is always launched with an empty Bootstrap list. Kubo 0.35 dials Bootstrap peers while
+  the daemon is still being built, before Bitswap watches connections, and a link opened that early
+  never carries a block request for as long as it lives (pings and circuits still work on it). A
+  relay within about a millisecond loses that race on most starts. `R1FSEngine` holds the configured
+  peers back, and once the daemon API answers it runs `swarm connect` for each and puts it back in
+  the list, so later re-dials behave as before. Proof of block transfer is a want that reaches the
+  relay (`ipfs bitswap wantlist --peer=<node>` on the relay), not a peer line or a ping.
+- A failed read of a CID the relay had already accepted prints one boxed red `RELAY DATA PATH` line
+  (at most one per 600 s) with the direct-link state and the Bitswap ledger for the relay.
+- CIDs are accepted only as bare CIDs (ASCII letters and digits, at most 255), file names only as
+  plain names, and a download that is not one regular file is refused; all of these are refused
+  before anything is read, written or deleted.
 - The same-host relay workaround is opt-in (`EE_R1FS_SAMEHOST_RELAY_FIX`), because local
   control-plane reachability did not prove block transfer. It requires the relay to appear on the
   exact local multiaddr before changing filters or bootstrap, records state in

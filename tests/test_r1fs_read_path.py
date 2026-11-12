@@ -966,6 +966,38 @@ class R1FSReadPathTests(unittest.TestCase):
     self.assertEqual(relay.calls, [("add", "QmB")])
     self.assertEqual([line for line in logs if line[0].startswith("Relay")], [])
 
+  def _daemon_start(self, engine, connect_answer="connect success"):
+    """Run __start_daemon against fake commands; return the order of what happened and the red lines."""
+    events, red = [], []
+
+    def run_command(cmd_list, raise_on_error=True, return_errors=False, **kwargs):
+      events.append(" ".join(cmd_list[1:3]))
+      # `bootstrap list` answers with the list the repository holds; `swarm connect` with the given answer.
+      output = RELAY if cmd_list[1:3] == ["bootstrap", "list"] else connect_answer
+      return (output, "") if return_errors else output
+
+    engine._R1FSEngine__run_command = run_command
+    engine.is_ipfs_daemon_running = lambda: events.append("api answers") or True
+    engine.P = lambda msg, *args, **kwargs: red.append(msg) if kwargs.get("color") == "r" else None
+    with mock.patch.object(r1fs.subprocess, "Popen", side_effect=lambda *args, **kwargs: events.append("daemon launched")):
+      started = engine._R1FSEngine__start_daemon()
+    return started, events, red
+
+  def test_daemon_is_launched_with_no_bootstrap_peer_and_the_relay_is_dialed_once_its_api_answers(self):
+    started, events, red = self._daemon_start(self._engine())
+    self.assertTrue(started)
+    # The list is read and emptied before the launch; the relay is dialed and put back only after the API answers.
+    self.assertEqual(events, ["bootstrap list", "bootstrap rm", "daemon launched", "api answers",
+                              "swarm connect", "bootstrap add"])
+    self.assertEqual(red, [])
+
+  def test_relay_that_cannot_be_dialed_after_the_start_is_said_in_red_and_still_put_back(self):
+    started, events, red = self._daemon_start(self._engine(), connect_answer="failure: dial backoff")
+    self.assertTrue(started)
+    self.assertEqual(events[-2:], ["swarm connect", "bootstrap add"])
+    self.assertEqual(len(red), 1)
+    self.assertIn(RELAY, red[0])
+
 
 if __name__ == "__main__":
   unittest.main()
