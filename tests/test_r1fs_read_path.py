@@ -177,6 +177,38 @@ class R1FSReadPathTests(unittest.TestCase):
     self.assertEqual(engine.commands, [("pin", IPFSCt.TIMEOUT)])
     self.assertFalse(os.path.exists(os.path.join(engine._R1FSEngine__downloads_dir, "QmOther")))
 
+  def test_every_cid_entry_refuses_a_value_that_is_not_a_bare_cid_and_says_so_in_red(self):
+    """Whatever show_logs is: such a value is a caller bug or an attack. Nothing is run, sent or deleted."""
+    engine = self._with_relay_api(self._engine())
+    keep, cids = self._sandbox(engine)
+    cids += ("--help", "QmA&arg=QmB", "Qm١", "QmA\n")  # an option, a relay parameter, a non-ASCII digit
+    logs = []
+    engine.P = lambda message, *args, color=None, **kwargs: logs.append((message, color))
+    entries = {
+      "get_file": (lambda cid, **kw: engine.get_file(cid, show_logs=False, **kw), None),
+      "delete_file": (lambda cid, **kw: engine.delete_file(cid, cleanup_local_files=True, show_logs=False, **kw), False),
+      "unpin_file": (lambda cid, **kw: engine.unpin_file(cid, show_logs=False, **kw), False),
+      "is_pinned": (lambda cid: engine.is_pinned(cid), False),
+      "is_cid_available": (lambda cid: engine.is_cid_available(cid), False),
+      "cleanup_downloads": (lambda cid: engine.cleanup_downloads(cid, show_logs=False), 0),
+    }
+    with mock.patch.object(r1fs.requests, "post") as post:
+      for cid in cids:
+        for name, (call, failure) in entries.items():
+          with self.subTest(entry=name, cid=cid):
+            del logs[:]
+            self.assertIs(call(cid), failure)
+            self.assertEqual(logs, [(f"Invalid CID {cid!r}: a CID must be a non-empty string of at most 255 ASCII "
+                                     "letters and digits", "r")])
+        for name in ("get_file", "delete_file", "unpin_file"):
+          with self.subTest(entry=name, cid=cid, raise_on_error=True):
+            with self.assertRaises(ValueError):
+              entries[name][0](cid, raise_on_error=True)
+    self.assertEqual([path for path in keep if not os.path.exists(path)], [])
+    self.assertEqual(engine.commands, [])
+    post.assert_not_called()
+    self.assertEqual(engine._R1FSEngine__relay_heal_pending, set())
+
   def test_none_or_empty_cid_keeps_its_old_handling(self):
     """Refused quietly with show_logs=False where it was refused before; left to the command where it was not."""
     engine = self._with_relay_api(self._engine())
@@ -322,6 +354,35 @@ class R1FSReadPathTests(unittest.TestCase):
     engine._R1FSEngine__uploaded_files = {}
     return engine
 
+  def test_cid_unpinned_while_its_heal_waits_is_not_pinned_on_the_relay_again(self):
+    """QmB's read fails while QmA is being published, then QmB is unpinned with success."""
+    engine = self._with_relay_api(self._engine(reachable=False))
+    engine._R1FSEngine__relay_retry_queue["QmA"] = {"cid": "QmA", "queued_at": "t0"}
+    engine.relay_gate.clear()
+    engine._R1FSEngine__relay_in_background(show_logs=False)  # a pass starts for the queue
+    self.assertTrue(engine.relay_entered.acquire(timeout=10))  # the publication of QmA hangs
+    self.assertIsNone(engine.get_json("QmB", timeout=10, show_logs=False))  # its heal waits for the pass
+    # QmB was never pinned here, so the local `ipfs pin rm` answers "not pinned"; the relay held it, so pin/rm succeeds.
+    unpinned = mock.Mock(status_code=200, text="")
+    with mock.patch.object(r1fs.requests, "post", return_value=unpinned):
+      self.assertTrue(engine.unpin_file("QmB", show_logs=False))
+    self.assertNotIn("QmB", engine._R1FSEngine__relay_heal_pending)
+    self._release_relay(engine)
+    self.assertEqual(engine.relay_calls, [("QmA", "r1fs-relay")])  # no relay pin/add of QmB after its unpin
+
+  def test_cid_unpinned_while_an_earlier_heal_of_the_same_snapshot_runs_is_not_healed(self):
+    engine = self._with_relay_api(self._engine())
+    engine._R1FSEngine__relay_heal_pending.update({"QmB", "QmC"})
+    engine.relay_gate.clear()
+    engine._R1FSEngine__relay_in_background(show_logs=False)  # empty queue: one heal snapshot of both CIDs
+    self.assertTrue(engine.relay_entered.acquire(timeout=10))  # the first heal of the snapshot hangs
+    healing = engine.relay_calls[0][0]
+    waiting = ({"QmB", "QmC"} - {healing}).pop()  # still in the snapshot, its heal not started
+    with mock.patch.object(r1fs.requests, "post", return_value=mock.Mock(status_code=200, text="")):
+      self.assertTrue(engine.unpin_file(waiting, show_logs=False))
+    self._release_relay(engine)
+    self.assertEqual(engine.relay_calls, [(healing, "r1fs-relay")])
+
   def test_relay_unpin_is_bounded(self):
     engine = self._engine()
     engine._R1FSEngine__ipfs_relay_api = "https://relay.invalid"
@@ -332,6 +393,102 @@ class R1FSReadPathTests(unittest.TestCase):
     with mock.patch.object(r1fs.requests, "post", side_effect=hung_relay) as post:
       self.assertFalse(engine.unpin_file("QmGone", show_logs=False))
     self.assertEqual(post.call_args.kwargs.get("timeout"), IPFSCt.RELAY_PIN_TIMEOUT_SECONDS)
+
+  def _confirmed(self, engine, cid, at):
+    """Record, as __publish_cid_to_relay does, that the relay answered a pin/add of ``cid`` with 200 at ``at``."""
+    engine._R1FSEngine__relay_publication_status[cid] = {
+      "relay_status": "published", "relay_published": True, "relay_last_success_at": _iso(at)}
+
+  def _boxed_lines(self, engine):
+    """Keep the boxed log lines of ``engine`` as (message, color)."""
+    lines = []
+
+    def log(message, *args, color=None, boxed=False, **kwargs):
+      if boxed:
+        lines.append((message, color))
+
+    engine.P = log
+    return lines
+
+  def test_failed_read_of_a_cid_the_relay_accepted_before_it_prints_one_boxed_red_line(self):
+    """Even with show_logs=False, as dAuth reads: the relay held the CID before the read, the read got nothing."""
+    engine = self._engine(reachable=False, get_seconds=10)
+    self._confirmed(engine, "QmGone", at=engine.now - 60)
+    # A direct connection to the relay, and a connection to another peer through the relay's circuit.
+    engine.answers = {"swarm": RELAY + "\n" + RELAY + "/p2p-circuit/p2p/OtherPeer", "bitswap": LEDGER}
+    lines = self._boxed_lines(engine)
+    with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
+    self.assertEqual(lines, [(
+      f"RELAY DATA PATH: relay {RELAY} accepted QmGone at 1970-01-01T00:15:40Z, but this node got nothing in 10 s. "
+      "Direct link: True. Ledger for RelayId Debt ratio: 0.000000 Exchanges: 0 Bytes sent: 0 Bytes received: 0. "
+      "1 such read(s) since start.", "r")])
+    self.assertEqual(engine.commands, [("get", 10), ("swarm", 5), ("bitswap", 5)])
+
+  def test_repeat_within_600s_prints_nothing_and_the_next_line_has_the_count(self):
+    engine = self._engine(reachable=False)
+    self._confirmed(engine, "QmGone", at=engine.now - 60)
+    engine.answers = {"swarm": RELAY, "bitswap": LEDGER}
+    lines = self._boxed_lines(engine)
+    with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      for now in (1000.0, 1599.0, 1600.0):
+        engine.now = now
+        self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
+    self.assertEqual(len(lines), 2)
+    self.assertTrue(lines[1][0].endswith(" 3 such read(s) since start."))
+    # The read at +599 s ran only its get.
+    self.assertEqual([command for command, _ in engine.commands], ["get", "swarm", "bitswap", "get", "get", "swarm", "bitswap"])
+
+  def test_unconfirmed_late_or_healing_cids_and_good_reads_run_no_extra_command(self):
+    """Only a 200 recorded before the read began counts, and a good read is left alone."""
+    statuses = {
+      "never seen": None,
+      "queued": {"relay_status": "queued", "relay_published": False},
+      "healing after an earlier 200": {"relay_status": "publishing", "relay_published": False,
+                                       "relay_last_success_at": _iso(940)},
+      # The read starts at 1000.0, whose text has no fraction: as text, this later time sorts before it.
+      "accepted during the read": {"relay_status": "published", "relay_published": True,
+                                   "relay_last_success_at": _iso(1000.5)},
+    }
+    for name, status in statuses.items():
+      with self.subTest(status=name):
+        engine = self._engine(reachable=False, get_seconds=10)
+        if status is not None:
+          engine._R1FSEngine__relay_publication_status["QmGone"] = status
+        engine.answers = {"swarm": RELAY, "bitswap": LEDGER}
+        lines = self._boxed_lines(engine)
+        with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+          self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
+        self.assertEqual((engine.commands, lines), ([("get", 10)], []))
+    engine = self._engine()
+    self._confirmed(engine, "QmLive", at=engine.now - 60)
+    engine.answers = {"swarm": RELAY, "bitswap": LEDGER}
+    lines = self._boxed_lines(engine)
+    with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
+    self.assertEqual((engine.commands, lines), ([("get", 10), ("pin", 10)], []))
+
+  def test_empty_ledger_answer_is_reported_as_unreadable_and_the_read_still_returns_none(self):
+    engine = self._engine(reachable=False)
+    self._confirmed(engine, "QmGone", at=engine.now - 60)
+    # The only connection to the relay goes through another relay's circuit, so it is not a direct link.
+    engine.answers = {"swarm": "/dns4/other.invalid/tcp/4001/p2p/OtherRelay/p2p-circuit/p2p/RelayId", "bitswap": ""}
+    lines = self._boxed_lines(engine)
+    with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
+    self.assertEqual(len(lines), 1)
+    self.assertIn(" Direct link: False. Ledger unreadable. 1 such read(s) since start.", lines[0][0])
+
+  def test_relay_multiaddr_without_tcp_port_is_reported_without_the_two_commands(self):
+    """R1FS can start with such a relay through ipfs swarm connect; there is no peer id to look up then."""
+    engine = self._engine(reachable=False)
+    engine._R1FSEngine__ipfs_relay = "/dns4/relay.invalid/udp/4001/quic-v1/p2p/RelayId"
+    self._confirmed(engine, "QmGone", at=engine.now - 60)
+    lines = self._boxed_lines(engine)
+    with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
+    self.assertEqual(engine.commands, [("get", 10)])
+    self.assertIn("so the link and ledger were not checked. 1 such read(s)", lines[0][0])
 
   def _files(self, root):
     """Every file under ``root``, as {path: content}."""
@@ -428,6 +585,27 @@ class R1FSReadPathTests(unittest.TestCase):
         self.assertEqual(found, [False, False])  # the second read removed the first one's leftover, link included
         self.assertEqual(self._files(data), before)  # nothing read into a result, written or deleted there
 
+  def test_cid_rule_has_a_length_bound_and_a_refused_value_is_shown_cut_to_100_characters(self):
+    """A CID is a folder name under the downloads folder (NAME_MAX 255), and a huge refused value made a huge line."""
+    engine = self._with_relay_api(self._engine())
+    logs = self._logs(engine)
+    rule = ": a CID must be a non-empty string of at most 255 ASCII letters and digits"
+    with mock.patch.object(r1fs.requests, "post") as post:
+      self.assertIsNone(engine.get_file("A" * 256, show_logs=False))
+      self.assertFalse(engine.unpin_file("A" * 256, show_logs=False))
+      self.assertFalse(engine.is_pinned("A" * 256))
+      self.assertIsNone(engine.get_file("/" * 1_000_000, show_logs=False))
+      self.assertIsNone(engine.add_json(DOC, fn="/" * 1_000_000, show_logs=False))
+    post.assert_not_called()
+    self.assertEqual(engine.commands, [])  # no `ipfs` command saw these values
+    # repr() cut to 100 characters: the opening quote and the first 99 characters of the value.
+    self.assertEqual(logs, [(f"Invalid CID '{'A' * 99}{rule}", "r")] * 3 + [
+      (f"Invalid CID '{'/' * 99}{rule}", "r"),
+      (f"Invalid file name '{'/' * 99}: a file name must have no path part and must not be '', '.' or '..'", "r")])
+    # The longest value that fits a folder name still reaches `ipfs get`.
+    self.assertEqual(engine.get_json("A" * 255, show_logs=False), DOC)
+    self.assertEqual(engine.commands[0][0], "get")
+
   def _name_sandbox(self, engine):
     """
     Give the engine an uploads folder, a temporary folder and a working folder inside a private root.
@@ -517,6 +695,276 @@ class R1FSReadPathTests(unittest.TestCase):
     self.assertEqual(os.path.dirname(seen[4][0]), os.path.join(root, "uploads"))  # a full path there, as before
     self.assertEqual(self._files(root), {work_file: b"keep"})  # every temporary file removed, device.py untouched
     self.assertEqual(os.listdir(os.path.join(root, "uploads")), [])  # and every folder of its own
+
+  def _relay_url(self, post):
+    """The URL the relay receives for the last call of the mocked requests.post."""
+    call = post.call_args
+    return r1fs.requests.Request("POST", call.args[0], params=call.kwargs.get("params")).prepare().url
+
+  def test_relay_requests_carry_the_cid_as_a_parameter_and_the_relay_gets_the_same_url(self):
+    engine = self._with_relay_api(self._engine())
+    publish = R1FSEngine._R1FSEngine__publish_cid_to_relay  # the real one: _engine fakes it on the instance
+    with mock.patch.object(r1fs.requests, "post", return_value=mock.Mock(status_code=200, text="")) as post:
+      self.assertTrue(publish(engine, "QmLive", retries=1, show_logs=False))
+      self.assertEqual(post.call_args.kwargs["params"], {"arg": "QmLive"})
+      self.assertEqual(self._relay_url(post), "https://relay.invalid/api/v0/pin/add?arg=QmLive")
+      self.assertTrue(engine.unpin_file("QmLive", show_logs=False))
+      self.assertEqual(post.call_args.kwargs["params"], {"arg": "QmLive"})
+      self.assertEqual(self._relay_url(post), "https://relay.invalid/api/v0/pin/rm?arg=QmLive")
+      # A value with '&' that reaches the relay call stays one `arg` value instead of adding a second one.
+      publish(engine, "QmA&arg=QmB", retries=1, show_logs=False)
+      self.assertEqual(parse_qs(urlsplit(self._relay_url(post)).query), {"arg": ["QmA&arg=QmB"]})
+
+  def _logs(self, engine):
+    """Keep every line ``engine`` logs through P as (message, color)."""
+    logs = []
+    engine.P = lambda message, *args, color=None, **kwargs: logs.append((message, color))
+    return logs
+
+  def _relay_api(self, engine, add=(200, ""), rm=(200, "")):
+    """
+    Let the engine send its real relay requests to a fake relay API.
+
+    Parameters
+    ----------
+    engine : R1FSEngine
+      The engine from ``_engine``; its fake __publish_cid_to_relay is removed, so the real one runs.
+    add, rm : tuple
+      ``(status code, text)`` the relay answers to pin/add and to pin/rm.
+
+    Returns
+    -------
+    types.SimpleNamespace
+      ``post`` (to patch requests.post with), ``calls`` (("add" | "rm", cid) in order), ``gate`` (cleared: a
+      pin/add waits at the relay), ``entered`` (released when a pin/add reaches the relay), and ``add`` and
+      ``rm``, the answers, which a test can change between two requests.
+
+    Examples
+    --------
+    >>> relay = self._relay_api(engine, add=(503, "busy"))
+    """
+    del engine._R1FSEngine__publish_cid_to_relay
+    relay = types.SimpleNamespace(calls=[], gate=threading.Event(), entered=threading.Semaphore(0), add=add, rm=rm)
+    relay.gate.set()
+
+    def post(url, params=None, **kwargs):
+      kind = url.rsplit("/", 1)[-1]
+      relay.calls.append((kind, params["arg"]))
+      if kind == "add":
+        relay.entered.release()
+        relay.gate.wait(10)
+      status, text = relay.add if kind == "add" else relay.rm
+      return mock.Mock(status_code=status, text=text)
+
+    relay.post = post
+    return relay
+
+  def test_heal_set_is_bounded_and_a_refused_heal_is_said_in_red_at_most_once_per_600s(self):
+    """Each waiting heal costs relay requests before every queued publication, so failing reads cannot grow it."""
+    engine = self._engine(reachable=False)
+    logs = self._logs(engine)
+    waiting = {f"QmWait{i}" for i in range(IPFSCt.RELAY_HEAL_PENDING_LIMIT)}
+    engine._R1FSEngine__relay_heal_pending.update(waiting)
+    self.assertTrue(engine._R1FSEngine__relay_busy.acquire(blocking=False))  # a pass runs: reads only leave a heal
+    with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      for now, cid in [(1000.0, "QmNew1"), (1599.0, "QmNew2"), (1600.0, "QmNew3"), (1600.0, "QmWait0")]:
+        engine.now = now
+        self.assertIsNone(engine.get_json(cid, timeout=10, show_logs=False))
+    engine._R1FSEngine__relay_busy.release()
+    # Full: the new heals were refused and the waiting ones kept; a CID that already waits is not refused.
+    self.assertEqual(engine._R1FSEngine__relay_heal_pending, waiting)
+    full = f"Relay heal set full ({IPFSCt.RELAY_HEAL_PENDING_LIMIT} CIDs wait): "
+    rest = " is not remembered for a relay heal; its next failed read asks again"
+    self.assertEqual([line for line in logs if line[0].startswith(full)], [
+      (f"{full}QmNew1{rest} (1 since start, at most one such line per 600 s).", "r"),
+      (f"{full}QmNew3{rest} (3 since start, at most one such line per 600 s).", "r")])
+
+  def test_unpin_of_a_cid_not_pinned_here_goes_on_to_the_relay_whatever_raise_on_error(self):
+    """Deleting a CID this node never pinned is a normal call: Kubo's "not pinned" is not an error."""
+    engine = self._with_relay_api(self._engine(reachable=False))  # never fetched here, so never pinned here
+    engine._R1FSEngine__relay_retry_queue["QmB"] = {"cid": "QmB", "queued_at": "t0"}
+    logs = self._logs(engine)
+    with mock.patch.object(r1fs.requests, "post", return_value=mock.Mock(status_code=200, text="")) as post:
+      self.assertTrue(engine.unpin_file("QmB", show_logs=False))
+      self.assertTrue(engine.unpin_file("QmB", show_logs=False, raise_on_error=True))
+      self.assertTrue(engine.delete_file("QmB", show_logs=False, raise_on_error=True))
+    self.assertEqual(post.call_count, 3)  # each one went on to the relay pin/rm
+    self.assertEqual(logs, [])
+    self.assertNotIn("QmB", engine._R1FSEngine__relay_retry_queue)
+
+  def test_failed_local_unpin_is_said_in_red_and_the_relay_is_not_told(self):
+    """A daemon that does not answer: with raise_on_error=False the empty answer passed as an unpin."""
+    engine = self._with_relay_api(self._engine(pin_fails=True))
+    engine._R1FSEngine__relay_retry_queue["QmB"] = {"cid": "QmB", "queued_at": "t0"}
+    engine._R1FSEngine__relay_heal_pending.add("QmB")
+    folder = os.path.join(engine._R1FSEngine__downloads_dir, "QmB")
+    os.makedirs(folder)
+    logs = self._logs(engine)
+    with mock.patch.object(r1fs.requests, "post", return_value=mock.Mock(status_code=200, text="")) as post:
+      self.assertFalse(engine.unpin_file("QmB", show_logs=False))
+      self.assertFalse(engine.delete_file("QmB", cleanup_local_files=True, show_logs=False))
+      with self.assertRaises(RuntimeError):
+        engine.unpin_file("QmB", show_logs=False, raise_on_error=True)
+    post.assert_not_called()
+    failed = (f"Error unpinning CID QmB locally: Timeout expired after {IPFSCt.TIMEOUT}s for 'ipfs pin rm QmB'", "r")
+    self.assertEqual(logs, [failed, failed])  # in red although show_logs is False
+    # It may still be pinned here: still queued for the relay, its heal still waiting, its files kept.
+    self.assertIn("QmB", engine._R1FSEngine__relay_retry_queue)
+    self.assertIn("QmB", engine._R1FSEngine__relay_heal_pending)
+    self.assertTrue(os.path.isdir(folder))
+
+  def test_heal_running_when_its_cid_is_unpinned_records_nothing_and_its_pin_is_undone(self):
+    """The heal's pin/add can reach the relay after the unpin's pin/rm; it is undone unless the CID is wanted again."""
+    expected = {
+      "undone": [("add", "QmB"), ("rm", "QmB"), ("rm", "QmB")],
+      "relay already dropped it": [("add", "QmB"), ("rm", "QmB"), ("rm", "QmB")],  # Kubo's "not pinned": done
+      "undo refused": [("add", "QmB"), ("rm", "QmB"), ("rm", "QmB")],  # said in red although show_logs is False
+      "pinned here again": [("add", "QmB"), ("rm", "QmB")],  # uploaded again under the same CID meanwhile
+      "relay keeps its copy": [("add", "QmB")],  # unpin_remote=False: nothing is marked
+    }
+    # What the relay answers the undo's pin/rm; the unpin's own pin/rm gets 200.
+    undo_answers = {"relay already dropped it": (500, '{"Message":"' + NOT_PINNED + '"}'), "undo refused": (503, "busy")}
+    for case, calls in expected.items():
+      with self.subTest(case=case):
+        engine = self._with_relay_api(self._engine(reachable=False))
+        relay = self._relay_api(engine)
+        logs = self._logs(engine)
+        engine._R1FSEngine__relay_heal_pending.add("QmB")
+        relay.gate.clear()
+        with mock.patch.object(r1fs.requests, "post", side_effect=relay.post):
+          engine._R1FSEngine__relay_in_background(show_logs=False)
+          self.assertTrue(relay.entered.acquire(timeout=10))  # the heal's pin/add of QmB is at the relay
+          self.assertTrue(engine.unpin_file("QmB", unpin_remote=case != "relay keeps its copy", show_logs=False))
+          relay.rm = undo_answers.get(case, relay.rm)
+          if case == "pinned here again":
+            engine.answers = {"pin": "{peer} recursive"}
+          relay.gate.set()
+          self._release_relay(engine)
+        self.assertEqual(relay.calls, calls)
+        published = case == "relay keeps its copy"
+        self.assertEqual(engine.get_upload_status("QmB").get("relay_status"), "published" if published else None)
+        self.assertIsNone(engine._R1FSEngine__relay_in_flight)  # it lived only while the request ran
+        undo_failed = "Relay pin/rm to undo the pin of QmB, unpinned while the relay pinned it, failed: HTTP 503: busy"
+        self.assertEqual([line for line in logs if line[0].startswith("Relay pin/rm to undo")],
+                         [(undo_failed, "r")] if case == "undo refused" else [])
+
+  def test_cid_uploaded_again_while_its_pin_is_undone_is_published_once_more(self):
+    """The re-upload's `ipfs add` lands after the undo's check, and its relay pin/add before the undo's pin/rm."""
+    engine = self._with_relay_api(self._engine(reachable=False))
+    relay = self._relay_api(engine)
+    pinned_on_relay = {}
+    answer = relay.post
+
+    def post(url, params=None, **kwargs):
+      # The relay's own pinset: a pin/add pins the CID there, a pin/rm unpins it.
+      response = answer(url, params=params, **kwargs)
+      pinned_on_relay[params["arg"]] = url.endswith("/add")
+      return response
+
+    run_command = engine._R1FSEngine__run_command
+
+    def run_command_with_reupload(cmd_list, **kwargs):
+      output = run_command(cmd_list, **kwargs)
+      if cmd_list[1:3] == ["pin", "ls"] and not engine.answers:
+        # The undo's check found QmB not pinned here. The same content is uploaded again right after it, and
+        # add_file's relay pin/add (on the caller's thread, never marked) is accepted before the undo's pin/rm.
+        engine.answers = {"pin": "{peer} recursive"}
+        engine._R1FSEngine__publish_cid_to_relay(cid="QmB", source_path="f", context="upload", show_logs=False)
+      return output
+
+    engine._R1FSEngine__run_command = run_command_with_reupload
+    engine._R1FSEngine__relay_heal_pending.add("QmB")
+    relay.gate.clear()
+    with mock.patch.object(r1fs.requests, "post", side_effect=post):
+      engine._R1FSEngine__relay_in_background(show_logs=False)
+      self.assertTrue(relay.entered.acquire(timeout=10))  # the heal's pin/add of QmB is at the relay
+      self.assertTrue(engine.unpin_file("QmB", show_logs=False))
+      relay.gate.set()
+      self._release_relay(engine)
+    # The heal, the unpin, the re-upload, the undo, and the publication once more that puts the pin back.
+    self.assertEqual(relay.calls, [("add", "QmB"), ("rm", "QmB"), ("add", "QmB"), ("rm", "QmB"), ("add", "QmB")])
+    self.assertTrue(pinned_on_relay["QmB"])
+    self.assertEqual(engine.get_upload_status("QmB").get("relay_status"), "published")
+
+  def test_publication_running_when_its_cid_is_unpinned_is_not_queued_again(self):
+    """The relay never got QmA, so the unpin's pin/rm fails and only the pass itself can keep QmA out of the queue."""
+    for when in ("during its request", "between its check and its enqueue"):
+      with self.subTest(when=when):
+        engine = self._with_relay_api(self._engine())
+        relay = self._relay_api(engine, add=(503, "busy"), rm=(500, '{"Message":"' + NOT_PINNED + '"}'))
+        engine._R1FSEngine__relay_retry_queue["QmA"] = {"cid": "QmA", "queued_at": "t0"}
+        unpinned = []
+        if when == "during its request":
+          relay.gate.clear()
+        else:
+          enqueue = engine._R1FSEngine__enqueue_relay_retry
+
+          def unpin_then_enqueue(**kwargs):
+            # The unpin lands after the pass found QmA unmarked and before it queues QmA again.
+            unpinned.append(engine.unpin_file("QmA", show_logs=False))
+            enqueue(**kwargs)
+
+          engine._R1FSEngine__enqueue_relay_retry = unpin_then_enqueue
+        with mock.patch.object(r1fs.requests, "post", side_effect=relay.post), mock.patch.object(r1fs.time, "sleep"):
+          engine._R1FSEngine__relay_in_background(show_logs=False)
+          if when == "during its request":
+            self.assertTrue(relay.entered.acquire(timeout=10))  # attempt 1 of QmA's publication is at the relay
+            unpinned.append(engine.unpin_file("QmA", show_logs=False))
+            relay.gate.set()
+          self._release_relay(engine)
+        self.assertEqual(unpinned, [False])  # the relay answered "not pinned"
+        self.assertNotIn("QmA", engine._R1FSEngine__relay_retry_queue)
+        # No attempt after the unpin, and no undo since no pin got through.
+        attempts = 1 if when == "during its request" else IPFSCt.RELAY_PIN_RETRY_COUNT
+        self.assertEqual(relay.calls, [("add", "QmA")] * attempts + [("rm", "QmA")])
+
+  def test_cid_queued_again_before_the_unpin_looks_at_the_request_is_dropped_by_its_second_pop(self):
+    """The pass queues its failed QmA again between the unpin's first queue pop and its look at the request.
+
+    The relay never had QmA, so the unpin's pin/rm fails and its final, success-only pop does not run."""
+    for flight in (None, ["QmA", False]):  # the pass has ended by then, or still shows its request
+      with self.subTest(flight=flight):
+        engine = self._with_relay_api(self._engine())
+        queue = engine._R1FSEngine__relay_retry_queue
+
+        class QueuedAgainOnDiscard(set):
+          """The heal set: unpin_file's discard is its step between the first queue pop and the look."""
+
+          def discard(pending, cid):
+            queue[cid] = {"cid": cid, "queued_at": "t0"}
+            return set.discard(pending, cid)
+
+        engine._R1FSEngine__relay_heal_pending = QueuedAgainOnDiscard()
+        engine._R1FSEngine__relay_in_flight = flight
+        not_pinned = mock.Mock(status_code=500, text='{"Message":"' + NOT_PINNED + '"}')
+        with mock.patch.object(r1fs.requests, "post", return_value=not_pinned):
+          self.assertFalse(engine.unpin_file("QmA", show_logs=False))
+        self.assertNotIn("QmA", queue)
+        self.assertEqual(flight, None if flight is None else ["QmA", True])  # a request still shown is marked
+
+  def test_final_heal_failure_is_said_in_red_whatever_show_logs_at_most_once_per_600s(self):
+    """Reads pass show_logs=False, so a relay that refuses heals was silent; an outage must not print per read."""
+    engine = self._with_relay_api(self._engine(reachable=False))
+    relay = self._relay_api(engine, add=(401, "unauthorized"))
+    logs = self._logs(engine)
+    with mock.patch.object(r1fs.requests, "post", side_effect=relay.post), mock.patch.object(r1fs.time, "sleep"), \
+         mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      for now, cid in [(1000.0, "QmB1"), (1599.0, "QmB2"), (1600.0, "QmB3")]:
+        engine.now = now
+        self.assertIsNone(engine.get_json(cid, timeout=10, show_logs=False))
+        self._release_relay(engine)
+    self.assertEqual([line for line in logs if line[0].startswith("Relay")], [
+      ("Relay heal of QmB1 failed: HTTP 401: unauthorized (1 since start, at most one such line per 600 s).", "r"),
+      ("Relay heal of QmB3 failed: HTTP 401: unauthorized (3 since start, at most one such line per 600 s).", "r")])
+    # A heal the relay accepts logs nothing with show_logs=False, as before.
+    engine = self._with_relay_api(self._engine(reachable=False))
+    relay = self._relay_api(engine)
+    logs = self._logs(engine)
+    with mock.patch.object(r1fs.requests, "post", side_effect=relay.post):
+      self.assertIsNone(engine.get_json("QmB", timeout=10, show_logs=False))
+      self._release_relay(engine)
+    self.assertEqual(relay.calls, [("add", "QmB")])
+    self.assertEqual([line for line in logs if line[0].startswith("Relay")], [])
 
 
 if __name__ == "__main__":

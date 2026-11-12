@@ -2000,7 +2000,19 @@ class BaseBlockEngine(
     failure does not restore metadata in the unversioned path. Lifecycle
     preparation leaves the active pointer unchanged; commit/delete publish only
     at the coordinator's finalization step. Request and response bodies are
-    never logged by this method.
+    never logged by this method. A signed refusal is logged in red with only the
+    refusing server's ``server_alias`` and the action ("job update" for a request
+    without an operation) before the RuntimeError is raised.
+
+    Examples
+    --------
+    >>> # a coordinator revoking the secrets of a deployment operation
+    >>> result = engine.reconcile_dauth_job_secrets({
+    ...   "job_id": "7", "action": "revoke",
+    ...   "operation": {"operation_id": "op", "plan_cid": "plan"},
+    ... })
+    >>> result["action"]
+    'revoke'
     """
     if not isinstance(payload, dict):
       raise ValueError("Invalid dAuth reconciliation payload.")
@@ -2050,6 +2062,10 @@ class BaseBlockEngine(
     if result.get(DAUTH_NONCE) != signed_body[DAUTH_NONCE]:
       raise ValueError("dAuth reconciliation response nonce mismatch.")
     if result.get("status") != "success" or result.get("error") not in (None, ""):
+      # Name the server that refused: the signed answer always carries its alias, and the caller's retry log
+      # does not say which dAuth server answered. Only lifecycle requests have an action.
+      self.P("dAuth server {} refused secret reconciliation ({}).".format(
+        result["server_alias"], payload["action"] if operation is not None else "job update"), color='r')
       raise RuntimeError("dAuth rejected secret reconciliation.")
     if operation is not None:
       if (

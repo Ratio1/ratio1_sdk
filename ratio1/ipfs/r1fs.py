@@ -109,7 +109,15 @@ class IPFSCt:
   RELAY_PIN_RETRY_COUNT = 3
   RELAY_PIN_RETRY_BACKOFF_SECONDS = 2
   RELAY_RETRY_QUEUE_LIMIT = 256
-  
+  # Most CIDs that wait for a relay heal at once. The background pass heals all of them before every queued
+  # publication, and a heal of a CID the relay cannot fetch costs two pin/add requests (2 x 15 s + 2 s), so 32
+  # bounds that wait to about 17 min under a flood of failing reads (256 would allow over 2 h). A heal refused
+  # because the set is full is asked again by the next failed read of its CID.
+  RELAY_HEAL_PENDING_LIMIT = 32
+  # Kubo's error for `pin rm` of a CID with no direct or recursive pin (boxo's pinner ErrNotPinned): the CLI prints
+  # it on stderr as "Error: not pinned or pinned indirectly", the relay's HTTP API returns it as its error message.
+  NOT_PINNED_ERROR = "not pinned or pinned indirectly"
+
   TIMEOUT = 90 # seconds
   # The reprovide operation is very heavy and should be done infrequently.
   # The kubo documentation advises on 22h. This was previously on 1m and will be
@@ -246,7 +254,12 @@ class R1FSEngine:
       ``__relay_heal_pending``, the CIDs whose reads failed and that still wait for a
       relay heal, and ``__relay_busy``, the lock that lets only one background relay
       pass run at a time (``get_file`` hands its relay work to that pass instead of
-      doing it itself).
+      doing it itself). It also starts the two counters of
+      ``__report_relay_data_path``: the failed reads of CIDs the relay had accepted,
+      and the time its last line was printed; the per-kind counters of
+      ``__report_rate_limited``; and ``__relay_in_flight``, the relay request the
+      background pass is sending at the moment, which ``unpin_file`` marks when it
+      unpins that CID meanwhile.
 
       Parameters
       ----------
@@ -326,6 +339,18 @@ class R1FSEngine:
       # its next queued publication or before it ends, and one added after its last look waits for the next pass.
       self.__relay_heal_pending = set()
       self.__relay_publication_status = {}
+      # Failed reads of CIDs the relay had accepted before the read, since start; the printed line carries it.
+      self.__relay_data_failures = 0
+      # time.time() of the last such line printed; 0 lets the first one print at once.
+      self.__relay_data_logged_at = 0
+      # Per kind of event, [events since start, time.time() of the last line]: see __report_rate_limited.
+      self.__rate_limited_reports = {}
+      # The relay pin/add the background pass is sending now, as [cid, unpinned], from just before it reads the
+      # CID's queue entry or takes it from the heal set until the request is over; None otherwise. unpin_file sets
+      # unpinned when it unpins that CID meanwhile; the request then records nothing, is not queued again and
+      # undoes a pin that got through. It lives for one request only: no list of unpinned CIDs is kept, since the
+      # same content uploaded again later has the same CID and must be healed and published as usual.
+      self.__relay_in_flight = None
       self.__relay_config_warning_flags = set()
       
       self.startup()
@@ -780,9 +805,14 @@ class R1FSEngine:
       queue_on_failure: bool = True,
       show_logs: bool = True,
       raise_on_error: bool = False,
+      flight: list = None,
     ) -> bool:
       """
       Ask the relay API to pin a CID with bounded retries.
+
+      ``add_file`` calls it on the caller's thread; the background relay pass calls
+      it for a queued publication and, through ``__attempt_download_self_heal``, for a
+      heal, and then passes ``flight``, the request it shows in ``__relay_in_flight``.
 
       Parameters
       ----------
@@ -804,11 +834,53 @@ class R1FSEngine:
           Whether to emit status logs.
       raise_on_error : bool, optional
           Whether to raise after the final failed attempt.
+      flight : list, optional
+          ``[cid, unpinned]``, the background pass's token for this request, which
+          ``unpin_file`` sets to ``[cid, True]`` when it unpins ``cid`` meanwhile.
+          ``None`` (default, ``add_file``) means the request is never marked.
 
       Returns
       -------
       bool
-          ``True`` when the relay accepted the pin request.
+          ``True`` when the relay accepted the pin request and it was recorded;
+          ``False`` when it failed, and also when ``flight`` was marked meanwhile.
+
+      Raises
+      ------
+      RuntimeError
+          After the final failed attempt, when ``raise_on_error`` is True and
+          ``flight`` was not marked.
+
+      Notes
+      -----
+      The request is ``POST <relay api>/api/v0/pin/add`` with ``cid`` passed as the
+      ``arg`` query parameter (requests' ``params``), which requests percent-encodes.
+      For a bare CID the URL is the one an f-string gave before
+      (``.../api/v0/pin/add?arg=<cid>``), so the relay sees the same request; a value
+      with ``&`` or ``#`` stays one ``arg`` value instead of adding parameters.
+
+      When ``flight`` is marked, ``unpin_file`` has unpinned the CID on the relay
+      while this request ran, and a pin/add that reaches the relay after that
+      pin/rm would leave the CID pinned there. So no further attempt is sent, the
+      answer is not recorded (no ``published`` or ``failed`` status, no queue entry
+      added or removed), the CID is not queued again, and a pin/add the relay
+      accepted is undone with one relay pin/rm (``__undo_relay_pin``). The mark is
+      read again right after a failed CID is queued: ``unpin_file`` marks before
+      its own queue pop, so a mark that comes after the first check is seen there
+      or is followed by that pop. When that pin/rm was sent and the CID is pinned
+      on this node again by then (the same content uploaded again, whose own relay
+      pin/add can have reached the relay before the pin/rm), the CID is published
+      once more with this method's defaults; that publication is not tracked, like
+      ``add_file``'s. Not undone: a marked pin/add whose attempt got no answer
+      (timeout, connection error), since a relay that completes that pin after the
+      unpin's pin/rm keeps the CID; and a relay pin/add that ``add_file`` sends on
+      another thread at the same time, which is never marked.
+
+      Examples
+      --------
+      >>> # in add_file, after the local ipfs add
+      >>> self.__publish_cid_to_relay(cid=folder_cid, source_path=file_path, context="upload")
+      True
       """
       if not self.__has_relay_api_config(context=context, show_logs=show_logs):
         self.__set_upload_status(
@@ -822,9 +894,14 @@ class R1FSEngine:
 
       retries = retries or IPFSCt.RELAY_PIN_RETRY_COUNT
       timeout = timeout or IPFSCt.RELAY_PIN_TIMEOUT_SECONDS
-      request_url = f"{self.__ipfs_relay_api}/api/v0/pin/add?arg={cid}"
+      # No CID in the URL text: it goes in params below, which requests percent-encodes, so a value with '&' or
+      # '#' cannot add parameters. For a bare CID the relay gets the same URL as before, character for character.
+      request_url = f"{self.__ipfs_relay_api}/api/v0/pin/add"
       last_error = None
       for attempt in range(1, retries + 1):
+        if flight and flight[1]:
+          # Unpinned after an earlier attempt: send no further pin/add (the end of the method records nothing).
+          break
         self.__set_upload_status(
           cid,
           source_path=source_path,
@@ -835,11 +912,23 @@ class R1FSEngine:
         try:
           response = requests.post(
             request_url,
+            # The CID as the `arg` query parameter of the relay's pin/add (see request_url above).
+            params={"arg": cid},
             auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
             verify=self.__relay_verify_value(),
             timeout=timeout,
           )
           if response.status_code == 200:
+            if flight and flight[1]:
+              # unpin_file unpinned the CID while this pin/add ran, so the pin may have reached the relay after its
+              # pin/rm: one relay pin/rm undoes it, and nothing is recorded.
+              if self.__undo_relay_pin(cid, show_logs=show_logs) and self.is_pinned(cid):
+                # Pinned here again while the undo ran (the same content uploaded or read again): its own relay
+                # pin/add can have reached the relay before the undo's pin/rm, so ask the relay to pin it once more.
+                self.__publish_cid_to_relay(cid=cid, source_path=source_path, context=context, show_logs=show_logs)
+              # This marked request is not published: the relay was asked to drop its pin (a publication made
+              # just above records its own result).
+              return False
             # Success can come from a first-attempt publish or from a later retry
             # of an already-queued CID, so remove any stale queue entry if present.
             self.__relay_retry_queue.pop(cid, None)
@@ -871,8 +960,15 @@ class R1FSEngine:
         if attempt < retries:
           time.sleep(IPFSCt.RELAY_PIN_RETRY_BACKOFF_SECONDS * attempt)
 
+      if flight and flight[1]:
+        # Unpinned while the request ran: the failure is not recorded and the CID is not queued again.
+        return False
       if queue_on_failure:
         self.__enqueue_relay_retry(cid=cid, source_path=source_path, reason=last_error)
+        if flight and flight[1]:
+          # Marked between the check above and the enqueue: take the CID out again. A later mark comes before
+          # unpin_file's own queue pop, which then removes it.
+          self.__relay_retry_queue.pop(cid, None)
       else:
         self.__set_upload_status(
           cid,
@@ -884,6 +980,73 @@ class R1FSEngine:
       if raise_on_error:
         raise RuntimeError(f"Failed relay publication for {cid} during {context}: {last_error}")
       return False
+
+    def __undo_relay_pin(self, cid: str, show_logs: bool = True):
+      """
+      Send one relay pin/rm for a CID unpinned while the background pass pinned it on the relay.
+
+      ``__publish_cid_to_relay`` calls this when the relay accepted a pin/add of
+      ``cid`` that ``unpin_file`` had marked while it ran: that pin can have reached
+      the relay after the unpin's own relay pin/rm and would leave the CID pinned
+      there. The request is the one ``unpin_file`` sends (pin/rm, the CID as the
+      ``arg`` parameter, ``IPFSCt.RELAY_PIN_TIMEOUT_SECONDS`` timeout).
+
+      Parameters
+      ----------
+      cid : str
+          CID whose relay pin is undone.
+      show_logs : bool, optional
+          Whether a successful undo is logged. A failed one is logged in red
+          whatever ``show_logs`` is. Default ``True``.
+
+      Returns
+      -------
+      bool
+          True when the pin/rm was sent, whatever the relay answered; False when
+          nothing was sent because ``cid`` is pinned on this node again.
+
+      Notes
+      -----
+      Nothing is sent when ``cid`` is pinned on this node again by then (uploaded or
+      read again since the unpin): this node then wants it, and the relay keeps the
+      pin. Kubo's "not pinned" answer counts as done, since the relay holds no pin
+      of the CID either way. The CID can be pinned here again after that check, and
+      the relay pin/add of that upload can reach the relay before this pin/rm; the
+      caller therefore checks again when True is returned and publishes the CID once
+      more if it is pinned here by then.
+
+      Examples
+      --------
+      >>> # in __publish_cid_to_relay, when a marked pin/add got HTTP 200
+      >>> self.__undo_relay_pin(cid, show_logs=show_logs)
+      True
+      """
+      if self.is_pinned(cid):
+        # Pinned here again since the unpin (uploaded or read again under the same CID): keep the relay pin.
+        return False
+      try:
+        # The relay pin/rm of unpin_file, bounded the same way.
+        response = requests.post(
+          f"{self.__ipfs_relay_api}/api/v0/pin/rm",
+          # The CID as the `arg` query parameter, as unpin_file sends it.
+          params={"arg": cid},
+          auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
+          verify=self.__relay_verify_value(),
+          timeout=IPFSCt.RELAY_PIN_TIMEOUT_SECONDS,
+        )
+        if response.status_code == 200 or IPFSCt.NOT_PINNED_ERROR in response.text:
+          if show_logs:
+            self.P(f"Relay pin of {cid}, unpinned while the relay pinned it, undone: HTTP {response.status_code}.")
+          # Sent and done: the caller checks whether the CID was pinned here again meanwhile.
+          return True
+        # Refused: the relay may still hold the pin; said below.
+        error = f"HTTP {response.status_code}: {response.text.strip()}"
+      except requests.RequestException as exc:
+        # No answer: the relay may still hold the pin; said below.
+        error = str(exc)
+      self.P(f"Relay pin/rm to undo the pin of {cid}, unpinned while the relay pinned it, failed: {error}", color='r')
+      # Sent, though it may not have reached the relay: the caller still checks whether the CID is wanted again.
+      return True
 
     def __retry_queued_relay_publications(self, context: str, show_logs: bool = True):
       """
@@ -899,10 +1062,12 @@ class R1FSEngine:
       when its turn comes: a CID that has left the queue by then (unpinned by
       ``unpin_file``, published, or evicted) is skipped. The attempt is counted on
       the queued entry itself, so nothing is written back that could return such a
-      CID to the queue. A CID that is unpinned while its own publication is running
-      is not stopped, and if that publication fails it is queued again. Before each
-      publication, the CIDs in ``__relay_heal_pending`` (reads that failed) are
-      healed first.
+      CID to the queue. Each CID is shown in ``__relay_in_flight`` from just before
+      its entry is read until its publication is over: when ``unpin_file`` unpins
+      that CID on the relay meanwhile, no further attempt is sent, a failure is not
+      queued again, nothing is recorded, and a pin the relay accepted is undone with
+      one relay pin/rm (see ``__publish_cid_to_relay``). Before each publication,
+      the CIDs in ``__relay_heal_pending`` (reads that failed) are healed first.
 
       Parameters
       ----------
@@ -932,6 +1097,10 @@ class R1FSEngine:
         # Heal the CIDs whose reads failed before the next publication, so a long backlog does not hold
         # their heals until the pass ends.
         self.__heal_remembered_cids(show_logs=show_logs)
+        # Show unpin_file this publication before its queue entry is read: an unpin drops the entry before it looks
+        # here, so either the read below finds no entry or the unpin finds this request and marks it. A skipped
+        # CID's token is replaced or cleared by the heals that come next.
+        flight = self.__relay_in_flight = [cid, False]
         # Read the live entry, not a snapshot copy: a CID that left the queue meanwhile (unpinned,
         # published or evicted) gets None here and is skipped.
         refreshed_item = self.__relay_retry_queue.get(cid)
@@ -955,7 +1124,11 @@ class R1FSEngine:
           queue_on_failure=True,
           show_logs=show_logs,
           raise_on_error=False,
+          # Marked by unpin_file meanwhile: no further attempt, no re-queue, a pin that got through undone.
+          flight=flight,
         )
+        # The request is over: nothing of this pass is in flight until its next request.
+        self.__relay_in_flight = None
       return
 
     def __heal_remembered_cids(self, show_logs: bool = True):
@@ -966,7 +1139,10 @@ class R1FSEngine:
       ``__relay_heal_pending`` when it is called and no others: a CID that a read adds
       while these heals run waits for the next call. One call therefore does a bounded
       amount of work, and reads that keep failing cannot keep the pass from its queued
-      publications or from ending.
+      publications or from ending. Each CID is taken out of the set just before its
+      heal; a CID that has left the set since the snapshot (``unpin_file`` drops it)
+      is skipped, so an unpin made while earlier heals of the snapshot run is not
+      undone by a relay pin/add.
 
       Parameters
       ----------
@@ -977,6 +1153,17 @@ class R1FSEngine:
       -------
       None
 
+      Notes
+      -----
+      Taking a CID out of the set and ``unpin_file`` dropping it are both single set
+      operations, so exactly one of them wins: either the unpin comes first and the
+      heal is skipped, or the heal has already started. Each heal is shown in
+      ``__relay_in_flight`` before its CID is taken out, and ``unpin_file`` drops the
+      CID from the set before it looks there, so an unpin that tells the relay
+      either makes the heal skip or marks it; a marked heal records nothing and
+      undoes a pin that got through (see ``__attempt_download_self_heal``). The slot
+      is cleared when the snapshot is done.
+
       Examples
       --------
       >>> # on the background "r1fs-relay" thread
@@ -984,13 +1171,23 @@ class R1FSEngine:
       """
       # A snapshot of the set: what reads add from here on is left for the next call.
       for cid in list(self.__relay_heal_pending):
-        # Forget the CID before its heal, so a read of it that fails during the heal can ask once more.
-        self.__relay_heal_pending.discard(cid)
+        # Show unpin_file this heal before the CID is taken from the set: an unpin drops the CID from the set before
+        # it looks here, so either the remove below fails or the unpin finds this request and marks it.
+        flight = self.__relay_in_flight = [cid, False]
+        try:
+          # Take the CID out before its heal, so a read of it that fails during the heal can ask once more.
+          # remove (not discard) fails when unpin_file dropped the CID after the snapshot: the CID is then
+          # skipped instead of being pinned on the relay again by the heal.
+          self.__relay_heal_pending.remove(cid)
+        except KeyError:
+          continue
         # Ask the relay to fetch it, so a later read can find it.
-        self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
+        self.__attempt_download_self_heal(cid=cid, flight=flight, show_logs=show_logs)
+      # The heals are over: nothing of this pass is in flight now (a skipped CID left its token here).
+      self.__relay_in_flight = None
       return
 
-    def __attempt_download_self_heal(self, cid: str, show_logs: bool = True) -> bool:
+    def __attempt_download_self_heal(self, cid: str, flight: list, show_logs: bool = True) -> bool:
       """
       Ask the relay to fetch a CID before retrying a failed download.
 
@@ -1008,21 +1205,40 @@ class R1FSEngine:
       ----------
       cid : str
           CID whose ``ipfs get`` failed locally.
+      flight : list
+          ``[cid, unpinned]``, the token ``__heal_remembered_cids`` shows in
+          ``__relay_in_flight`` for this heal; ``unpin_file`` marks it when it
+          unpins the CID while the heal runs.
       show_logs : bool, optional
-          Whether to emit logs.
+          Whether to emit logs. The final failure of the heal is logged in red
+          whatever it is.
 
       Returns
       -------
       bool
-          ``True`` when the relay accepted the self-heal request.
+          ``True`` when the relay accepted the self-heal request; ``False`` when it
+          failed or when ``unpin_file`` unpinned the CID while it ran.
+
+      Notes
+      -----
+      When ``unpin_file`` unpins the CID on the relay while the heal runs (``flight``
+      marked), the heal records nothing and a pin the relay accepted is undone with
+      one relay pin/rm (see ``__publish_cid_to_relay``); that is not a failed heal.
+      A heal that fails for good (the relay refused it, did not answer, or its API is
+      not configured) is logged in red with the reason whatever ``show_logs`` is:
+      most reads pass ``show_logs=False``, which left a relay that is down or
+      refusing silent. During a relay outage every failed read ends here, so the line
+      is printed at most once per 600 s with the count since start
+      (``__report_rate_limited``). A successful heal logs as before.
 
       Examples
       --------
       >>> # on the background "r1fs-relay" thread, after a read of cid failed
-      >>> self.__attempt_download_self_heal(cid=cid, show_logs=False)
+      >>> self.__attempt_download_self_heal(cid=cid, flight=[cid, False], show_logs=False)
       True
       """
-      return self.__publish_cid_to_relay(
+      # Ask the relay to fetch the CID, so a later read can find it.
+      healed = self.__publish_cid_to_relay(
         cid=cid,
         source_path=None,
         context=f"download self-heal for {cid}",
@@ -1031,7 +1247,18 @@ class R1FSEngine:
         queue_on_failure=False,
         show_logs=show_logs,
         raise_on_error=False,
+        # Marked by unpin_file meanwhile: nothing recorded, a pin that got through undone.
+        flight=flight,
       )
+      if not healed and not flight[1]:
+        # A heal that failed for good, said in red whatever show_logs is (most reads pass False), at most once per
+        # 600 s. The reason is in the status the failed request wrote; it is gone only when an unpin of this CID
+        # ended just now, and the line then says None.
+        self.__report_rate_limited(
+          "relay heal failed", f"Relay heal of {cid} failed: {self.get_upload_status(cid).get('relay_detail')}"
+        )
+      # The caller gets whether the relay accepted the heal.
+      return healed
 
     def __relay_in_background(self, heal_cid: str = None, show_logs: bool = True):
       """
@@ -1052,9 +1279,10 @@ class R1FSEngine:
       ----------
       heal_cid : str, optional
           CID whose ``ipfs get`` just failed; it is added to ``__relay_heal_pending``
-          and the relay is asked to fetch it so a later read can find it. ``None``
-          after a successful get, in which case the pass heals only CIDs already
-          remembered and retries the queued publications.
+          and the relay is asked to fetch it so a later read can find it, unless the
+          set is full (see Notes). ``None`` after a successful get, in which case the
+          pass heals only CIDs already remembered and retries the queued
+          publications.
       show_logs : bool, optional
           Whether the background pass emits logs. Default ``True``.
 
@@ -1070,7 +1298,16 @@ class R1FSEngine:
       while a pass runs is not dropped: the running pass heals the remembered CIDs
       before each queued publication and once more before it ends. A heal added
       after the pass's last look and before it frees the lock waits in the set
-      until the next call, from any read, starts a pass.
+      until the next call, from any read, starts a pass. A remembered heal is
+      dropped when ``unpin_file`` unpins its CID before the pass reaches it.
+      At most ``IPFSCt.RELAY_HEAL_PENDING_LIMIT`` CIDs wait: the pass heals all of
+      them before every queued publication, so failing reads must not grow the set
+      without end. When it is full, a new ``heal_cid`` is not remembered (the waiting
+      heals keep their turn, and the CID's next failed read asks again) and this is
+      logged in red whatever ``show_logs`` is, at most once per 600 s with the count
+      since start, since a flood of failed reads would otherwise print a line per
+      read (``__report_rate_limited``). A CID that already waits is not refused.
+      Reads on several threads at once can overshoot the limit by a few CIDs.
       When the background thread cannot be started (for example the thread limit of
       the container is reached), the failure is logged in red, the pass lock is
       freed and ``heal_cid`` stays remembered for the next pass. The read that
@@ -1081,7 +1318,16 @@ class R1FSEngine:
       >>> # in get_file, right after the ipfs get
       >>> self.__relay_in_background(heal_cid=cid if download_error else None, show_logs=show_logs)
       """
-      if heal_cid:
+      if (heal_cid and heal_cid not in self.__relay_heal_pending
+          and len(self.__relay_heal_pending) >= IPFSCt.RELAY_HEAL_PENDING_LIMIT):
+        # Full: refuse the new heal, so the waiting ones keep their turn; its next failed read asks again. A
+        # rate-limited red line, since a flood of failed reads would otherwise print one per read.
+        self.__report_rate_limited(
+          "relay heal set full",
+          f"Relay heal set full ({IPFSCt.RELAY_HEAL_PENDING_LIMIT} CIDs wait): {heal_cid} is not remembered for a "
+          f"relay heal; its next failed read asks again"
+        )
+      elif heal_cid:
         # Remember the heal before trying the pass lock: when a pass is already running, that pass heals it
         # instead of the heal being dropped.
         self.__relay_heal_pending.add(heal_cid)
@@ -1130,6 +1376,149 @@ class R1FSEngine:
         # which does not depend on the relay; the next read starts the pass again.
         self.P(f"Background relay pass could not start: {exc}", color='r')
 
+    def __report_rate_limited(self, kind: str, message: str):
+      """
+      Count one event of ``kind`` and log it in red, at most once per 600 s for that kind.
+
+      The relay heal reports use it: a heal refused because ``__relay_heal_pending``
+      is full (``__relay_in_background``) and a heal that failed for good
+      (``__attempt_download_self_heal``). Both can happen once per failed read, so a
+      flood of failed reads or a relay outage would otherwise print a line per read.
+      The first event of a kind is logged at once, whatever ``show_logs`` the read
+      had; later ones within 600 s are only counted, and the next line carries the
+      count since start. Each kind has its own window, so one cannot hide the other.
+
+      Parameters
+      ----------
+      kind : str
+          Name of the kind of event; it keys the counter and the window.
+      message : str
+          The line to log for this event, without the count.
+
+      Returns
+      -------
+      None
+
+      Notes
+      -----
+      The window is the 600 s of the "RELAY DATA PATH" line
+      (``__report_relay_data_path``). Two threads reporting the same kind at the same
+      moment can both print, or count one event less.
+
+      Examples
+      --------
+      >>> self.__report_rate_limited("relay heal failed", f"Relay heal of {cid} failed: HTTP 401")
+      """
+      # [events since start, time.time() of the last line]; a new kind starts at 0, so its first line prints at once.
+      counter = self.__rate_limited_reports.setdefault(kind, [0, 0])
+      # Count every event, printed or not, so the next printed line carries the ones in between.
+      counter[0] += 1
+      # Taken once: it gates the 600 s window and is stored as the time of this line.
+      now = time.time()
+      if now - counter[1] < 600:
+        return
+      # The next line of this kind can print 600 s after this one.
+      counter[1] = now
+      self.P(f"{message} ({counter[0]} since start, at most one such line per 600 s).", color='r')
+      return
+
+    def __report_relay_data_path(self, cid: str, read_started_at: float):
+      """
+      Log in red when a read fails for a CID the relay had already accepted.
+
+      ``get_file`` calls this when its ``ipfs get`` fails, before it hands the CID to
+      the background relay pass. A relay pin/add answered with HTTP 200 before the read
+      began (``relay_published`` True and ``relay_last_success_at`` earlier than the
+      read start) means the relay held every block of the CID when the read started,
+      so a read that still got nothing points at the path between this node and the
+      relay. Such a success is recorded by this node's own upload and also by the
+      background heal of an earlier failed read (``__attempt_download_self_heal``), so
+      a node that did not upload the CID can see it too. While a heal runs, the CID is
+      marked unpublished and no line is printed.
+
+      The line is printed whatever ``show_logs`` the read had, at most once per 600 s.
+      Every such read is counted, and the printed line gives the count since start.
+      Only when the line is printed, ``ipfs swarm peers`` and
+      ``ipfs bitswap ledger <relay peer id>`` run (5 s timeout each), to tell whether
+      the node has a direct connection to the relay (not through a circuit) and what
+      its Bitswap ledger with the relay holds. Nothing is repaired or reconnected.
+
+      Parameters
+      ----------
+      cid : str
+          CID whose ``ipfs get`` just failed.
+      read_started_at : float
+          ``time.time()`` taken just before that ``ipfs get`` started.
+
+      Returns
+      -------
+      None
+
+      Notes
+      -----
+      ``relay_last_success_at`` is ISO-8601 text from ``__utc_now_iso``; that text
+      has no fraction at a whole second, so text order is wrong inside such a second.
+      It is therefore parsed and compared with ``read_started_at`` in seconds; both
+      come from the system clock.
+      A failed ``ipfs`` command returns empty text and is logged in red by
+      ``__run_command``; the line then says ``Direct link: False`` or
+      ``Ledger unreadable``. Kubo prints a ledger on five lines (``Ledger for``,
+      ``Debt ratio``, ``Exchanges``, ``Bytes sent``, ``Bytes received``); they are
+      joined into one.
+      ``__parse_multiaddr`` returns None when the relay multiaddr has no tcp port or
+      no peer id, and R1FS can still start with such a relay through
+      ``ipfs swarm connect``. The two commands are then not run and the line says so.
+      Two reads failing at the same moment on different threads can both print, or
+      count one read less.
+
+      Examples
+      --------
+      >>> # in get_file, when the ipfs get raised
+      >>> self.__report_relay_data_path(cid, start_time)
+      """
+      # Only a relay pin/add answered 200 sets relay_published to True. A CID never seen here has an empty status,
+      # and an entry that add_file's pin step recreates after an unpin removed it has no relay_published.
+      status = self.get_upload_status(cid)
+      if status.get("relay_published") is not True:
+        return
+      # relay_last_success_at is written in the same update that sets relay_published to True. Compare it in
+      # seconds, not as text: the text has no fraction at a whole second and then sorts wrong.
+      if datetime.fromisoformat(status["relay_last_success_at"].replace("Z", "+00:00")).timestamp() >= read_started_at:
+        return
+      # Count every such read, printed or not, so the next printed line carries the ones in between.
+      self.__relay_data_failures += 1
+      # Taken once: it gates the 600 s window and gives the seconds this read waited.
+      now = time.time()
+      if now - self.__relay_data_logged_at < 600:
+        return
+      # The next line can print 600 s after this one.
+      self.__relay_data_logged_at = now
+      # None when the relay multiaddr has no tcp port or no peer id; there is then no peer id to look up.
+      relay_info = self.__parse_multiaddr(self.__ipfs_relay)
+      # Stays as the answer when relay_info is None.
+      checks = "Relay multiaddr has no tcp port or no peer id, so the link and ledger were not checked"
+      if relay_info is not None:
+        # The relay's peer id, as the swarm and the ledger name it.
+        relay_id = relay_info["peer_id"]
+        # A direct connection to the relay ends with its peer id; a connection through a circuit has /p2p-circuit.
+        direct = any(
+          addr.endswith("/p2p/" + relay_id) and "/p2p-circuit" not in addr
+          for addr in self.__run_command(["ipfs", "swarm", "peers"], raise_on_error=False, timeout=5).split()
+        )
+        # Kubo prints the ledger on five lines; join them into one. Empty text means the command failed.
+        ledger = " ".join(
+          self.__run_command(["ipfs", "bitswap", "ledger", relay_id], raise_on_error=False, timeout=5).split()
+        )
+        # What the two commands found, for the line below.
+        checks = f"Direct link: {direct}. {ledger or 'Ledger unreadable'}"
+      self.P(
+        f"RELAY DATA PATH: relay {self.__ipfs_relay} accepted {cid} at {status['relay_last_success_at']}, "
+        f"but this node got nothing in {now - read_started_at:.0f} s. {checks}. "
+        f"{self.__relay_data_failures} such read(s) since start.",
+        color='r', boxed=True
+      )
+      return
+    
 
     def _get_swarm_peers(self):
       peer_lines = []
@@ -2912,7 +3301,9 @@ class R1FSEngine:
       get the CID is remembered for the background relay pass (see
       ``__relay_in_background``), which asks the relay to fetch it so a later read
       can find it and also retries the queued relay publications. The failed read
-      itself is not retried.
+      itself is not retried. A failed get of a CID the relay had accepted before the
+      read began also prints a boxed red "RELAY DATA PATH" line, whatever
+      ``show_logs`` is, at most once per 600 s (see ``__report_relay_data_path``).
 
       Examples
       --------
@@ -2982,6 +3373,8 @@ class R1FSEngine:
       except Exception as e:
         download_error = str(e)
         self.P(f"Initial ipfs get failed for {cid}: {download_error}", color='y')
+        # Read the CID's relay status now: the background heal started below marks it unpublished while it runs.
+        self.__report_relay_data_path(cid, start_time)
       # Relay work never runs on the reader's thread. A CID this get missed is remembered for the background
       # pass, which asks the relay to fetch it so a later read can find it.
       self.__relay_in_background(heal_cid=cid if download_error else None, show_logs=show_logs)
@@ -3461,7 +3854,8 @@ class R1FSEngine:
         Parameters
         ----------
         cid : str
-            The CID to unpin.
+            The CID to unpin. It must be a bare CID: a non-empty string of at most
+            255 ASCII letters and digits (CIDv0 ``Qm...`` or CIDv1 in base32 / base36).
 
         unpin_remote : bool, optional
             Whether to also unpin from the relay. Default is True.
@@ -3475,19 +3869,68 @@ class R1FSEngine:
         Returns
         -------
         bool
-            True if unpinning was successful, False otherwise.
+            True if unpinning was successful, a CID that is not pinned on this node
+            included; False otherwise (a refused ``cid`` or a failed local
+            ``ipfs pin rm`` included, when raise_on_error=False).
+
+        Raises
+        ------
+        ValueError
+            With ``raise_on_error=True``, when ``cid`` is ``None``, empty or not a
+            bare CID.
+        RuntimeError
+            With ``raise_on_error=True``, when the local ``ipfs pin rm`` fails for a
+            reason other than Kubo's "not pinned", or the relay pin/rm is refused,
+            fails or times out.
 
         Notes
         -----
+        The local ``ipfs pin rm`` has three outcomes. It unpins the CID; or Kubo
+        answers "not pinned or pinned indirectly" (``IPFSCt.NOT_PINNED_ERROR``): this
+        node holds no direct or recursive pin of it, which is normal for a CID it
+        never pinned, so there is nothing to unpin here and the unpin goes on to the
+        relay, whatever ``raise_on_error`` is; or it fails (the daemon does not
+        answer, a timeout, a lock). A failure is raised as ``RuntimeError`` with
+        ``raise_on_error=True``; otherwise it is logged in red whatever ``show_logs``
+        is and False is returned. Either way the relay is not told and the CID keeps
+        its relay retry queue entry and waiting heal, since it may still be pinned
+        here. (Before, with ``raise_on_error=False`` a failure passed as an unpin.)
+
         The relay pin/rm request is bounded by ``IPFSCt.RELAY_PIN_TIMEOUT_SECONDS``,
         like relay pin/add, so a hung relay API cannot hold the caller forever. A
         timed-out relay request is reported as a failed unpin (or raised as
         ``RuntimeError`` with ``raise_on_error=True``) after the local ``ipfs pin rm``
-        has already run. Once the local ``ipfs pin rm`` call returns, the CID leaves
-        the relay retry queue, before the relay call and whatever its result, so the
-        background relay pass skips it when its turn comes. A relay publication of
-        this CID that is already in progress is not stopped, and if it fails the CID
-        is queued again.
+        has already run. Once the local ``ipfs pin rm`` unpins the CID or answers that
+        it is not pinned, the CID leaves the relay retry queue and the set of CIDs
+        waiting for a relay heal after a failed read, before the relay call and
+        whatever its result, so the background relay pass neither publishes nor heals
+        it when its turn comes.
+
+        A relay pin/add of this CID that the background pass is sending at that
+        moment (a heal it already took from the set, or a queued publication) could
+        reach the relay after this unpin's relay pin/rm. When the relay is told to
+        unpin (``unpin_remote`` and a relay API), that request is marked through
+        ``__relay_in_flight``: the pass sends no further attempt, records nothing,
+        does not queue the CID again, and undoes a pin the relay accepted with one
+        relay pin/rm (``__undo_relay_pin``, skipped if the CID is pinned on this node
+        again by then, and followed by one more publication if it is pinned here
+        again once the pin/rm was sent). The mark lives only while that request runs.
+        Still open: a read that fails after the delete asks the relay to fetch the CID
+        again (older behaviour, kept because the same content is uploaded again under
+        the same CID); a heal waiting on another node cannot be reached from this
+        process; a marked pin/add whose attempt got no answer (timeout, connection
+        error) is not undone, so a relay that completes that pin after this unpin's
+        pin/rm keeps the CID; and a relay pin/add sent by ``add_file`` on another
+        thread at the same time is not tracked either.
+        With ``unpin_remote=False`` the relay keeps its copy and nothing is marked.
+
+        A ``cid`` that is set but is not a bare CID (``/ipfs/<cid>``, ``-r``,
+        ``QmA&arg=QmB``) is refused before the local ``ipfs pin rm`` and the relay
+        request, and logged in red whatever ``show_logs`` is; ``None`` and ``""`` are
+        refused as before, with their own message. The relay request is
+        ``POST <relay api>/api/v0/pin/rm`` with the CID as its ``arg`` query parameter
+        (requests' ``params``): for a bare CID the URL is the same as before,
+        ``.../api/v0/pin/rm?arg=<cid>``.
 
         Examples
         --------
@@ -3496,6 +3939,10 @@ class R1FSEngine:
 
         >>> # Unpin only locally
         >>> engine.unpin_file("QmHash123...", unpin_remote=False)
+
+        >>> # Not a bare CID: refused before any command or relay request
+        >>> engine.unpin_file("/ipfs/QmHash123", show_logs=False)
+        False
         """
         if cid in [None, ""]:
           msg = "CID parameter cannot be None or empty"
@@ -3505,6 +3952,11 @@ class R1FSEngine:
             if show_logs:
               self.P(msg, color='r')
             return False
+        # Accept only a bare CID (see __refuse_invalid_cid): the CID goes on the `ipfs pin rm` command line and
+        # into the relay pin/rm request. None and "" were refused just above with their own message.
+        if self.__refuse_invalid_cid(cid, raise_on_error=raise_on_error):
+          # Refused and logged before any command or relay request: the unpin fails.
+          return False
 
         success = True
 
@@ -3512,7 +3964,9 @@ class R1FSEngine:
           # First, unpin locally
           result = self.__run_command(
             ["ipfs", "pin", "rm", cid],
-            raise_on_error=raise_on_error,
+            # Raise on any failure, whatever raise_on_error is: with False a failed command returned "" and a daemon
+            # that did not answer passed as an unpin. The except below tells Kubo's "not pinned" apart.
+            raise_on_error=True,
             show_logs=False
           )
 
@@ -3521,25 +3975,49 @@ class R1FSEngine:
 
         except Exception as e:
           msg = f"Error unpinning CID {cid} locally: {e}"
-          success = False
-          if raise_on_error:
+          if IPFSCt.NOT_PINNED_ERROR in str(e):
+            # Kubo's answer when this node holds no direct or recursive pin of the CID: nothing to unpin here, a
+            # normal call for a CID this node never pinned, so the unpin goes on to the relay as before.
+            if show_logs:
+              self.Pd(f"CID {cid} was not pinned locally: {e}")
+          elif raise_on_error:
             raise RuntimeError(msg)
           else:
-            if show_logs:
-              self.P(msg, color='r')
+            # A real failure (the daemon did not answer, a timeout, a lock): the CID may still be pinned here, so
+            # the relay is not told and the queue entry and waiting heal of the CID stay. Said in red whatever
+            # show_logs is: most callers pass show_logs=False and look only at the result, if at all.
+            self.P(msg, color='r')
             return False
 
-        # The local `ipfs pin rm` call returned without raising: drop the CID from the relay retry queue now,
+        # The local `ipfs pin rm` unpinned the CID or found no pin of it: drop the CID from the relay retry queue now,
         # before the relay call, so a failed or timed-out relay pin/rm cannot leave it queued for the
         # background pass to publish to the relay again.
         self.__relay_retry_queue.pop(cid, None)
+        # Drop a heal that a failed read of this CID left waiting for the background pass, for the same
+        # reason: that heal is a relay pin/add and would pin the CID on the relay again after this unpin.
+        self.__relay_heal_pending.discard(cid)
 
         # Then, notify the relay to unpin (mirrors add_file behavior)
         if unpin_remote and self.__ipfs_relay_api is not None:
+          # A relay pin/add of this CID that the background pass is sending now (a heal it took from the set, or a
+          # queued publication) can reach the relay after the pin/rm below. The pass shows its request here before
+          # it reads the queue entry or takes the CID from the set, and the two drops above come before this look:
+          # either the pass found the CID gone, or this finds its request.
+          flight = self.__relay_in_flight
+          if flight is not None and flight[0] == cid:
+            # Mark it: the pass then records nothing, does not queue the CID again, and undoes a pin that got through.
+            flight[1] = True
+          # Drop the CID from the queue once more, after the mark: the pass reads the mark again right after it
+          # queues a failed CID, so a CID it queued before seeing the mark is queued before this drop.
+          self.__relay_retry_queue.pop(cid, None)
           try:
-            request_url = f"{self.__ipfs_relay_api}/api/v0/pin/rm?arg={cid}"
+            # No CID in the URL text: it goes in params below, which requests percent-encodes. For a bare CID the
+            # relay gets the same URL as before, character for character.
+            request_url = f"{self.__ipfs_relay_api}/api/v0/pin/rm"
             response = requests.post(
               request_url,
+              # The CID as the `arg` query parameter of the relay's pin/rm (see request_url above).
+              params={"arg": cid},
               auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
               # The relay API is verified with the configured certificate file.
               verify=self.__ipfs_certificate_path,
