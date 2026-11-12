@@ -492,6 +492,135 @@ class R1FSEngine:
         return os.path.join(self.__uploads_dir, f"{fn}{suffix}")
       return self._get_unique_upload_name(prefix, suffix=suffix)
 
+    def __refuse_invalid_cid(self, cid, raise_on_error: bool = False, show_logs: bool = True) -> bool:
+      """
+      Refuse a value that is not a bare CID, through the caller's error convention.
+
+      A bare CID is a non-empty string of at most 255 ASCII letters and digits, the form
+      ``ipfs add`` prints (CIDv0 ``Qm...`` in base58btc, 46 characters; CIDv1 in base32 or
+      base36). Such a value has no ``/``, ``.``, space, ``-`` prefix, ``&`` or ``?``:
+      joined to a folder it names a direct child of that folder, on an ``ipfs`` command
+      line it is one CID argument, and in a relay request it is one parameter value. The
+      255 is the longest folder name (NAME_MAX), and ``get_file`` makes the CID a folder
+      name, so a longer value can never be read here. The public methods that hand a CID
+      to the filesystem, to an ``ipfs`` command line or to the relay call this first:
+      ``get_file``, ``delete_file``, ``unpin_file``, ``is_pinned``, ``is_cid_available``
+      and ``cleanup_downloads`` (``get_json``, ``get_pickle`` and ``delete_files`` go
+      through them).
+
+      Parameters
+      ----------
+      cid : any
+          The value the caller passed as a CID.
+      raise_on_error : bool, optional
+          True raises ``ValueError`` for a refused value; False (default) logs it in red
+          and returns True.
+      show_logs : bool, optional
+          The caller's ``show_logs``. It gates the red line only for ``None`` and ``""``;
+          any other refused value is a caller bug or an attack and is logged whatever
+          ``show_logs`` is. Default True.
+
+      Returns
+      -------
+      bool
+          False when ``cid`` is a bare CID. True when it was refused and logged; the
+          caller then returns its own failure value.
+
+      Raises
+      ------
+      ValueError
+          When ``cid`` is refused and ``raise_on_error`` is True. Nothing is logged then.
+
+      Notes
+      -----
+      ``get_file`` and ``delete_file`` pass ``None`` and ``""`` here too, and refuse them
+      as they always did. ``unpin_file`` refuses them with its own message first, and
+      ``is_pinned``, ``is_cid_available`` and ``cleanup_downloads`` do not call this for
+      them, so what those methods do with ``None`` or ``""`` is unchanged. The refused
+      value is shown cut to its first 100 characters, so a huge value gives a short line.
+
+      Examples
+      --------
+      >>> # in get_file, before the CID is joined to the downloads folder
+      >>> if self.__refuse_invalid_cid(cid, raise_on_error=raise_on_error, show_logs=show_logs):
+      ...   return None
+      """
+      # A CID becomes a folder name under the downloads folder, so more than 255 characters (NAME_MAX) can never be a
+      # CID this node reads; the bound also keeps such values out of `ipfs` command lines, relay requests and the
+      # upload status.
+      if isinstance(cid, str) and cid.isascii() and cid.isalnum() and len(cid) <= 255:
+        # A bare CID: nothing to refuse, the caller goes on.
+        return False
+      # Name the refused value in the message, so the log or the ValueError shows what the caller sent; cut to 100
+      # characters, so a huge value does not make a line as long as itself.
+      msg = f"Invalid CID {cid!r:.100}: a CID must be a non-empty string of at most 255 ASCII letters and digits"
+      if raise_on_error:
+        # The caller asked for exceptions: the ValueError carries the message to it.
+        raise ValueError(msg)
+      # A value that is set but is not a CID is a caller bug or an attack, so it is said in red whatever show_logs
+      # is; a None or empty CID keeps the caller's show_logs, as before.
+      if show_logs or cid not in (None, ""):
+        self.P(msg, color='r')
+      # Refused: the caller returns its own failure value.
+      return True
+
+    def __refuse_unplain_name(self, name, raise_on_error: bool = False) -> bool:
+      """
+      Refuse a file name that is not a plain file name, through the caller's error convention.
+
+      A plain file name is a non-empty string with no path part (``os.path.basename``
+      returns it unchanged, so it has no ``/``) that is not ``.`` or ``..``. Joined to a
+      folder, it names a file directly inside that folder: never an absolute path, the
+      folder itself or its parent. ``get_file`` checks the name stored in the downloaded
+      object's metadata with it; ``add_json``, ``add_pickle``, ``calculate_json_cid`` and
+      ``calculate_pickle_cid`` check the caller's ``fn`` before anything is written.
+
+      Parameters
+      ----------
+      name : any
+          The file name to check.
+      raise_on_error : bool, optional
+          True raises ``ValueError`` for a refused name; False (default) logs it in red,
+          whatever ``show_logs`` the caller has, and returns True.
+
+      Returns
+      -------
+      bool
+          False when ``name`` is a plain file name. True when it was refused and logged;
+          the caller then returns its own failure value.
+
+      Raises
+      ------
+      ValueError
+          When ``name`` is refused and ``raise_on_error`` is True. Nothing is logged then.
+
+      Notes
+      -----
+      The refused name is shown cut to its first 100 characters, so a huge value gives a
+      short line.
+
+      Examples
+      --------
+      >>> self.__refuse_unplain_name("data.json")
+      False
+      >>> # in add_json, before the name is joined to its temporary folder
+      >>> if fn is not None and self.__refuse_unplain_name(fn, raise_on_error=raise_on_error):
+      ...   return None
+      """
+      if isinstance(name, str) and name not in ("", ".", "..") and os.path.basename(name) == name:
+        # A plain file name: nothing to refuse, the caller goes on.
+        return False
+      # Name the refused value in the message, so the log or the ValueError shows what the caller sent; cut to 100
+      # characters, so a huge value does not make a line as long as itself.
+      msg = f"Invalid file name {name!r:.100}: a file name must have no path part and must not be '', '.' or '..'"
+      if raise_on_error:
+        # The caller asked for exceptions: the ValueError carries the message to it.
+        raise ValueError(msg)
+      # A name that is not a plain file name is a caller bug or an attack: say it in red whatever show_logs is.
+      self.P(msg, color='r')
+      # Refused: the caller returns its own failure value.
+      return True
+
     def get_upload_status(self, cid: str) -> dict:
       """
       Return the tracked upload status for one CID.
@@ -1000,7 +1129,7 @@ class R1FSEngine:
         # Say it in red instead of passing without a trace. The read that called this keeps its own result,
         # which does not depend on the relay; the next read starts the pass again.
         self.P(f"Background relay pass could not start: {exc}", color='r')
-    
+
 
     def _get_swarm_peers(self):
       peer_lines = []
@@ -2188,7 +2317,9 @@ class R1FSEngine:
           
       fn : str, optional
           Filename to use for the JSON data. If None, uses DEFAULT_FILENAME_JSON
-          in a unique temporary directory.
+          in a unique temporary directory. It must be a plain file name (no path
+          part, not '', '.' or '..'); it is written in that directory, stored as
+          the file's name, and the file is removed afterwards.
           
       secret : str, optional
           Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
@@ -2208,8 +2339,34 @@ class R1FSEngine:
       Returns
       -------
       str
-          The CID of the added JSON file.
+          The CID of the added JSON file, or None when it fails and
+          raise_on_error=False (a refused ``fn`` included).
+
+      Raises
+      ------
+      ValueError
+          If ``fn`` is not a plain file name and raise_on_error=True.
+
+      Notes
+      -----
+      ``fn`` is checked before anything is written, whatever ``use_tempfile`` is: an
+      absolute or ``..`` name joined to the temporary directory would name a file
+      outside it, which would be written and then removed by the cleanup. A refused
+      name is logged in red whatever ``show_logs`` is.
+
+      Examples
+      --------
+      >>> cid = engine.add_json({"plan": 1}, fn="deployment-plan.json", nonce=42)
+
+      >>> # Not a plain file name: refused, nothing is written
+      >>> print(engine.add_json({"plan": 1}, fn="../plan.json"))
+      None
       """
+      # Only a plain file name stays inside the unique folder it is joined to below; an absolute or '..' name would
+      # be written, then removed by the cleanup, outside it. None takes the default name.
+      if fn is not None and self.__refuse_unplain_name(fn, raise_on_error=raise_on_error):
+        # Refused and logged, before anything was written: no CID.
+        return None
       unique_dir = None
       try:
         json_data = json.dumps(data, sort_keys=True, separators=(',', ':'))
@@ -2338,6 +2495,9 @@ class R1FSEngine:
           
       fn : str, optional
           Filename to use for the pickle data. If None, generates a unique filename.
+          It must be a plain file name (no path part, not '', '.' or '..'); it is
+          written in a folder of its own in the uploads directory, stored as the
+          file's name, and the file and its folder are removed afterwards.
           
       secret : str, optional
           Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
@@ -2357,8 +2517,40 @@ class R1FSEngine:
       Returns
       -------
       str
-          The CID of the added pickle file.
+          The CID of the added pickle file, or None when it fails and
+          raise_on_error=False (a refused ``fn`` included).
+
+      Raises
+      ------
+      ValueError
+          If ``fn`` is not a plain file name and raise_on_error=True.
+
+      Notes
+      -----
+      ``fn`` is checked before anything is written, whatever ``use_tempfile`` is, and
+      a refused name is logged in red whatever ``show_logs`` is. A plain ``fn`` is
+      written in a new folder of its own in the uploads directory, where the unique
+      default name goes too, and not in the process's working directory: there the
+      write and the cleanup would replace and then delete any file of that name. The
+      folder of its own keeps two calls with the same ``fn`` from writing, encrypting
+      or deleting each other's file. The stored name, and so the CID, is ``fn``
+      either way.
+
+      Examples
+      --------
+      >>> cid = engine.add_pickle({"w": [1, 2]}, fn="model.pkl", nonce=42)
+
+      >>> # Not a plain file name: refused, nothing is written
+      >>> print(engine.add_pickle({"w": [1, 2]}, fn="/tmp/model.pkl"))
+      None
       """
+      # Only a plain file name stays inside the uploads folder it is joined to below; an absolute or '..' name would
+      # be written, then removed by the cleanup, outside it. None takes a unique name there.
+      if fn is not None and self.__refuse_unplain_name(fn, raise_on_error=raise_on_error):
+        # Refused and logged, before anything was written: no CID.
+        return None
+      # The folder of its own that a caller's name gets below; None when there is none to remove.
+      unique_dir = None
       try:
         import pickle
         if show_logs:
@@ -2376,6 +2568,14 @@ class R1FSEngine:
             if show_logs:
               self.Pd(f"Using unique name for pkl: {fn}")
           else:
+            # A folder of its own in the uploads folder, as add_json does, so two calls with the same name never
+            # write, encrypt or delete each other's file there.
+            unique_dir = os.path.join(self.__uploads_dir, uuid.uuid4().hex)
+            # Made here, removed by the finally below once its file is gone.
+            os.makedirs(unique_dir)
+            # Put the caller's plain name in that folder. Opened as it was, it named a file in the process's working
+            # folder, which the cleanup below then deleted. The stored name is the basename, so the CID does not change.
+            fn = os.path.join(unique_dir, fn)
             if show_logs:
               self.Pd(f"Using provided filename: {fn}")
           with open(fn, "wb") as f:
@@ -2410,6 +2610,9 @@ class R1FSEngine:
           os.remove(fn)
           if show_logs:
             self.Pd(f"Cleaned up temporary pickle file: {fn}")
+        if unique_dir and os.path.exists(unique_dir):
+          # The caller's name had a folder of its own; its file is gone by now.
+          os.rmdir(unique_dir)
 
 
     @require_ipfs_started
@@ -2627,7 +2830,10 @@ class R1FSEngine:
       Parameters
       ----------
       cid : str
-        The folder CID (wrapped single file).
+        The folder CID (wrapped single file). It must be a bare CID: a non-empty
+        string of at most 255 ASCII letters and digits, as ``ipfs add`` prints it (CIDv0
+        ``Qm...`` or CIDv1 in base32 / base36). Path forms such as
+        ``/ipfs/<cid>`` or ``<cid>/sub/path`` are refused.
 
       local_folder : str, optional
         Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
@@ -2653,16 +2859,19 @@ class R1FSEngine:
       Returns
       -------
       str
-        The full path to the restored plaintext file.
+        The full path to the restored plaintext file, or None when the read
+        fails and raise_on_error=False (an invalid ``cid`` included).
 
       Raises
       ------
       ValueError
-        If the secret is empty.
+        If ``cid`` is not a bare CID (see ``cid``) and raise_on_error=True.
 
       RuntimeError
         If multiple or zero files are found in the downloaded folder,
-        or if we fail to parse the JSON metadata.
+        or if we fail to parse the JSON metadata, or if the file name stored in
+        the metadata is not a plain file name, or if the download or its single
+        entry is a link or not a regular folder / file, and raise_on_error=True.
 
       Exception
         If the GCM tag is invalid or the IPFS command times out
@@ -2670,6 +2879,30 @@ class R1FSEngine:
 
       Notes
       -----
+      ``cid`` is checked before anything else: ``local_folder/<cid>`` is deleted
+      before ``ipfs get`` runs, so a ``cid`` that is not a bare CID could name a
+      path outside ``local_folder`` (``/abs/path``, ``..``). Such a ``cid`` is
+      refused with no file deleted, no ``ipfs`` command run and no relay heal
+      queued. A refused ``cid`` other than None or "" is logged in red whatever
+      ``show_logs`` is.
+
+      The output file is named after the ``filename`` stored in the downloaded
+      object's own metadata, which whoever added the object chose. It must be a plain
+      file name (no path part, not '', '.' or '..'), so the plaintext is written only
+      inside ``local_folder/<cid>``; any other name is refused through the decryption
+      error path. The GCM tag is checked only after all plaintext was written, so when
+      decryption fails (refused name and bad tag included) ``local_folder/<cid>``, which
+      this call made and which holds only the ciphertext and that plaintext, is removed
+      before the error is raised or logged: no unauthenticated plaintext stays on disk.
+
+      ``ipfs get`` writes a UnixFS symlink as a link that can point anywhere on this
+      node, while an R1FS object is one regular file by construction. So when
+      ``local_folder/<cid>`` is itself a link (the CID's root is a symlink) the read is
+      refused like a download that is not a directory, with nothing read, written or
+      deleted through the link, which the next read of that CID removes; and an entry
+      that is a link or not a regular file is refused before it is opened, through
+      the decryption error path, which removes the folder with the link.
+
       ``ipfs get`` runs first and is bounded by ``timeout``; when ``pin`` is True the
       CID is pinned only after a successful get, with only the time the get left
       (at least 1 s), so the get and the pin together take about ``timeout`` at most,
@@ -2688,16 +2921,18 @@ class R1FSEngine:
       >>> print(local_file)
       /app/downloads/QmEncFolderXYZ/original_filename.bin
       
+      >>> # Not a bare CID: refused, nothing is deleted
+      >>> print(engine.get_file("../.."))
+      None
+
       """
-      # Validate CID parameter
-      if cid in [None, ""]:
-        msg = "CID parameter cannot be None or empty"
-        if raise_on_error:
-          raise ValueError(msg)
-        else:
-          if show_logs:
-            self.P(msg, color='r')
-          return None
+      # Accept only a bare CID (see __refuse_invalid_cid). The CID becomes a folder name under local_folder, and
+      # that path is deleted below before any `ipfs` command sees the CID (the pin runs after the get), so this
+      # is the only check in front of the cleanup. A '/', '.' or '..' would make the path absolute or climb out
+      # of local_folder, and the cleanup would delete a path outside it.
+      if self.__refuse_invalid_cid(cid, raise_on_error=raise_on_error, show_logs=show_logs):
+        # Refused and logged before anything was deleted: the read fails.
+        return None
       
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
@@ -2711,9 +2946,11 @@ class R1FSEngine:
       
       local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
       
-      # if the folder exists cleanup the content 
+      # if the folder exists cleanup the content
       if os.path.exists(local_folder):
-        if os.path.isdir(local_folder):
+        # A link left by a crafted object (see the check after the get) is removed itself by os.remove below, never
+        # followed by rmtree.
+        if os.path.isdir(local_folder) and not os.path.islink(local_folder):
           if show_logs:
             files = os.listdir(local_folder)
             self.Pd(f"Cleaning up {local_folder} with {files}")
@@ -2768,7 +3005,9 @@ class R1FSEngine:
           self.P(f"Pin after download failed for {cid}: {e}", color='r')
 
       # Expect exactly one file
-      if not os.path.isdir(local_folder):
+      # A CID whose root is a symlink makes `ipfs get` write local_folder itself as a link to another folder: refused
+      # here, so nothing is read, written or deleted there and the except below never runs rmtree on a link.
+      if os.path.islink(local_folder) or not os.path.isdir(local_folder):
         msg = f"Expected {local_folder} to be a directory after IPFS download, but it's not"
         if raise_on_error:
           raise RuntimeError(msg)
@@ -2792,6 +3031,12 @@ class R1FSEngine:
       # Decrypt with AES-GCM
       start_time = time.time()
       try:
+        # `ipfs get` writes a UnixFS symlink entry as a link to any path of this node, and opening it reads that path
+        # (a device or a pipe included). An R1FS object is one regular file: anything else is refused, and the except
+        # below removes the folder together with the link.
+        if os.path.islink(cipher_path) or not os.path.isfile(cipher_path):
+          # Into the except below, before anything is opened.
+          raise ValueError(f"{contents[0]!r} is not a regular file")
         with open(cipher_path, "rb") as fin:
           nonce = fin.read(12)
           meta_len_bytes = fin.read(4)
@@ -2805,6 +3050,9 @@ class R1FSEngine:
           meta_dict = json.loads(meta_data.decode("utf-8"))
 
           original_filename = meta_dict.get("filename", "restored_file.bin")
+          # Whoever added the object chose this name, and the plaintext is written under it: only a plain file
+          # name keeps it inside local_folder. A refused name raises into the error path below.
+          self.__refuse_unplain_name(original_filename, raise_on_error=True)
 
           # File size + chunk logic to isolate last 16 bytes as GCM tag
           fin.seek(0, os.SEEK_END)
@@ -2841,11 +3089,16 @@ class R1FSEngine:
         decrypt_elapsed_time = time.time() - start_time
       except Exception as e:
         out_path = None
+        # The tag is checked only after all plaintext was written, so a failed read can leave unauthenticated
+        # plaintext next to the ciphertext. This call made local_folder and only those two are in it: remove it,
+        # so nothing unverified stays on disk (the ciphertext removal below is then skipped).
+        shutil.rmtree(local_folder)
         msg = f"Error decrypting file {cipher_path}: {e}"
         if raise_on_error:
           raise RuntimeError(msg)
         else:
           self.P(msg, color='r')
+          return
       #end try
 
       # Optionally remove the ciphertext
@@ -3104,12 +3357,34 @@ class R1FSEngine:
       Parameters
       ----------
       cid : str
-          The CID to check.
-          
+          The CID to check. A value that is set must be a bare CID: a non-empty
+          string of at most 255 ASCII letters and digits.
+
       max_wait : int
           The maximum time to wait for the CID to be found.
           
+      Returns
+      -------
+      bool
+          True when ``ipfs block stat`` finds the CID within ``max_wait`` seconds;
+          False when it does not, or when ``cid`` is refused.
+
+      Notes
+      -----
+      A ``cid`` that is set but is not a bare CID (a path such as ``/ipfs/<cid>``, an
+      option such as ``--help``) is refused before the ``ipfs`` command runs and
+      logged in red. ``None`` and ``""`` are handled as before.
+
+      Examples
+      --------
+      >>> engine.is_cid_available("QmHash123", max_wait=3)
+      True
       """
+      # Accept only a bare CID (see __refuse_invalid_cid): the CID goes on the `ipfs block stat` command line.
+      # None and "" are left to the command as before.
+      if cid not in (None, "") and self.__refuse_invalid_cid(cid):
+        # Refused and logged: not available, the method's answer for any failure.
+        return False
       CMD = ["ipfs", "block", "stat", cid]  
       result = True
       try:
@@ -3129,7 +3404,8 @@ class R1FSEngine:
         Parameters
         ----------
         cid : str
-            The CID to check.
+            The CID to check. A value that is set must be a bare CID: a non-empty
+            string of at most 255 ASCII letters and digits.
 
         show_logs : bool, optional
             Whether to show logs. Default is False.
@@ -3137,13 +3413,25 @@ class R1FSEngine:
         Returns
         -------
         bool
-            True if the CID is pinned, False otherwise.
+            True if the CID is pinned, False otherwise (a refused ``cid`` included).
+
+        Notes
+        -----
+        A ``cid`` that is set but is not a bare CID (a path such as ``/ipfs/<cid>``, an
+        option such as ``--help``) is refused before the ``ipfs`` command runs and
+        logged in red whatever ``show_logs`` is. ``None`` and ``""`` are handled as
+        before.
 
         Examples
         --------
         >>> if engine.is_pinned("QmHash123..."):
         >>>   print("File is pinned")
         """
+        # Accept only a bare CID (see __refuse_invalid_cid): the CID goes on the `ipfs pin ls` command line.
+        # None and "" are left to the command as before.
+        if cid not in (None, "") and self.__refuse_invalid_cid(cid):
+          # Refused and logged: not pinned, the method's answer for any failure.
+          return False
         try:
           output = self.__run_command(
             ["ipfs", "pin", "ls", "--type=recursive", cid],
@@ -3311,7 +3599,9 @@ class R1FSEngine:
         Parameters
         ----------
         cid : str
-            The CID to delete.
+            The CID to delete. It must be a bare CID: a non-empty string of at
+            most 255 ASCII letters and digits (CIDv0 ``Qm...`` or CIDv1 in base32 /
+            base36). Path forms such as ``/ipfs/<cid>`` are refused.
 
         unpin_remote : bool, optional
             Whether to also unpin from the relay. Default is True.
@@ -3335,7 +3625,32 @@ class R1FSEngine:
         Returns
         -------
         bool
-            True if deletion was successful, False otherwise.
+            True if deletion was successful, False otherwise (an invalid
+            ``cid`` included, when raise_on_error=False).
+
+        Raises
+        ------
+        ValueError
+            If ``cid`` is not a bare CID and raise_on_error=True.
+
+        RuntimeError
+            If unpinning or another step fails and raise_on_error=True.
+
+        Notes
+        -----
+        ``cid`` is checked before anything else: with ``cleanup_local_files``
+        the path ``<downloads dir>/<cid>`` is deleted, so a ``cid`` such as
+        ``/abs/path`` or ``..`` would name a path outside the downloads folder.
+        Such a ``cid`` is refused with nothing unpinned and nothing deleted, and
+        unless it is None or "" it is logged in red whatever ``show_logs`` is.
+        ``delete_files`` calls this method for each CID and inherits the check.
+
+        A CID that is not pinned on this node (Kubo's "not pinned or pinned
+        indirectly") is not an error: the delete goes on to the relay and the
+        cleanup, whatever ``raise_on_error`` is. When the local ``ipfs pin rm``
+        fails (the daemon does not answer, a timeout), False is returned (or
+        RuntimeError raised), nothing is cleaned up and no GC runs, and
+        ``unpin_file`` logs the failure in red whatever ``show_logs`` is.
 
         Examples
         --------
@@ -3350,15 +3665,17 @@ class R1FSEngine:
 
         >>> # Full cleanup: unpin everywhere, GC, and remove local files
         >>> engine.delete_file("QmHash123...", run_gc=True, cleanup_local_files=True)
+
+        >>> # Not a bare CID: refused before anything is unpinned or deleted
+        >>> engine.delete_file("../..", unpin_remote=False, cleanup_local_files=True)
+        False
         """
-        if cid in [None, ""]:
-          msg = "CID parameter cannot be None or empty"
-          if raise_on_error:
-            raise ValueError(msg)
-          else:
-            if show_logs:
-              self.P(msg, color='r')
-            return False
+        # Accept only a bare CID (see __refuse_invalid_cid) before unpinning or cleanup. With cleanup_local_files
+        # the CID is joined to the downloads folder and that path is deleted; a '/', '.' or '..' would point it
+        # outside the folder.
+        if self.__refuse_invalid_cid(cid, raise_on_error=raise_on_error, show_logs=show_logs):
+          # Refused and logged before anything was unpinned or deleted: the delete fails.
+          return False
 
         try:
           # Unpin the file (locally and optionally on relay)
@@ -3650,7 +3967,9 @@ class R1FSEngine:
         Parameters
         ----------
         cid : str, optional
-            Specific CID to clean up. If None, cleans all downloads.
+            Specific CID to clean up. If None, cleans all downloads. Any other
+            non-empty value must be a bare CID: at most 255 ASCII letters and
+            digits.
 
         show_logs : bool, optional
             Whether to show logs. Default is True.
@@ -3658,7 +3977,15 @@ class R1FSEngine:
         Returns
         -------
         int
-            Number of items cleaned up.
+            Number of items cleaned up (0 for a refused ``cid``).
+
+        Notes
+        -----
+        The path ``<downloads dir>/<cid>`` is deleted, so a ``cid`` such as
+        ``/abs/path`` or ``..`` would name a path outside the downloads folder. A
+        ``cid`` that is set but is not a bare CID is refused before anything is
+        deleted and logged in red whatever ``show_logs`` is. ``None`` and ``""`` are
+        handled as before.
 
         Examples
         --------
@@ -3668,7 +3995,16 @@ class R1FSEngine:
 
         >>> # Clean up specific CID's downloads
         >>> engine.cleanup_downloads(cid="QmHash123...")
+
+        >>> # Not a bare CID: refused, nothing is deleted
+        >>> engine.cleanup_downloads(cid="../..")
+        0
         """
+        # Accept only a bare CID (see __refuse_invalid_cid): the CID is joined to the downloads folder and that path
+        # is deleted, so a '/', '.' or '..' would delete outside it. None and "" are handled below as before.
+        if cid not in (None, "") and self.__refuse_invalid_cid(cid):
+          # Refused and logged before anything was deleted: nothing cleaned up.
+          return 0
         count = 0
 
         try:
@@ -3877,6 +4213,8 @@ class R1FSEngine:
       fn : str, optional
           Filename to use for the JSON data. If None, uses DEFAULT_FILENAME_JSON.
           This affects the CID calculation as the filename is included in the metadata.
+          It must be a plain file name (no path part, not '', '.' or '..'): it is
+          written in a unique temporary directory and removed afterwards.
           
       secret : str, optional
           Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
@@ -3895,7 +4233,8 @@ class R1FSEngine:
           If IPFS is not available or not running.
           
       ValueError
-          If nonce is None or invalid, or if data cannot be JSON serialized.
+          If nonce is None or invalid, if data cannot be JSON serialized, or if
+          ``fn`` is not a plain file name (checked before anything is written).
           
       Examples
       --------
@@ -3917,6 +4256,11 @@ class R1FSEngine:
       
       if show_logs:
         self.P(f"JSON data: {json_data}")
+
+      if fn is not None:
+        # Only a plain file name stays inside the unique folder it is joined to below; an absolute or '..' name
+        # would be written, then removed, outside it. Refused with ValueError, like data that cannot be serialized.
+        self.__refuse_unplain_name(fn, raise_on_error=True)
 
       # Use custom filename or default
       if fn is None:
@@ -3983,6 +4327,9 @@ class R1FSEngine:
       fn : str, optional
           Filename to use for the pickle data. If None, generates a unique filename.
           This affects the CID calculation as the filename is included in the metadata.
+          A name the caller gives must be a plain file name (no path part, not '',
+          '.' or '..'): it is written in a unique temporary directory and removed
+          afterwards.
           
       secret : str, optional
           Passphrase for AES-GCM encryption. Defaults to 'ratio1'.
@@ -4001,7 +4348,13 @@ class R1FSEngine:
           If IPFS is not available or not running.
           
       ValueError
-          If nonce is None or invalid, or if data cannot be pickled.
+          If nonce is None or invalid, if data cannot be pickled, or if a given
+          ``fn`` is not a plain file name (checked before anything is written).
+
+      Notes
+      -----
+      Only the caller's ``fn`` is checked. The unique name used when ``fn`` is None is
+      a full path in the uploads directory, and the file is written there, as before.
           
       Examples
       --------
@@ -4024,6 +4377,11 @@ class R1FSEngine:
       
       if show_logs:
         self.Pd(f"Pickled data of type: {type(data)}, size: {len(pickle_data)} bytes")
+
+      if fn is not None:
+        # Only a plain file name stays inside the unique folder it is joined to below; an absolute or '..' name
+        # would be written, then removed, outside it. Checked before the default below, a full path on purpose.
+        self.__refuse_unplain_name(fn, raise_on_error=True)
 
       # Use custom filename or generate unique one
       if fn is None:
