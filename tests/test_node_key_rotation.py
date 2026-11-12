@@ -58,30 +58,41 @@ class NodeKeyRotationTests(unittest.TestCase):
     self.assertEqual(announcement['purpose'], dAuth.DAUTH_KEY_ROTATION_PURPOSE)
     self.assertTrue(self.server.verify(dict(announcement)).valid)
     pem_files = [os.path.basename(fn) for fn in glob.glob(os.path.join(self.tmp.name, 'node', '**', 'node.pem*'), recursive=True)]
-    self.assertEqual(len(pem_files), 2)
-    self.assertTrue(any('.revoked-' in fn for fn in pem_files))
+    self.assertEqual(sorted(fn.split('.revoked-')[0] for fn in pem_files), ['node.pem', 'node.pem', 'node.pem.rotation.json'])
+
+  def _announce(self, announcement, answer=None, is_oracle=True, echo_nonce=True, env=None):
+    """Announce against a fake dAuth that signs `answer`; returns (result, url, body)."""
+    def post(url, json, timeout):
+      result = dict({'old_node': announcement['EE_SENDER'], 'new_node': self.node.address, 'confirmed': True}
+                    if answer is None else answer)
+      if echo_nonce:
+        result['nonce'] = json['body']['nonce']
+      self.server.sign(result)
+      return _response(result)
+    with patch('ratio1.bc.base.requests.post', side_effect=post) as mocked, \
+        patch.object(self.node, 'web3_is_dauth_oracle', return_value=is_oracle), \
+        patch.dict(os.environ, env or {}):
+      result = self.node.dauth_announce_node_key(announcement)
+    return result, mocked.call_args.args[0], mocked.call_args.kwargs['json']['body']
 
   def test_announcement_is_signed_by_the_new_key(self):
     announcement = self.node.rotate_private_key()
-    answer = {'old_node': announcement['EE_SENDER'], 'new_node': self.node.address, 'confirmed': True}
-    self.server.sign(answer)
-    with patch('ratio1.bc.base.requests.post', return_value=_response(answer)) as post:
-      result = self.node.dauth_announce_node_key(announcement)
+    result, url, body = self._announce(announcement)
     self.assertTrue(result['confirmed'])
-    url, body = post.call_args.args[0], post.call_args.kwargs['json']['body']
     self.assertTrue(url.endswith('/announce_node_key'))
     self.assertEqual(body['EE_SENDER'], self.node.address)
     self.assertEqual(body[dAuth.DAUTH_KEY_ROTATION], announcement)
     self.assertTrue(self.server.verify(dict(body)).valid)
 
+  def test_announcement_goes_to_the_configured_dauth_endpoint(self):
+    announcement = self.node.rotate_private_key()
+    _, url, _ = self._announce(announcement, env={'EE_DAUTH_URL': 'https://private.example/get_auth_data'})
+    self.assertEqual(url, 'https://private.example/announce_node_key')
+
   def test_rotation_proof_is_verifiable_by_any_engine(self):
     old_address = self.node.address
     announcement = self.node.rotate_private_key()
-    answer = {'new_node': self.node.address, 'confirmed': True}
-    self.server.sign(answer)
-    with patch('ratio1.bc.base.requests.post', return_value=_response(answer)) as post:
-      self.node.dauth_announce_node_key(announcement)
-    proof = post.call_args.kwargs['json']['body']
+    _, _, proof = self._announce(announcement)
     self.assertEqual(self.server.verify_node_key_rotation(proof), (old_address, self.node.address))
 
     forged = {dAuth.DAUTH_KEY_ROTATION: dict(announcement, new_node=self.server.address), 'nonce': '0x1'}
@@ -92,14 +103,38 @@ class NodeKeyRotationTests(unittest.TestCase):
       with self.subTest(bad=sorted(bad)), self.assertRaises(ValueError):
         self.server.verify_node_key_rotation(bad)
 
-  def test_unsigned_or_refused_answer_raises(self):
+  def test_only_a_dauth_oracle_answer_to_this_request_is_accepted(self):
     announcement = self.node.rotate_private_key()
-    refused = {'error': 'Only a revoked node key can announce a new key.'}
-    self.server.sign(refused)
-    for answer, error in (({'new_node': 'x', 'confirmed': True}, ValueError), (refused, RuntimeError)):
-      with self.subTest(error=error.__name__), patch('ratio1.bc.base.requests.post', return_value=_response(answer)):
-        with self.assertRaises(error):
-          self.node.dauth_announce_node_key(announcement)
+    confirmed = {'old_node': announcement['EE_SENDER'], 'new_node': self.node.address, 'confirmed': True}
+    cases = {
+      'not a dAuth oracle': (dict(is_oracle=False), ValueError),
+      'no request nonce': (dict(echo_nonce=False), ValueError),
+      'another old node': (dict(answer=dict(confirmed, old_node=self.server.address)), ValueError),
+      'refused': (dict(answer={'error': 'Only a revoked node key can announce a new key.'}), RuntimeError),
+    }
+    for name, (kwargs, error) in cases.items():
+      with self.subTest(name), self.assertRaises(error):
+        self._announce(announcement, **kwargs)
+    with patch('ratio1.bc.base.requests.post', return_value=_response(confirmed)), self.assertRaises(ValueError):
+      self.node.dauth_announce_node_key(announcement)  # unsigned
+
+  def test_interrupted_rotation_keeps_a_usable_key_and_the_announcement(self):
+    old_address = self.node.address
+    self.assertIsNone(self.node.pending_node_key_announcement())
+    with patch('ratio1.bc.base.os.replace', side_effect=OSError('disk full')), self.assertRaises(OSError):
+      self.node.rotate_private_key()
+    with patch('ratio1.bc.base.shutil.copy2', side_effect=OSError('disk full')), self.assertRaises(OSError):
+      self.node.rotate_private_key()
+    # the old key is still the active one and no announcement for another key is pending
+    self.assertEqual(_engine(self.tmp.name, 'node').address, old_address)
+    self.assertIsNone(self.node.pending_node_key_announcement())
+
+    announcement = self.node.rotate_private_key()
+    restarted = _engine(self.tmp.name, 'node')
+    self.assertEqual(restarted.address, announcement['new_node'])
+    self.assertEqual(restarted.pending_node_key_announcement(), announcement)
+    restarted.node_key_announcement_done()
+    self.assertIsNone(restarted.pending_node_key_announcement())
 
 
 if __name__ == '__main__':

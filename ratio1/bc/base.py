@@ -4,6 +4,7 @@ import json
 import binascii
 import numpy as np
 import datetime
+import shutil
 import uuid
 import requests
 
@@ -595,9 +596,12 @@ class BaseBlockEngine(
     Replace a revoked node key with a new one.
 
     The new key is created first so the current (revoked) key can sign the
-    announcement that names its successor. The old key file is then moved to
-    `<key file>.revoked-<UTC time>` (kept, never deleted) and the engine reloads
-    from the new key file.
+    announcement that names its successor. The new key and the announcement are
+    written and flushed before the key file is touched; the old key is copied to
+    `<key file>.revoked-<UTC time>` (kept, never deleted) and the new key file then
+    replaces the old one atomically, so a key file exists at every moment. A run
+    interrupted before that replacement leaves the old key active and the rotation
+    simply runs again.
 
     Returns
     -------
@@ -612,16 +616,48 @@ class BaseBlockEngine(
       'new_node': new_address,
     }
     self.sign(announcement)
+    new_fn = self.__pem_file + '.new'
+    self._sk_to_text(private_key=new_private_key, password=self.__password, fn=new_fn)
+    with open(self.__node_key_announcement_file + '.tmp', 'w') as fh:
+      json.dump(announcement, fh)
+    for fn in (new_fn, self.__node_key_announcement_file + '.tmp'):
+      with open(fn, 'rb') as fh:
+        os.fsync(fh.fileno())
+    os.replace(self.__node_key_announcement_file + '.tmp', self.__node_key_announcement_file)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     archive_fn = "{}.revoked-{}".format(self.__pem_file, stamp)
-    os.replace(self.__pem_file, archive_fn)
-    self._sk_to_text(private_key=new_private_key, password=self.__password, fn=self.__pem_file)
-    self.P("Revoked key moved to {}".format(archive_fn), color='y')
+    shutil.copy2(self.__pem_file, archive_fn)
+    os.replace(new_fn, self.__pem_file)
+    self.P("Revoked key kept in {}".format(archive_fn), color='y')
     self.__private_key = None
     self._init()
     if self.address != new_address:
       raise RuntimeError("The new key file could not be loaded.")
     return announcement
+
+
+  @property
+  def __node_key_announcement_file(self):
+    return self.__pem_file + '.rotation.json'
+
+
+  def pending_node_key_announcement(self):
+    """
+    The announcement saved by `rotate_private_key` that dAuth has not answered yet, or
+    None. An announcement that names another key than the current one is ignored.
+    """
+    try:
+      with open(self.__node_key_announcement_file) as fh:
+        announcement = json.load(fh)
+    except FileNotFoundError:
+      return None
+    return announcement if announcement.get('new_node') == self.address else None
+
+
+  def node_key_announcement_done(self):
+    """Stop announcing: the saved announcement is kept as `<file>.done`."""
+    os.replace(self.__node_key_announcement_file, self.__node_key_announcement_file + '.done')
+    return
 
 
   @property
@@ -2480,7 +2516,8 @@ class BaseBlockEngine(
       if none) and `confirmed` (True once dAuth's peers confirmed that address).
     """
     selected_network = network if network is not None else self.evm_network
-    url = self.get_network_data(selected_network)[dAuth.EvmNetData.DAUTH_URL_KEY]
+    # same endpoint choice as `dauth_autocomplete`: the configured one, else the network's
+    url = os.environ.get(DAUTH_ENV_KEY) or self.get_network_data(selected_network)[dAuth.EvmNetData.DAUTH_URL_KEY]
     announce_url = url.replace("/get_auth_data", "/announce_node_key")
     body = {
       dAuth.DAUTH_KEY_ROTATION: announcement,
@@ -2491,10 +2528,18 @@ class BaseBlockEngine(
     if response.status_code != 200:
       raise RuntimeError("dAuth node key announcement failed with HTTP status {}.".format(response.status_code))
     result = response.json().get("result")
-    if not isinstance(result, dict) or not self.verify(result, log_hash_sign_fails=False).valid:
+    verification = self.verify(result, log_hash_sign_fails=False) if isinstance(result, dict) else None
+    if verification is None or not verification.valid:
       raise ValueError("Invalid dAuth node key announcement response.")
+    # The answer ends the retries, so it must come from a dAuth oracle and be about this request.
+    if not self.web3_is_dauth_oracle(self.node_address_to_eth_address(verification.sender), network=selected_network):
+      raise ValueError("Unauthorized dAuth node key announcement response signer.")
+    if result.get(DAUTH_NONCE) != body[DAUTH_NONCE]:
+      raise ValueError("dAuth node key announcement response nonce mismatch.")
     if result.get("error"):
       raise RuntimeError("dAuth refused the node key announcement: {}".format(result["error"]))
+    if result.get("old_node") != announcement.get(BCct.SENDER):
+      raise ValueError("dAuth node key announcement response is for another node.")
     return result
 
 
