@@ -2496,3 +2496,49 @@ class BaseBlockEngine(
     if result.get("error"):
       raise RuntimeError("dAuth refused the node key announcement: {}".format(result["error"]))
     return result
+
+
+  def verify_node_key_rotation(self, proof):
+    """
+    Check a node key rotation proof: the request built by `dauth_announce_node_key`,
+    signed by the new key, carrying the announcement signed by the replaced key.
+
+    Parameters
+    ----------
+    proof : dict
+      The signed request.
+
+    Returns
+    -------
+    tuple
+      `(old_node, new_node)` internal addresses.
+
+    Raises
+    ------
+    ValueError
+      If the proof is malformed, for another network, or a signature is invalid.
+    """
+    announcement = proof.get(dAuth.DAUTH_KEY_ROTATION) if isinstance(proof, dict) else None
+    if not isinstance(announcement, dict):
+      raise ValueError("Missing node key announcement.")
+    old_node = announcement.get(BCct.SENDER)
+    new_node = announcement.get('new_node')
+    if (
+      announcement.get('purpose') != dAuth.DAUTH_KEY_ROTATION_PURPOSE
+      or announcement.get('network') != self.evm_network
+      or not isinstance(old_node, str) or not isinstance(new_node, str)
+      or not isinstance(proof.get(BCct.SENDER), str)
+    ):
+      raise ValueError("Invalid node key announcement.")
+    new_eth = self.node_address_to_eth_address(new_node).lower()
+    if (
+      self.node_address_to_eth_address(proof[BCct.SENDER]).lower() != new_eth
+      or self.node_address_to_eth_address(old_node).lower() == new_eth
+    ):
+      raise ValueError("Invalid node key announcement.")
+    if (
+      not self.verify(announcement, log_hash_sign_fails=False).valid
+      or not self.verify(proof, log_hash_sign_fails=False).valid
+    ):
+      raise ValueError("Invalid node key announcement signature.")
+    return old_node, new_node

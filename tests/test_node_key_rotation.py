@@ -74,6 +74,24 @@ class NodeKeyRotationTests(unittest.TestCase):
     self.assertEqual(body[dAuth.DAUTH_KEY_ROTATION], announcement)
     self.assertTrue(self.server.verify(dict(body)).valid)
 
+  def test_rotation_proof_is_verifiable_by_any_engine(self):
+    old_address = self.node.address
+    announcement = self.node.rotate_private_key()
+    answer = {'new_node': self.node.address, 'confirmed': True}
+    self.server.sign(answer)
+    with patch('ratio1.bc.base.requests.post', return_value=_response(answer)) as post:
+      self.node.dauth_announce_node_key(announcement)
+    proof = post.call_args.kwargs['json']['body']
+    self.assertEqual(self.server.verify_node_key_rotation(proof), (old_address, self.node.address))
+
+    forged = {dAuth.DAUTH_KEY_ROTATION: dict(announcement, new_node=self.server.address), 'nonce': '0x1'}
+    self.server.sign(forged)
+    resigned = {dAuth.DAUTH_KEY_ROTATION: announcement, 'nonce': '0x1'}
+    self.server.sign(resigned)
+    for bad in (forged, resigned, dict(proof, nonce='0x2'), {'new_node': self.node.address}):
+      with self.subTest(bad=sorted(bad)), self.assertRaises(ValueError):
+        self.server.verify_node_key_rotation(bad)
+
   def test_unsigned_or_refused_answer_raises(self):
     announcement = self.node.rotate_private_key()
     refused = {'error': 'Only a revoked node key can announce a new key.'}
