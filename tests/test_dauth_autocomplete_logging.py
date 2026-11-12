@@ -138,6 +138,16 @@ class TestDauthAutocompleteLogging(unittest.TestCase):
     self.assertEqual(run(""), "None")  # the SDK came first: the core is importable but was not loaded
     self.assertEqual(run("sys.modules['naeural_core'] = core; "), "9.9.9")  # a node: the core is already loaded
 
+  def test_a_node_whose_core_version_cannot_be_imported_fails_at_import(self):
+    """No fallback: a loaded core without main.ver stops the SDK import instead of sending no core version."""
+    import subprocess, sys
+    code = ("import sys, types; core = types.ModuleType('naeural_core'); core.__path__ = []; "
+            "sys.modules['naeural_core'] = core; import ratio1.bc.base")
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                            env=dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path)))
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("No module named 'naeural_core.main'", result.stderr)
+
 
 if __name__ == "__main__":
   unittest.main()

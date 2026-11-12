@@ -243,8 +243,10 @@ class R1FSEngine:
       it to the relay (connection settings left as ``None`` are read from environment
       variables there). Besides the connection settings, it creates the relay bookkeeping: the retry
       queue of CIDs the relay has not accepted yet, the per-CID publication status,
-      and ``__relay_busy``, the lock that lets only one background relay pass run at
-      a time (``get_file`` hands its relay work to that pass instead of doing it itself).
+      ``__relay_heal_pending``, the CIDs whose reads failed and that still wait for a
+      relay heal, and ``__relay_busy``, the lock that lets only one background relay
+      pass run at a time (``get_file`` hands its relay work to that pass instead of
+      doing it itself).
 
       Parameters
       ----------
@@ -316,8 +318,13 @@ class R1FSEngine:
       self.__samehost_fix_attempted = False
       self.__relay_retry_queue = {}
       # Only one background relay pass (self-heal plus queue retry) runs at a time; a read that finds
-      # it held drops its kick instead of waiting. A plain Lock because the worker thread releases it.
+      # it held does not wait and starts no pass (its heal, if any, waits in __relay_heal_pending).
+      # A plain Lock because the worker thread releases it.
       self.__relay_busy = Lock()
+      # CIDs whose reads failed and that the relay has not been asked to fetch yet. A read adds its CID here
+      # before it tries the pass lock, so a heal asked for while a pass runs is kept: that pass heals it before
+      # its next queued publication or before it ends, and one added after its last look waits for the next pass.
+      self.__relay_heal_pending = set()
       self.__relay_publication_status = {}
       self.__relay_config_warning_flags = set()
       
@@ -759,6 +766,14 @@ class R1FSEngine:
       Reads no longer call this before their get: it runs only in the background
       relay pass (``__relay_in_background``), so the time it takes does not count
       against any read.
+      The CIDs are taken from a snapshot of the queue, and each entry is read again
+      when its turn comes: a CID that has left the queue by then (unpinned by
+      ``unpin_file``, published, or evicted) is skipped. The attempt is counted on
+      the queued entry itself, so nothing is written back that could return such a
+      CID to the queue. A CID that is unpinned while its own publication is running
+      is not stopped, and if that publication fails it is queued again. Before each
+      publication, the CIDs in ``__relay_heal_pending`` (reads that failed) are
+      healed first.
 
       Parameters
       ----------
@@ -770,18 +785,32 @@ class R1FSEngine:
       Returns
       -------
       None
+
+      Examples
+      --------
+      >>> # on the background "r1fs-relay" thread, inside work() of __relay_in_background
+      >>> self.__retry_queued_relay_publications(context="background pass", show_logs=False)
       """
       if not self.__relay_retry_queue:
         return
-      queued_items = list(self.__relay_retry_queue.items())
+      # The CIDs queued now; each entry is read again at its turn, so only the names are kept.
+      queued_cids = list(self.__relay_retry_queue)
       if show_logs:
-        self.P(f"Retrying {len(queued_items)} queued relay publication(s) before {context}.", color='m')
+        self.P(f"Retrying {len(queued_cids)} queued relay publication(s) before {context}.", color='m')
       # Reads no longer run this drain on their own thread: it runs only in the background
       # "r1fs-relay" pass (see __relay_in_background), so a large queue lengthens that pass, not a read.
-      for cid, queue_item in queued_items:
-        refreshed_item = dict(self.__relay_retry_queue.get(cid, queue_item))
+      for cid in queued_cids:
+        # Heal the CIDs whose reads failed before the next publication, so a long backlog does not hold
+        # their heals until the pass ends.
+        self.__heal_remembered_cids(show_logs=show_logs)
+        # Read the live entry, not a snapshot copy: a CID that left the queue meanwhile (unpinned,
+        # published or evicted) gets None here and is skipped.
+        refreshed_item = self.__relay_retry_queue.get(cid)
+        if refreshed_item is None:
+          continue
+        # Count the attempt on the queued entry itself. Writing a changed copy back, as before, returned a
+        # CID to the queue when it had been unpinned between the read above and the write.
         refreshed_item["attempts"] = int(refreshed_item.get("attempts", 0)) + 1
-        self.__relay_retry_queue[cid] = refreshed_item
         self.__set_upload_status(
           cid,
           source_path=refreshed_item.get("source_path"),
@@ -800,6 +829,38 @@ class R1FSEngine:
         )
       return
 
+    def __heal_remembered_cids(self, show_logs: bool = True):
+      """
+      Ask the relay to fetch the CIDs whose reads failed.
+
+      Runs on the background relay pass only. It heals the CIDs that are in
+      ``__relay_heal_pending`` when it is called and no others: a CID that a read adds
+      while these heals run waits for the next call. One call therefore does a bounded
+      amount of work, and reads that keep failing cannot keep the pass from its queued
+      publications or from ending.
+
+      Parameters
+      ----------
+      show_logs : bool, optional
+          Whether the heals emit logs. Default ``True``.
+
+      Returns
+      -------
+      None
+
+      Examples
+      --------
+      >>> # on the background "r1fs-relay" thread
+      >>> self.__heal_remembered_cids(show_logs=False)
+      """
+      # A snapshot of the set: what reads add from here on is left for the next call.
+      for cid in list(self.__relay_heal_pending):
+        # Forget the CID before its heal, so a read of it that fails during the heal can ask once more.
+        self.__relay_heal_pending.discard(cid)
+        # Ask the relay to fetch it, so a later read can find it.
+        self.__attempt_download_self_heal(cid=cid, show_logs=show_logs)
+      return
+
     def __attempt_download_self_heal(self, cid: str, show_logs: bool = True) -> bool:
       """
       Ask the relay to fetch a CID before retrying a failed download.
@@ -809,8 +870,10 @@ class R1FSEngine:
       the relay pulls the data and a later read can find it. It is called only from
       the background relay pass (``__relay_in_background``) after a failed
       ``ipfs get``; the read that failed is not repeated, only later reads benefit.
-      It no longer drains the relay retry queue itself: the background pass does that
-      right after the heal, so a backlog cannot delay the heal.
+      It no longer drains the relay retry queue itself. The background pass calls it
+      for every CID in ``__relay_heal_pending``: at the start of the pass, before each
+      queued publication and before the pass ends, so a heal asked for while a pass
+      runs does not wait for the whole backlog.
 
       Parameters
       ----------
@@ -852,16 +915,17 @@ class R1FSEngine:
       connect or read, not the whole call, so it can take longer. Before this change
       that work ran on the reader's thread, outside its timeout; now it runs on a
       daemon thread named ``"r1fs-relay"``, so it no longer adds to a read's time.
-      Nothing starts when there is no CID to heal and the retry queue is empty, and
-      only one pass runs at a time: when ``__relay_busy`` is already held the kick is
-      dropped instead of waiting.
+      Nothing starts when no CID waits for a heal and the retry queue is empty, and
+      only one pass runs at a time: when ``__relay_busy`` is already held this call
+      returns instead of waiting.
 
       Parameters
       ----------
       heal_cid : str, optional
-          CID whose ``ipfs get`` just failed; the relay is asked to fetch it so a
-          later read can find it. ``None`` after a successful get, in which case the
-          pass only retries the queued publications.
+          CID whose ``ipfs get`` just failed; it is added to ``__relay_heal_pending``
+          and the relay is asked to fetch it so a later read can find it. ``None``
+          after a successful get, in which case the pass heals only CIDs already
+          remembered and retries the queued publications.
       show_logs : bool, optional
           Whether the background pass emits logs. Default ``True``.
 
@@ -873,38 +937,55 @@ class R1FSEngine:
 
       Notes
       -----
-      The heal runs before the queue drain so a long backlog cannot starve it. A
-      dropped kick is not remembered: a ``heal_cid`` passed while a pass is running
-      is not healed by that pass; a later failed read of the same CID kicks again.
+      ``heal_cid`` is remembered before the pass lock is tried, so a heal asked for
+      while a pass runs is not dropped: the running pass heals the remembered CIDs
+      before each queued publication and once more before it ends. A heal added
+      after the pass's last look and before it frees the lock waits in the set
+      until the next call, from any read, starts a pass.
+      When the background thread cannot be started (for example the thread limit of
+      the container is reached), the failure is logged in red, the pass lock is
+      freed and ``heal_cid`` stays remembered for the next pass. The read that
+      called this is not failed by it: its own result does not depend on the relay.
 
       Examples
       --------
       >>> # in get_file, right after the ipfs get
       >>> self.__relay_in_background(heal_cid=cid if download_error else None, show_logs=show_logs)
       """
-      if not (heal_cid or self.__relay_retry_queue) or not self.__relay_busy.acquire(blocking=False):
+      if heal_cid:
+        # Remember the heal before trying the pass lock: when a pass is already running, that pass heals it
+        # instead of the heal being dropped.
+        self.__relay_heal_pending.add(heal_cid)
+      if not (self.__relay_heal_pending or self.__relay_retry_queue) or not self.__relay_busy.acquire(blocking=False):
         return
       def work():
         """
         Run one relay pass on the background thread and always free the pass lock.
 
-        Asks the relay to fetch ``heal_cid`` first (when set), then retries every
-        queued relay publication. The ``finally`` releases ``__relay_busy`` even when
-        a step raises, so a later read can start a new pass. It takes no arguments:
-        ``heal_cid`` and ``show_logs`` come from the enclosing ``__relay_in_background`` call.
+        Retries every queued relay publication, healing the CIDs whose reads failed
+        before each one, then heals the CIDs that are remembered at that moment (all
+        of them when the queue was empty, otherwise those added during the last
+        publication). The ``finally`` releases ``__relay_busy`` even when a step
+        raises, so a later read can start a new pass. It takes no arguments:
+        ``show_logs`` comes from the enclosing ``__relay_in_background`` call.
 
         Returns
         -------
         None
+
+        Examples
+        --------
+        >>> # started by __relay_in_background on its own thread
+        >>> Thread(target=work, name="r1fs-relay", daemon=True).start()
         """
         try:
-          if heal_cid:
-            # Heal first: ask the relay to fetch the CID this read could not get, so a later read can find it.
-            # Running it before the drain keeps a long retry backlog from starving it.
-            self.__attempt_download_self_heal(cid=heal_cid, show_logs=show_logs)
-          # Then retry the CIDs the relay has not accepted yet; this drain used to run on the
-          # reader's thread before every get.
+          # Retry the CIDs the relay has not accepted yet; this drain used to run on the reader's thread
+          # before every get. It heals the remembered CIDs before each publication, so a long retry
+          # backlog does not hold a heal back.
           self.__retry_queued_relay_publications(context="background pass", show_logs=show_logs)
+          # Heal what is remembered now: every CID when the queue was empty (the drain returned at once),
+          # otherwise those whose reads failed during the last publication.
+          self.__heal_remembered_cids(show_logs=show_logs)
         finally:
           # Always free the pass lock, even if a step raised, so the next read can start a new pass.
           self.__relay_busy.release()
@@ -912,10 +993,13 @@ class R1FSEngine:
         # Run the pass on its own thread so the read returns without waiting for the relay; daemon=True so
         # a long pass (a big queue against a hung relay) does not hold up interpreter exit.
         Thread(target=work, name="r1fs-relay", daemon=True).start()
-      except Exception:
+      except Exception as exc:
         # The thread did not start, so no worker will release the lock; free it here or every later
         # kick would be dropped.
         self.__relay_busy.release()
+        # Say it in red instead of passing without a trace. The read that called this keeps its own result,
+        # which does not depend on the relay; the next read starts the pass again.
+        self.P(f"Background relay pass could not start: {exc}", color='r')
     
 
     def _get_swarm_peers(self):
@@ -2044,10 +2128,12 @@ class R1FSEngine:
       Explicitly pin a CID (and fetch its data) so it appears in the local pinset.
 
       Runs ``ipfs pin add`` with a timeout the caller can now choose. ``get_file``
-      calls it after a successful ``ipfs get`` with the read's own timeout: by then
-      every block is local, so the pin is quick, and a read is no longer held by a
-      network pin under the fixed default before the get. ``add_file`` keeps the
-      default timeout.
+      calls it after a successful ``ipfs get`` with the time the read has left (at
+      least 1 s), so a read is no longer held by a network pin under the fixed
+      default before the get. The pin is quick when the blocks the get stored are
+      still local; a repository garbage collection between the get and the pin
+      removes those unpinned blocks, and the pin then has to fetch them again within
+      that time. ``add_file`` keeps the default timeout.
 
       Parameters
       ----------
@@ -2071,8 +2157,8 @@ class R1FSEngine:
 
       Examples
       --------
-      >>> # in get_file, after a successful get, with the read's timeout
-      >>> self.__pin_add(cid, timeout=ipfs_timeout)
+      >>> # in get_file, after a successful get, with the time the read has left
+      >>> self.__pin_add(cid, timeout=max(1, ipfs_timeout - download_elapsed_time))
       """
       # Pass the timeout through so get_file can bound its pin by the reader's timeout, not the fixed default.
       res = self.__run_command(["ipfs", "pin", "add", cid], timeout=timeout)
@@ -2585,11 +2671,15 @@ class R1FSEngine:
       Notes
       -----
       ``ipfs get`` runs first and is bounded by ``timeout``; when ``pin`` is True the
-      CID is pinned only after a successful get, under the same timeout, and a failed
-      pin is only logged. Relay work never runs on the caller's thread: after the
-      get, a background pass (unless one is already running) asks the relay to fetch
-      the CID if the get failed, so a later read can find it, and retries the queued
-      relay publications. The failed read itself is not retried.
+      CID is pinned only after a successful get, with only the time the get left
+      (at least 1 s), so the get and the pin together take about ``timeout`` at most,
+      about 1 s more when the get used nearly all of it. Starting the ``ipfs``
+      commands and decryption are not counted in that time. A failed pin is logged in red and not retried; the read still
+      returns the file. Relay work never runs on the caller's thread: after a failed
+      get the CID is remembered for the background relay pass (see
+      ``__relay_in_background``), which asks the relay to fetch it so a later read
+      can find it and also retries the queued relay publications. The failed read
+      itself is not retried.
 
       Examples
       --------
@@ -2655,7 +2745,8 @@ class R1FSEngine:
       except Exception as e:
         download_error = str(e)
         self.P(f"Initial ipfs get failed for {cid}: {download_error}", color='y')
-      # Relay work never runs on the reader's thread; a missing CID is fetched by the relay for the next read.
+      # Relay work never runs on the reader's thread. A CID this get missed is remembered for the background
+      # pass, which asks the relay to fetch it so a later read can find it.
       self.__relay_in_background(heal_cid=cid if download_error else None, show_logs=show_logs)
       if download_error is not None:
         if raise_on_error:
@@ -2664,13 +2755,17 @@ class R1FSEngine:
         return None
       download_elapsed_time = time.time() - start_time
       if pin:
-        # Pin after the get: `ipfs get` stored every block locally, so this pin is local and
-        # quick, and the caller's timeout (not a fixed 90 s pin) bounds the network fetch.
+        # Pin after the get, so the caller's timeout (not a fixed 90 s pin) bounds the network fetch. The pin
+        # is quick when the blocks the get stored are still local; a repository garbage collection between
+        # the get and the pin removes them, and the pin then has to fetch them again.
         try:
-          # Same timeout as the get. A failure only logs: the data is already on disk, so the read goes on.
-          self.__pin_add(cid, timeout=ipfs_timeout)
+          # Give the pin only the time the read has left (at least 1 s), not a second full window, so the get
+          # and the pin together take about the caller's timeout at most. A failure only logs: the data is
+          # already on disk, so the read goes on.
+          self.__pin_add(cid, timeout=max(1, ipfs_timeout - download_elapsed_time))
         except Exception as e:
-          self.P(f"Pin after download failed for {cid}: {e}", color='y')
+          # Red, not yellow: the read returns the file, but the pin failed and nothing retries it.
+          self.P(f"Pin after download failed for {cid}: {e}", color='r')
 
       # Expect exactly one file
       if not os.path.isdir(local_folder):
@@ -3100,7 +3195,11 @@ class R1FSEngine:
         like relay pin/add, so a hung relay API cannot hold the caller forever. A
         timed-out relay request is reported as a failed unpin (or raised as
         ``RuntimeError`` with ``raise_on_error=True``) after the local ``ipfs pin rm``
-        has already run.
+        has already run. Once the local ``ipfs pin rm`` call returns, the CID leaves
+        the relay retry queue, before the relay call and whatever its result, so the
+        background relay pass skips it when its turn comes. A relay publication of
+        this CID that is already in progress is not stopped, and if it fails the CID
+        is queued again.
 
         Examples
         --------
@@ -3141,6 +3240,11 @@ class R1FSEngine:
             if show_logs:
               self.P(msg, color='r')
             return False
+
+        # The local `ipfs pin rm` call returned without raising: drop the CID from the relay retry queue now,
+        # before the relay call, so a failed or timed-out relay pin/rm cannot leave it queued for the
+        # background pass to publish to the relay again.
+        self.__relay_retry_queue.pop(cid, None)
 
         # Then, notify the relay to unpin (mirrors add_file behavior)
         if unpin_remote and self.__ipfs_relay_api is not None:

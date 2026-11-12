@@ -25,12 +25,10 @@ except:
 # carries core and SDK versions but no app version.
 core_version = None
 if 'naeural_core' in sys.modules:
-  try:
-    # The core is already loaded, so this process is a node: it reports its core version in dAuth requests.
-    from naeural_core.main.ver import __VER__ as core_version
-  except:
-    # A core without a readable version must not break the SDK import: report no core version.
-    core_version = None
+  # The core is already loaded, so this process is a node: it reports its core version in dAuth requests.
+  # No fallback: a core whose version cannot be imported fails here, at import, instead of sending dAuth
+  # requests without a core version that oracles refuse.
+  from naeural_core.main.ver import __VER__ as core_version
 
 
 

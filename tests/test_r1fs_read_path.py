@@ -27,18 +27,22 @@ def _ciphertext(content: bytes, filename: str = "data.json") -> bytes:
 class R1FSReadPathTests(unittest.TestCase):
   """get_json against fake `ipfs` commands and a fake relay API."""
 
-  def _engine(self, reachable=True, pin_fails=False):
-    """``reachable``: whether `ipfs get` / `ipfs pin add` find the CID (else they time out)."""
+  def _engine(self, reachable=True, pin_fails=False, get_seconds=0):
+    """``reachable``: whether `ipfs get` / `ipfs pin add` find the CID (else they time out).
+    ``get_seconds``: how far a good get moves ``engine.now``, the clock a test can put in place of time.time."""
     engine = object.__new__(R1FSEngine)
     engine.commands = []
     engine.relay_calls = []
     engine.relay_accepts = False
     engine.relay_gate = threading.Event()  # cleared = the relay API hangs
     engine.relay_gate.set()
+    engine.relay_entered = threading.Semaphore(0)  # released each time the fake relay API is called
+    engine.now = 1000.0
 
     def run_command(cmd_list, raise_on_error=True, timeout=IPFSCt.TIMEOUT, **kwargs):
       engine.commands.append((cmd_list[1], timeout))
       if cmd_list[1] == "get" and reachable:
+        engine.now += get_seconds
         os.makedirs(cmd_list[-1])
         with open(os.path.join(cmd_list[-1], cmd_list[2]), "wb") as fhandle:
           fhandle.write(_ciphertext(json.dumps(DOC).encode()))
@@ -49,6 +53,7 @@ class R1FSReadPathTests(unittest.TestCase):
 
     def publish(cid, **kwargs):
       engine.relay_calls.append((cid, threading.current_thread().name))
+      engine.relay_entered.release()
       engine.relay_gate.wait(10)
       return engine.relay_accepts
 
@@ -58,6 +63,7 @@ class R1FSReadPathTests(unittest.TestCase):
     engine._R1FSEngine__publish_cid_to_relay = publish
     engine._R1FSEngine__relay_retry_queue = {}
     engine._R1FSEngine__relay_busy = threading.Lock()
+    engine._R1FSEngine__relay_heal_pending = set()
     engine._R1FSEngine__relay_publication_status = {}
     engine._R1FSEngine__ipfs_started = True
     engine._R1FSEngine__DEFAULT_SECRET = "ratio1"
@@ -79,15 +85,20 @@ class R1FSReadPathTests(unittest.TestCase):
     self.assertIsNone(engine.get_json("QmMissing", timeout=10, show_logs=False))
     self.assertEqual(engine.commands, [("get", 10)])
 
-  def test_healthy_read_is_pinned_after_the_get(self):
-    engine = self._engine()
-    self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
-    self.assertEqual(engine.commands, [("get", 10), ("pin", 10)])
+  def test_healthy_read_is_pinned_after_the_get_with_only_the_time_left(self):
+    for get_seconds, pin_timeout in [(4, 6), (10, 1)]:  # the get used all 10 s: the pin gets the 1 s floor
+      engine = self._engine(get_seconds=get_seconds)
+      with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+        self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
+      self.assertEqual(engine.commands, [("get", 10), ("pin", pin_timeout)])
 
-  def test_failed_pin_after_a_good_get_does_not_fail_the_read(self):
+  def test_failed_pin_after_a_good_get_does_not_fail_the_read_and_is_logged_in_red(self):
     engine = self._engine(pin_fails=True)
+    logs = []
+    engine.P = lambda message, *args, color=None, **kwargs: logs.append((message, color))
     self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
-    self.assertEqual(engine.commands, [("get", 10), ("pin", 10)])
+    self.assertEqual([command for command, _ in engine.commands], ["get", "pin"])
+    self.assertEqual([color for message, color in logs if message.startswith("Pin after download failed")], ["r"])
 
   def test_reads_leave_the_relay_queue_to_one_background_pass(self):
     engine = self._engine()
@@ -107,6 +118,77 @@ class R1FSReadPathTests(unittest.TestCase):
     self.assertEqual(engine.commands, [("get", 10)])
     self._release_relay(engine)
     self.assertEqual(engine.relay_calls, [("QmMissing", "r1fs-relay"), ("QmQueued", "r1fs-relay")])
+
+  def test_heal_asked_for_while_a_pass_runs_is_done_by_that_pass(self):
+    """Healed before the next queued publication, or before the pass ends when none is left."""
+    for queued, expected in [(["QmQ1", "QmQ2"], ["QmQ1", "QmMissing", "QmQ2"]), (["QmQ1"], ["QmQ1", "QmMissing"])]:
+      engine = self._engine(reachable=False)
+      for cid in queued:
+        engine._R1FSEngine__relay_retry_queue[cid] = {"cid": cid, "queued_at": "t0"}
+      engine.relay_gate.clear()
+      engine._R1FSEngine__relay_in_background(show_logs=False)  # a pass starts for the queue
+      self.assertTrue(engine.relay_entered.acquire(timeout=10))  # the publication of QmQ1 hangs
+      self.assertIsNone(engine.get_json("QmMissing", timeout=10, show_logs=False))  # finds the pass running
+      self._release_relay(engine)
+      self.assertEqual(engine.relay_calls, [(cid, "r1fs-relay") for cid in expected])
+
+  def test_reads_that_keep_failing_cannot_keep_the_pass_from_its_queue(self):
+    """Each heal point heals what was remembered when it started; a CID asked for again meanwhile waits."""
+    engine = self._engine(reachable=False)
+    engine._R1FSEngine__relay_retry_queue["QmQ1"] = {"cid": "QmQ1", "queued_at": "t0"}
+    publish = engine._R1FSEngine__publish_cid_to_relay
+
+    def publish_while_the_read_fails_again(cid, **kwargs):
+      if cid == "QmMissing":
+        # The same read fails again during every heal of its CID.
+        engine._R1FSEngine__relay_heal_pending.add("QmMissing")
+      return publish(cid, **kwargs)
+
+    engine._R1FSEngine__publish_cid_to_relay = publish_while_the_read_fails_again
+    engine._R1FSEngine__relay_in_background(heal_cid="QmMissing", show_logs=False)
+    self._release_relay(engine)
+    # One heal before the publication, one after it; with a heal loop that ran until the set was empty the
+    # pass never reached QmQ1 and never ended.
+    self.assertEqual([cid for cid, _ in engine.relay_calls], ["QmMissing", "QmQ1", "QmMissing"])
+    self.assertEqual(engine._R1FSEngine__relay_heal_pending, {"QmMissing"})  # asked again: the next pass heals it
+
+  def test_a_heal_left_over_is_done_by_the_pass_the_next_good_read_starts(self):
+    engine = self._engine()
+    engine._R1FSEngine__relay_heal_pending.add("QmMissing")  # added too late for the pass that was running
+    self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)  # empty queue, good read
+    self._release_relay(engine)
+    self.assertEqual(engine.relay_calls, [("QmMissing", "r1fs-relay")])
+
+  def test_relay_pass_that_cannot_start_is_logged_in_red_and_frees_the_lock(self):
+    engine = self._engine()
+    logs = []
+    engine.P = lambda message, *args, color=None, **kwargs: logs.append((message, color))
+    with mock.patch.object(r1fs, "Thread") as thread:
+      thread.return_value.start.side_effect = RuntimeError("can't start new thread")
+      # The read keeps its own result: the relay work is not part of it.
+      self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
+      engine._R1FSEngine__relay_in_background(heal_cid="QmMissing", show_logs=False)
+    self.assertEqual(logs, [("Background relay pass could not start: can't start new thread", "r")])
+    self.assertTrue(engine._R1FSEngine__relay_busy.acquire(blocking=False))
+    self.assertEqual(engine._R1FSEngine__relay_heal_pending, {"QmMissing"})  # kept for the next pass
+
+  def test_cid_unpinned_during_a_pass_is_not_published(self):
+    engine = self._engine()
+    engine._R1FSEngine__ipfs_relay_api = "https://relay.invalid"
+    engine._R1FSEngine__ipfs_api_key_username = engine._R1FSEngine__ipfs_api_key_password = "x"
+    engine._R1FSEngine__ipfs_certificate_path = None
+    engine._R1FSEngine__uploaded_files = {}
+    for cid in ("QmA", "QmB"):
+      engine._R1FSEngine__relay_retry_queue[cid] = {"cid": cid, "queued_at": "t0"}
+    engine.relay_gate.clear()
+    self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)  # starts the pass
+    self.assertTrue(engine.relay_entered.acquire(timeout=10))  # the publication of QmA is in progress
+    not_pinned = mock.Mock(status_code=500, text="not pinned")  # the relay never pinned QmB: pin/rm fails
+    with mock.patch.object(r1fs.requests, "post", return_value=not_pinned):
+      self.assertFalse(engine.unpin_file("QmB", show_logs=False))
+    self.assertNotIn("QmB", engine._R1FSEngine__relay_retry_queue)
+    self._release_relay(engine)
+    self.assertEqual(engine.relay_calls, [("QmA", "r1fs-relay")])
 
   def test_relay_unpin_is_bounded(self):
     engine = self._engine()
