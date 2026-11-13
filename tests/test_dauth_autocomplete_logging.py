@@ -3,6 +3,8 @@ import os
 import unittest
 from unittest import mock
 
+import requests
+
 from ratio1.bc.base import BaseBlockEngine
 from test_dauth_job_secret_client import _DauthClientHarness
 
@@ -89,6 +91,62 @@ class TestDauthAutocompleteLogging(unittest.TestCase):
     self.assertIsNone(result)
     self.assertIn("Error in dAuth URL request: whitelist failed", self._logs())
     self.assertNotIn(SECRET_VALUE, self._logs())
+
+  def test_busy_oracle_is_retryable_and_paced(self):
+    """A 503 is not a bad URL: return {} so the node retries, pausing between tries."""
+    self.response.status_code = 503
+    self.response.text = "busy"
+    with mock.patch("ratio1.bc.base.sleep") as pause:
+      result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=3)
+    self.assertEqual(result, {})
+    self.assertEqual(pause.call_count, 2)
+
+  def test_timeout_is_retryable_but_an_outage_is_not(self):
+    """A timeout is a busy oracle ({}); a 530 (no tunnel) still means stop (None)."""
+    timeout = requests.exceptions.ReadTimeout("slow")
+    with mock.patch("ratio1.bc.base.requests.post", side_effect=timeout):
+      result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=1)
+    self.assertEqual(result, {})
+    self.response.status_code = 530
+    result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=1)
+    self.assertIsNone(result)
+
+  def test_only_a_busy_answer_is_paced_and_the_last_answer_decides(self):
+    """Outages and unreachable hosts return None without pauses, also after an earlier busy answer."""
+    answers = [mock.Mock(status_code=503, text="busy")] + [mock.Mock(status_code=530, text="no tunnel")] * 4
+    with mock.patch("ratio1.bc.base.requests.post", side_effect=answers), mock.patch("ratio1.bc.base.sleep") as pause:
+      result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=5)
+    self.assertIsNone(result)
+    self.assertEqual(pause.call_count, 1)  # after the 503 only
+    for error in (requests.exceptions.ConnectTimeout("no route"), requests.exceptions.ConnectionError("refused")):
+      with mock.patch("ratio1.bc.base.requests.post", side_effect=error), mock.patch("ratio1.bc.base.sleep") as pause:
+        result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=3)
+      self.assertIsNone(result)
+      pause.assert_not_called()
+
+  def test_an_sdk_first_process_reports_no_core_version(self):
+    """The core version is read only when the node loaded naeural_core before the SDK."""
+    import subprocess, sys
+    code = ("import sys, types; core = types.ModuleType('naeural_core'); core.__path__ = []; "
+            "main = types.ModuleType('naeural_core.main'); main.__path__ = []; "
+            "ver = types.ModuleType('naeural_core.main.ver'); ver.__VER__ = '9.9.9'; "
+            "sys.modules.update({'naeural_core.main': main, 'naeural_core.main.ver': ver}); "
+            "@FIRST@"
+            "import ratio1.bc.base as base; print(base.core_version)")
+    run = lambda first: subprocess.run([sys.executable, "-c", code.replace("@FIRST@", first)], capture_output=True, text=True,
+                                       env=dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))).stdout.strip().splitlines()[-1]
+    self.assertEqual(run(""), "None")  # the SDK came first: the core is importable but was not loaded
+    self.assertEqual(run("sys.modules['naeural_core'] = core; "), "9.9.9")  # a node: the core is already loaded
+
+  def test_a_node_whose_core_version_cannot_be_imported_fails_at_import(self):
+    """No fallback: a loaded core without main.ver stops the SDK import instead of sending no core version."""
+    import subprocess, sys
+    code = ("import sys, types; core = types.ModuleType('naeural_core'); core.__path__ = []; "
+            "sys.modules['naeural_core'] = core; import ratio1.bc.base")
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                            env=dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path)))
+    self.assertNotEqual(result.returncode, 0)
+    self.assertIn("No module named 'naeural_core.main'", result.stderr)
 
 
 if __name__ == "__main__":

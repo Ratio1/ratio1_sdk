@@ -104,6 +104,28 @@ for the area you change. Keep each entry current: edit or delete it when the cod
 
 - `R1FSEngine` transfers through an IPFS relay configured by `EE_IPFS_RELAY`,
   `EE_SWARM_KEY_CONTENT_BASE64` and `EE_IPFS_RELAY_API`; downloads land under `_local_cache/_output`.
+- The daemon is always launched with an empty Bootstrap list. Kubo 0.35 dials Bootstrap peers while
+  the daemon is still being built, before Bitswap watches connections, and a link opened that early
+  never carries a block request for as long as it lives (pings and circuits still work on it). A
+  relay within about a millisecond loses that race on most starts. `R1FSEngine` holds the configured
+  peers back, and once the daemon API answers it runs `swarm connect` for each and puts it back in
+  the list, so later re-dials behave as before. Proof of block transfer is a want that reaches the
+  relay (`ipfs bitswap wantlist --peer=<node>` on the relay), not a peer line or a ping.
+- A failed read of a CID the relay had already accepted prints one boxed red `RELAY DATA PATH` line
+  (at most one per 600 s) with the direct-link state and the Bitswap ledger for the relay.
+- CIDs are accepted only as bare CIDs (ASCII letters and digits, at most 255; `is_pinned`,
+  `is_cid_available` and `cleanup_downloads` still handle None and "" as before), and any other
+  value is refused before any file is deleted or any `ipfs` command or relay request runs. A
+  file name (`fn`) given to `add_json`, `add_pickle`, `calculate_json_cid` or `calculate_pickle_cid`
+  must be a plain name and is refused before anything is written; `add_yaml` does not refuse its
+  `fn` and uses it only when it has no path part. A download is checked only after `get_file`
+  removed the previous `<local_folder>/<cid>` (a link there is removed itself, whether its target
+  exists or not) and `ipfs get` wrote the new one. A root that is a link or not a folder, or a
+  folder that does not hold exactly one entry, is refused and left on disk, with nothing read,
+  written or deleted through a link. An entry that is a link or not a regular file is refused
+  before it is opened. A file name stored in the object's metadata that is not a plain name is
+  refused after that metadata was read and decrypted, but before any plaintext is written. In
+  these last two cases `<local_folder>/<cid>` is then removed.
 - The same-host relay workaround is opt-in (`EE_R1FS_SAMEHOST_RELAY_FIX`), because local
   control-plane reachability did not prove block transfer. It requires the relay to appear on the
   exact local multiaddr before changing filters or bootstrap, records state in

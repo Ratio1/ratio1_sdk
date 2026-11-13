@@ -1,4 +1,6 @@
 import os
+# sys.modules tells whether naeural_core is already loaded (only on a node): see core_version below.
+import sys
 import base64
 import json
 import binascii
@@ -12,16 +14,22 @@ from collections import defaultdict
 from hashlib import sha256, md5
 from threading import Event, Lock, Thread
 from copy import deepcopy
-from time import monotonic, time
+# sleep: dauth_autocomplete pauses before asking a busy dAuth oracle again.
+from time import monotonic, sleep, time
 
 try:
   from ver import __VER__ as app_version
 except:
   app_version = None
-try:
+# Only a node, which loads naeural_core before the SDK, reports a core version. An SDK-first process
+# (a client on a machine that also has the core installed) must not: oracles refuse a dAuth request that
+# carries core and SDK versions but no app version.
+core_version = None
+if 'naeural_core' in sys.modules:
+  # The core is already loaded, so this process is a node: it reports its core version in dAuth requests.
+  # No fallback: a core whose version cannot be imported fails here, at import, instead of sending dAuth
+  # requests without a core version that oracles refuse.
   from naeural_core.main.ver import __VER__ as core_version
-except:
-  core_version = None
 
 
 
@@ -2065,7 +2073,19 @@ class BaseBlockEngine(
     failure does not restore metadata in the unversioned path. Lifecycle
     preparation leaves the active pointer unchanged; commit/delete publish only
     at the coordinator's finalization step. Request and response bodies are
-    never logged by this method.
+    never logged by this method. A signed refusal is logged in red with only the
+    refusing server's ``server_alias`` and the action ("job update" for a request
+    without an operation) before the RuntimeError is raised.
+
+    Examples
+    --------
+    >>> # a coordinator revoking the secrets of a deployment operation
+    >>> result = engine.reconcile_dauth_job_secrets({
+    ...   "job_id": "7", "action": "revoke",
+    ...   "operation": {"operation_id": "op", "plan_cid": "plan"},
+    ... })
+    >>> result["action"]
+    'revoke'
     """
     if not isinstance(payload, dict):
       raise ValueError("Invalid dAuth reconciliation payload.")
@@ -2115,6 +2135,10 @@ class BaseBlockEngine(
     if result.get(DAUTH_NONCE) != signed_body[DAUTH_NONCE]:
       raise ValueError("dAuth reconciliation response nonce mismatch.")
     if result.get("status") != "success" or result.get("error") not in (None, ""):
+      # Name the server that refused: the signed answer always carries its alias, and the caller's retry log
+      # does not say which dAuth server answered. Only lifecycle requests have an action.
+      self.P("dAuth server {} refused secret reconciliation ({}).".format(
+        result["server_alias"], payload["action"] if operation is not None else "job update"), color='r')
       raise RuntimeError("dAuth rejected secret reconciliation.")
     if operation is not None:
       if (
@@ -2314,21 +2338,64 @@ class BaseBlockEngine(
   ):
     """
     Autocompletes the environment with the dAuth information.
+
+    Sends a signed dAuth request (nonce, app/SDK/core versions and any extra fields) to a dAuth oracle,
+    verifies the signature of the answer, adds the whitelisted addresses it carries to the allowed list
+    and, when `add_env` is set, writes the env keys it returns into `os.environ`. A request is sent up to
+    `max_tries` times until an oracle answers with status 200.
+
+    A busy oracle (status 429/503/504/524, or no answer within the read timeout) is not a bad URL: the
+    method pauses before asking it again (a base of 2 s doubled per try, so 2, 4, 8, 16 s, capped at 30 s,
+    then times a random 0.5-1.5 jitter, so one pause lasts at most 45 s) and, if the last try met a busy
+    oracle, returns {} so the caller can try again later instead of giving up. Any other status (such as
+    an outage's 530), refused connections, connect timeouts and other errors are retried at once without
+    a pause and, on the last try, return None, so a node start-up does not keep waiting for a dAuth that
+    nobody serves. The result follows the last answer only.
+
     Parameters
     ----------
-    dauth_endp
-    add_env
-    debug
-    max_tries
-    network
-    request_timeout
-    kwargs
+    dauth_endp : str, optional
+      dAuth URL. When missing or too short, the URL comes from the dAuth environment variable or,
+      without it, from the data of `network`.
+    add_env : bool, optional
+      When True (the default), the env keys received from dAuth are written into `os.environ`.
+    debug : bool, optional
+      When True, log the request body and the answer status. Forced on for test/dev networks.
+    max_tries : int, optional
+      Maximum number of requests to send (default 5); at least one is always sent.
+    network : str, optional
+      EVM network name; None means the network of this engine.
+    return_full_data : bool, optional
+      When True, return the JSON answer of the status-200 response, which ends the tries (or {} when no
+      try got one), instead of the env keys. Its whitelist entry is removed once applied.
+    debug_data : bool, optional
+      When True, fields given in `kwargs` may override the nonce and version fields of the request;
+      when False (the default), the SDK's own nonce and version fields win.
+    request_timeout : tuple of (float, float), optional
+      (connect, read) timeouts in seconds for each request; default (60, 120).
+    **kwargs
+      Extra fields added to the signed request body. Without any, the default sender alias is sent.
 
     Returns
     -------
     None if the URL is invalid or the request failed.
+    {} if the last try met a busy oracle (429/503/504/524 or a read timeout): the caller may try again later.
     dict with the dAuth information if the request got status 200(if errors occured, but
     the status is still 200, an empty dictionary will be returned).
+    With `return_full_data`, the JSON answer described above instead. When the EE_VPN_IMPL flag
+    is set, always None.
+
+    Notes
+    -----
+    An answer with an invalid signature returns {} at once, without further tries.
+
+    Examples
+    --------
+    >>> dct_env = engine.dauth_autocomplete(max_tries=3)
+    >>> if dct_env is None:
+    ...   pass  # invalid URL, no oracle reachable or an error status: a hard failure
+    ... elif len(dct_env) == 0:
+    ...   pass  # busy oracle, no keys granted or an invalid signature: the caller may try again later
     """
     if EE_VPN_IMPL:
       return None # must return None not empty dict for VPNs
@@ -2377,6 +2444,9 @@ class BaseBlockEngine(
       eth_short = self.eth_address[:6] + '...' + self.eth_address[-4:]
       while not done:
         self.P(f"<{eth_short}> ({network}) dAuth with `{url}`... (try {tries + 1} / {max_tries})")
+        # Set only when this try meets a busy oracle; reset on every try so that a pause follows only a busy
+        # answer to this try, never an earlier one.
+        busy = False
         try:
           if debug_data:
             to_send = {
@@ -2474,6 +2544,24 @@ class BaseBlockEngine(
             done = True
           else:
             self.P(f"Error in dAuth response: {response.status_code} - {response.text}", color='r')
+            # 429 (too many requests), 503 (service unavailable), 504 and Cloudflare's 524 (the proxy in front
+            # of the oracle timed out waiting for it) mean an overloaded oracle, not a bad URL: worth a pause.
+            busy = response.status_code in (429, 503, 504, 524)
+            # {}: a busy oracle, worth asking again later. Any other status is a failure (None), also when an
+            # earlier try was busy, so the result follows the last answer.
+            dct_env = {} if busy else None
+        # ConnectTimeout is a subclass of Timeout, so it is caught first: it must not count as busy.
+        except requests.exceptions.ConnectTimeout as exc:
+          self.P(f"Error in dAuth URL request: {exc}", color='r')
+          # Nothing answered at that address (outage or wrong URL): a failure, retried at once without a pause.
+          dct_env = None
+        except requests.exceptions.Timeout as exc:
+          self.P(f"dAuth request timed out: {exc}", color='r')
+          # Only ReadTimeout gets here (ConnectTimeout was caught above): the connection was accepted but no
+          # answer came within the read timeout, so the oracle counts as busy.
+          busy = True
+          # {}: a busy oracle, not a bad URL: worth asking again later.
+          dct_env = {}
         except Exception as exc:
           self.P(f"Error in dAuth URL request: {exc}", color='r')
           # Request failed somewhere so dct_env will be set again to None.
@@ -2482,6 +2570,13 @@ class BaseBlockEngine(
         tries += 1
         if tries >= max_tries:
           done = True    
+        elif busy:
+          # Pause (about 2, 4, 8, 16 s, jittered) before asking a busy oracle again. Other failures
+          # are retried at once, as before.
+          pause_s = min(30, 2 ** tries) * np.random.uniform(0.5, 1.5)
+          self.P(f"Retrying dAuth in {pause_s:.0f}s...")
+          # Wait before the next try instead of asking again at once: spreads the load on the busy oracle.
+          sleep(pause_s)
       #end while
     else:
       # Invalid URL, thus dct_env will remain None

@@ -34,9 +34,10 @@ class TestDauthSecretReconciliationClient(unittest.TestCase):
     self.engine = _UpdateClientHarness()
     self.payload = {'job_id': '7', 'expected_pipeline_cid': 'old-cid',
                     'pipeline_configs': {'worker': {'ENV': {'TOKEN': 'private-token'}}}}
+    # A dAuth server adds its alias to every answer before signing it.
     self.result = {'status': 'success', 'nonce': REQUEST_NONCE, 'job_id': '7',
                    'pipeline_cid': 'new-cid', 'pipeline_configs': {'worker': {}},
-                   'EE_SIGN': 'server-signature', 'EE_SENDER': 'server'}
+                   'server_alias': 'dauth-a', 'EE_SIGN': 'server-signature', 'EE_SENDER': 'server'}
     self.response = mock.Mock(status_code=200)
     self.response.json.return_value = {'result': self.result}
     clock = mock.patch('ratio1.bc.base.time', return_value=REQUEST_TIME)
@@ -89,6 +90,19 @@ class TestDauthSecretReconciliationClient(unittest.TestCase):
         self.assertEqual(self.post.call_count, 1)
         self.assertNotIn('private-token', str(caught.exception) + str(self.engine.log_messages))
     self.response.json.assert_called()
+
+  def test_signed_refusal_still_raises_and_names_the_dauth_server_in_red(self):
+    """A refusal says which dAuth server refused which action; its error text stays out of the log."""
+    logs = []
+    self.engine.P = lambda message, color=None, **kwargs: logs.append((message, color))
+    self.result.update(status='error', error='private-token')
+    with self.assertRaises(RuntimeError):
+      self.engine.reconcile_dauth_job_secrets(self.payload)
+    self.lifecycle('revoke')
+    with self.assertRaises(RuntimeError):
+      self.engine.reconcile_dauth_job_secrets(self.payload)
+    self.assertEqual(logs, [('dAuth server dauth-a refused secret reconciliation (job update).', 'r'),
+                            ('dAuth server dauth-a refused secret reconciliation (revoke).', 'r')])
 
   def test_dependency_failures_remain_credential_safe_and_transport_is_not_retried(self):
     """Suppress credential-bearing exception chains from external dependencies."""
