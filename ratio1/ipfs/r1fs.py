@@ -117,6 +117,17 @@ class IPFSCt:
   # Kubo's error for `pin rm` of a CID with no direct or recursive pin (boxo's pinner ErrNotPinned): the CLI prints
   # it on stderr as "Error: not pinned or pinned indirectly", the relay's HTTP API returns it as its error message.
   NOT_PINNED_ERROR = "not pinned or pinned indirectly"
+  # Dials of the relay at start (maybe_start_ipfs, only in the call that launched the daemon) before R1FS is left off
+  # for the whole run: a relay that restarts, or a host that reboots, is not reachable for some seconds, and one failed
+  # dial used to keep R1FS off until the next restart. 6 tries 10 s apart: the bounds of the 5 tries before the last
+  # and of the pauses after them add up to 5 x (10 s + 10 s) = 100 s (the whole worst case is in the maybe_start_ipfs
+  # Notes). In the lab a relay back about 25 s into the start was connected on the second try, about 19 s later than
+  # a normal start.
+  RELAY_START_TRIES = 6
+  # Seconds between two of those dials: a pause, not a spin, so a weak host runs at most one `ipfs` dial per 10 s.
+  RELAY_START_PAUSE_SECONDS = 10
+  # Seconds each try but the last may take; the last keeps the default TIMEOUT, as the single dial had.
+  RELAY_START_TRY_TIMEOUT_SECONDS = 10
 
   TIMEOUT = 90 # seconds
   # The reprovide operation is very heavy and should be done infrequently.
@@ -256,7 +267,9 @@ class R1FSEngine:
       pass run at a time (``get_file`` hands its relay work to that pass instead of
       doing it itself). It also starts the two counters of
       ``__report_relay_data_path``: the failed reads of CIDs the relay had accepted,
-      and the time its last line was printed; the per-kind counters of
+      and the time its last line was printed; ``__relay_reconnect_peer``, the relay
+      peer id that line leaves for the background pass to reconnect (``None`` when no
+      reconnect is due); the per-kind counters of
       ``__report_rate_limited``; and ``__relay_in_flight``, the relay request the
       background pass is sending at the moment, which ``unpin_file`` marks when it
       unpins that CID meanwhile.
@@ -343,6 +356,9 @@ class R1FSEngine:
       self.__relay_data_failures = 0
       # time.time() of the last such line printed; 0 lets the first one print at once.
       self.__relay_data_logged_at = 0
+      # Peer id of the relay whose link such a line asked the background pass to close and dial again; None when
+      # no reconnect is due. Set by __report_relay_data_path, taken and cleared by __heal_remembered_cids.
+      self.__relay_reconnect_peer = None
       # Per kind of event, [events since start, time.time() of the last line]: see __report_rate_limited.
       self.__rate_limited_reports = {}
       # The relay pin/add the background pass is sending, as [cid, unpinned], set just before the pass reads the CID's
@@ -1138,7 +1154,26 @@ class R1FSEngine:
 
     def __heal_remembered_cids(self, show_logs: bool = True):
       """
-      Ask the relay to fetch the CIDs whose reads failed.
+      Reconnect the relay if a RELAY DATA PATH line asked for it, then ask it to fetch the CIDs whose reads failed.
+
+      When ``__report_relay_data_path`` printed its line, it left the relay's peer id
+      in ``__relay_reconnect_peer``. The first call after that takes it and clears it,
+      runs one ``ipfs swarm disconnect /p2p/<peer id>`` (5 s timeout; "not connected"
+      is not an error) and one ``ipfs swarm connect <relay>`` (15 s timeout), and says
+      the outcome in a boxed red line whatever ``show_logs`` is. A fresh connection is
+      one the block exchange uses: in the lab this reconnect repaired 10 of 10 blind
+      relay links; its line was logged 0.07 to 0.11 s after the failed read returned,
+      and the next read succeeded in 0.2 to 0.3 s. This runs here, on the background
+      pass, because the line is printed on the reader's thread, which two more
+      commands could hold up to 20 s more. The pass calls this before each queued publication
+      and before it ends, so a pass that is already running reconnects at its next
+      such point, before its next relay request. One already past its last such point
+      leaves it to the next pass, which the next read starts while
+      ``__relay_heal_pending`` is not empty (the read that printed the line left its CID
+      there, or found the set full), and any later failed read starts otherwise. There
+      is at most one reconnect per printed line (see ``__report_relay_data_path`` for
+      how often lines print), but a reconnect runs at the pass's next heal point, so
+      two reconnects can come closer than their lines.
 
       Runs on the background relay pass only. It heals the CIDs that are in
       ``__relay_heal_pending`` when it is called and no others: a CID that a read adds
@@ -1168,12 +1203,31 @@ class R1FSEngine:
       either makes the heal skip or marks it; a marked heal records nothing and
       undoes a pin that got through (see ``__attempt_download_self_heal``). The slot
       is cleared when the snapshot is done.
+      The reconnect request is taken and cleared in one statement that is not atomic:
+      a line printed by another thread at that very moment can be lost, and the next
+      line (600 s or more later) asks again. A failed dial is said in the boxed line
+      (and by the command runner in red); the node then has no direct link to the
+      relay until a later dial opens one.
 
       Examples
       --------
       >>> # on the background "r1fs-relay" thread
       >>> self.__heal_remembered_cids(show_logs=False)
       """
+      # The relay peer id a RELAY DATA PATH line left here, taken and cleared at once so the reconnect runs once.
+      peer_id, self.__relay_reconnect_peer = self.__relay_reconnect_peer, None
+      if peer_id:
+        # Close every connection to the relay, named by its peer id alone so it closes one from any address or port;
+        # Kubo answers "not connected" with exit code 0 when there is none, so the runner says nothing in red then.
+        self.__swarm_disconnect("/p2p/" + peer_id, timeout=5)
+        # Then one fresh dial, which the block exchange uses (in the lab it repaired 10 of 10 blind relay links, the
+        # next read succeeding in 0.2 to 0.3 s); bounded at 15 s on this background thread.
+        connected, output, errors = self.__swarm_connect(self.__ipfs_relay, timeout=15)
+        self.P(
+          f"RELAY DATA PATH: link to relay {self.__ipfs_relay} closed and dialed again: "
+          f"{'connected' if connected else 'dial failed'} ({errors or output or 'no answer in 15 s'}).",
+          color='r', boxed=True
+        )
       # A snapshot of the set: what reads add from here on is left for the next call.
       for cid in list(self.__relay_heal_pending):
         # Show unpin_file this heal before the CID is taken from the set: an unpin drops the CID from the set before
@@ -1447,7 +1501,14 @@ class R1FSEngine:
       Only when the line is printed, ``ipfs swarm peers`` and
       ``ipfs bitswap ledger <relay peer id>`` run (5 s timeout each), to tell whether
       the node has a direct connection to the relay (not through a circuit) and what
-      its Bitswap ledger with the relay holds. Nothing is repaired or reconnected.
+      its Bitswap ledger with the relay holds. Then it leaves the relay's peer id in
+      ``__relay_reconnect_peer``, and the background relay pass (``get_file`` calls
+      ``__relay_in_background`` right after this) closes the relay link and dials it
+      again once (see ``__heal_remembered_cids``): at most one reconnect per printed
+      line, but a reconnect runs at the pass's next heal point, so two reconnects can
+      come closer than their lines. That is not done here: this runs on the reader's
+      thread (a dAuth request's, for one), which the two commands could hold up to
+      20 s more.
 
       Parameters
       ----------
@@ -1473,7 +1534,8 @@ class R1FSEngine:
       joined into one.
       ``__parse_multiaddr`` returns None when the relay multiaddr has no tcp port or
       no peer id, and R1FS can still start with such a relay through
-      ``ipfs swarm connect``. The two commands are then not run and the line says so.
+      ``ipfs swarm connect``. The two commands are then not run, the line says so, and
+      no reconnect is asked for, since there is no peer id to name.
       Two reads failing at the same moment on different threads can both print, or
       count one read less.
 
@@ -1517,6 +1579,8 @@ class R1FSEngine:
         )
         # What the two commands found, for the line below.
         checks = f"Direct link: {direct}. {ledger or 'Ledger unreadable'}"
+        # Ask the background relay pass for one reconnect of the relay, off this thread (see __heal_remembered_cids).
+        self.__relay_reconnect_peer = relay_id
       self.P(
         f"RELAY DATA PATH: relay {self.__ipfs_relay} accepted {cid} at {status['relay_last_success_at']}, "
         f"but this node got nothing in {now - read_started_at:.0f} s. {checks}. "
@@ -2346,7 +2410,13 @@ class R1FSEngine:
       and loses this race on most starts. So the configured peers are held back: the
       list is emptied before the daemon is launched, and once the daemon API answers
       (the block exchange is running by then) each held-back peer is dialed and put
-      back in the list.
+      back in the list. Right before its dial, every connection to that peer is
+      closed by its peer id (``ipfs swarm disconnect /p2p/<peer id>``, 5 s timeout):
+      a connection the peer itself opened while the daemon was being built is as
+      blind, and ``swarm connect`` would keep it as already connected. In the lab,
+      without the disconnect 7 of 40 starts ended with a relay link that carries no
+      block requests (the relay's own connection was up 54 to 87 ms after the
+      launch), with it 0 of 40; it adds about 40 ms to a start.
 
       Parameters
       ----------
@@ -2399,6 +2469,11 @@ class R1FSEngine:
           self.P("IPFS daemon started successfully.", color='g')
           # Only now dial the held-back peers and give them back to the daemon.
           for multiaddr in held_back_peers:
+            # First close any connection to the peer, named by its peer id (the last part of a Bootstrap entry): one
+            # the peer opened while the daemon was being built is as blind as one dialed then, and the dial below
+            # would keep it as already connected (lab: 7 of 40 starts blind without this, 0 of 40 with it, about
+            # 40 ms more). Kubo answers "not connected" with exit code 0, so the runner says nothing in red then.
+            self.__swarm_disconnect("/p2p/" + multiaddr.split("/")[-1], timeout=5)
             # The API answers, so the block exchange is running: a connection opened now is one it uses.
             connected, output, errors = self.__swarm_connect(multiaddr)
             if not connected:
@@ -5077,9 +5152,49 @@ class R1FSEngine:
 
       Returns
       -------
-      bool
+      bool or None
           ``True`` when the daemon is running and connected to the relay,
-          otherwise ``False``.
+          otherwise ``False``. ``None`` when R1FS was already started, or when
+          checking or starting the daemon raised (that error is logged in red).
+
+      Raises
+      ------
+      OSError
+          When the IPFS home folder cannot be created, or the same-host clean-up
+          cannot remove its marker file.
+      Exception
+          From the command runner, when the same-host clean-up cannot write
+          ``Swarm.AddrFilters``.
+
+      Notes
+      -----
+      It runs once per process, on the thread that builds the engine: in the node's
+      main process from the managers' start-up, before the communication, serving and
+      plugin managers start, and in each serving process before its model start-up
+      (the serving manager waits for that without a deadline). When the relay is not
+      found among the swarm peers, the call that launched the daemon dials it up to
+      ``IPFSCt.RELAY_START_TRIES`` (6) times, ``IPFSCt.RELAY_START_PAUSE_SECONDS``
+      (10 s) apart: a relay that restarts, or a host that reboots, is unreachable for
+      some seconds. A call that found the daemon already running, as a serving process
+      does, dials once as before, so the tries never hold up a serving start. Each
+      try but the last returns on a failure, bounded at
+      ``IPFSCt.RELAY_START_TRY_TIMEOUT_SECONDS`` (10 s). The last try is the single
+      dial of before (``IPFSCt.TIMEOUT``, 90 s): a failure raises, ends with the same
+      red line as before and leaves R1FS off for the run. Each failed try before it
+      also prints the command runner's red line and a yellow next-try line.
+      With the relay down for the whole start, the bounds the launching call waits
+      for the relay add up to 285 s: in ``__start_daemon`` the disconnect (5 s) and
+      the held-back dial (``IPFSCt.TIMEOUT``, 90 s), here the five tries and the
+      pauses after them (5 x (10 s + 10 s) = 100 s) and the last try (90 s). In the
+      lab, where each dial failed after 4 to 5 s, such a start ended about 84 s later
+      than a normal one; a relay back about 25 s into the start was connected on the
+      second try, about 19 s later than a normal start.
+
+      Examples
+      --------
+      >>> # in startup(), once per engine; True when the relay is connected
+      >>> self.maybe_start_ipfs(base64_swarm_key=key, ipfs_relay="/ip4/<ip>/tcp/4001/p2p/<relay peer id>")
+      True
       """
       if self.ipfs_started:
         return
@@ -5234,6 +5349,9 @@ class R1FSEngine:
             time.sleep(2)
         #end for
         
+        # True when no daemon answers, so this call launches one: only then is the relay dialed more than once below.
+        # An engine that finds the daemon running (a serving process) dials once, so the tries never hold up its start.
+        launched = not ipfs_daemon_running
         if ipfs_daemon_running:
           self.P("IPFS daemon already running", color='g')
         else:
@@ -5310,7 +5428,27 @@ class R1FSEngine:
           msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
           msg += f"\n  Relay:      {ipfs_relay}"
           self.P(msg, color='m')
-          result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
+          # Up to RELAY_START_TRIES dials, RELAY_START_PAUSE_SECONDS apart, before R1FS is left off for the run, when
+          # this call launched the daemon (lab: a relay back about 25 s into the start was connected on the second try,
+          # about 19 s later than a normal start); none of these tries when it found the daemon running.
+          for attempt in range(1, IPFSCt.RELAY_START_TRIES if launched else 1):
+            # A try that is not the last: a failed dial returns "" (the runner logs it) instead of raising.
+            result = self.__run_command(
+              ["ipfs", "swarm", "connect", ipfs_relay], raise_on_error=False,
+              timeout=IPFSCt.RELAY_START_TRY_TIMEOUT_SECONDS,
+            )
+            if result:
+              break
+            self.P(
+              f"Relay {ipfs_relay} could not be dialed (try {attempt} of {IPFSCt.RELAY_START_TRIES}), "
+              f"next try in {IPFSCt.RELAY_START_PAUSE_SECONDS} s.", color='y'
+            )
+            # Wait before the next dial instead of dialing again at once.
+            time.sleep(IPFSCt.RELAY_START_PAUSE_SECONDS)
+          else:
+            # The last try, or the only one when the daemon was found running, as the single dial was: a failure
+            # raises, is said in red below and leaves R1FS off.
+            result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
           if "connect" in result.lower() and "success" in result.lower():
             self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
             self.__ipfs_started = True
