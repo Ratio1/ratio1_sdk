@@ -119,8 +119,8 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   file name (`fn`) given to `add_json`, `add_pickle`, `calculate_json_cid` or `calculate_pickle_cid`
   must be a plain name and is refused before anything is written; `add_yaml` does not refuse its
   `fn` and uses it only when it has no path part. A download is checked only after `get_file`
-  removed the previous `<local_folder>/<cid>` (a dangling link there fails `os.path.exists` and is
-  left in place) and `ipfs get` wrote the new one. A root that is a link or not a folder, or a
+  removed the previous `<local_folder>/<cid>` (a link there is removed itself, whether its target
+  exists or not) and `ipfs get` wrote the new one. A root that is a link or not a folder, or a
   folder that does not hold exactly one entry, is refused and left on disk, with nothing read,
   written or deleted through a link. An entry that is a link or not a regular file is refused
   before it is opened. A file name stored in the object's metadata that is not a plain name is

@@ -3348,8 +3348,8 @@ class R1FSEngine:
       node, while an R1FS object is one regular file by construction. So when
       ``local_folder/<cid>`` is itself a link (the CID's root is a symlink) the read is
       refused like a download that is not a directory, with nothing read, written or
-      deleted through the link; the next read of that CID removes the link when its
-      target exists (a dangling link fails ``os.path.exists`` and stays); and an entry
+      deleted through the link; the next read of that CID removes the link itself,
+      whether its target exists or not (``os.path.lexists``); and an entry
       that is a link or not a regular file is refused before it is opened, through
       the decryption error path, which removes the folder with the link.
 
@@ -3357,8 +3357,8 @@ class R1FSEngine:
       CID is pinned only after a successful get, with only the time the get left
       (at least 1 s), so the get and the pin together take about ``timeout`` at most,
       about 1 s more when the get used nearly all of it. Starting the ``ipfs``
-      commands and decryption are not counted in that time. A failed pin is logged in red and not retried; the read still
-      returns the file. Relay work never runs on the caller's thread: after a failed
+      commands and decryption are not counted in that time. A failed pin is logged in red and not retried; the read
+      still returns the file. Relay work never runs on the caller's thread: after a failed
       get the CID is remembered for the background relay pass (see
       ``__relay_in_background``), which asks the relay to fetch it so a later read
       can find it and also retries the queued relay publications. The failed read
@@ -3398,10 +3398,12 @@ class R1FSEngine:
       
       local_folder = os.path.join(local_folder, cid) # add the CID as a subfolder
       
-      # if the folder exists cleanup the content
-      if os.path.exists(local_folder):
+      # Remove whatever is at the path (folder, file or link) before `ipfs get` writes there.
+      # lexists, not exists: exists follows a link and answers False when the link's target is missing, so such a
+      # link was skipped here and stayed at the path `ipfs get` writes to. Any old entry at this path is removed.
+      if os.path.lexists(local_folder):
         # A link left by a crafted object (see the check after the get) is removed itself by os.remove below, never
-        # followed by rmtree, when its target exists; a dangling link fails os.path.exists above and is left in place.
+        # followed by rmtree, whether its target exists or not.
         if os.path.isdir(local_folder) and not os.path.islink(local_folder):
           if show_logs:
             files = os.listdir(local_folder)

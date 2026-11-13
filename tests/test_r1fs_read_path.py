@@ -585,6 +585,44 @@ class R1FSReadPathTests(unittest.TestCase):
         self.assertEqual(found, [False, False])  # the second read removed the first one's leftover, link included
         self.assertEqual(self._files(data), before)  # nothing read into a result, written or deleted there
 
+  def test_dangling_link_left_at_the_download_path_is_removed_by_the_next_read(self):
+    """
+    A link whose target does not exist, left at ``<downloads>/<cid>``, is removed before the next get.
+
+    ``os.path.exists`` follows a link and answers False for a dangling one, so a clean-up that asks it skips
+    the link, which then stays at the path `ipfs get` writes to. The read must remove the link itself. The
+    last check is a guard and not the proof (it also holds without the fix): the clean-up only unlinks.
+    """
+    engine = self._engine()
+    # A folder outside the downloads folder, removed after the test.
+    outside = tempfile.mkdtemp(prefix="r1fs_outside_")
+    self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+    # The name in it that the link points at; it does not exist and must never come to exist.
+    target = os.path.join(outside, "missing")
+    # The leftover of an earlier refused read: a link at the CID's download path with no target behind it.
+    link = os.path.join(engine._R1FSEngine__downloads_dir, "QmLinked")
+    os.symlink(target, link)
+    # The fake `ipfs` of _engine, kept to run every command once the output path was looked at.
+    run_command = engine._R1FSEngine__run_command
+    # What each get found at its output path: True when an old entry was still there.
+    found = []
+
+    def get_sees(cmd_list, **kwargs):
+      """Note whether anything is still at the output path when `ipfs get` runs, then run the fake command."""
+      if cmd_list[1] == "get":
+        # lexists: the question is whether the link itself is still there, not whether its target is.
+        found.append(os.path.lexists(cmd_list[-1]))
+      return run_command(cmd_list, **kwargs)
+
+    # Put the observing command in place of the fake one for this read.
+    engine._R1FSEngine__run_command = get_sees
+    # A good read: with the link gone the fake get writes a real folder and the document comes back.
+    self.assertEqual(engine.get_json("QmLinked", show_logs=False), DOC)
+    # The get found its output path empty, so the link was removed before it ran.
+    self.assertEqual(found, [False])
+    # A guard: the clean-up only unlinks, so nothing was created where the link pointed.
+    self.assertFalse(os.path.lexists(target))
+
   def test_cid_rule_has_a_length_bound_and_a_refused_value_is_shown_cut_to_100_characters(self):
     """A CID is a folder name under the downloads folder (NAME_MAX 255), and a huge refused value made a huge line."""
     engine = self._with_relay_api(self._engine())
