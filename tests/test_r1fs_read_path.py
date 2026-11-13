@@ -394,6 +394,32 @@ class R1FSReadPathTests(unittest.TestCase):
       self.assertFalse(engine.unpin_file("QmGone", show_logs=False))
     self.assertEqual(post.call_args.kwargs.get("timeout"), IPFSCt.RELAY_PIN_TIMEOUT_SECONDS)
 
+  def test_relay_unpin_checks_the_relay_certificate_whatever_the_configured_path(self):
+    """
+    The relay pin/rm verifies the relay's certificate: with the configured file, or the default check.
+
+    A configured certificate file is the ``verify`` value of the request. With no path (None) or an empty one
+    the value is True, the default check of requests; an empty path passed as it is would not get that check.
+    """
+    # Certificate path stored on the engine -> the ``verify`` value the relay request must carry.
+    expected = {"/certs/relay.crt": "/certs/relay.crt", None: True, "": True}
+    for path, verify in expected.items():
+      with self.subTest(path=path):
+        engine = self._with_relay_api(self._engine())
+        # The certificate path as maybe_start_ipfs stores it.
+        engine._R1FSEngine__ipfs_certificate_path = path
+        # The relay answers 200, so the unpin succeeds and only the arguments of the request are in question.
+        with mock.patch.object(r1fs.requests, "post", return_value=mock.Mock(status_code=200, text="")) as post:
+          self.assertTrue(engine.unpin_file("QmLive", show_logs=False))
+        # Exactly one request went out...
+        post.assert_called_once()
+        # ...the relay pin/rm...
+        self.assertEqual(post.call_args.args[0], "https://relay.invalid/api/v0/pin/rm")
+        # ...and it carries the certificate file, or True, never an empty value.
+        self.assertEqual(post.call_args.kwargs["verify"], verify)
+        # True itself, not a value that only compares equal to it (assertEqual(1, True) passes).
+        self.assertIs(type(post.call_args.kwargs["verify"]), type(verify))
+
   def _confirmed(self, engine, cid, at):
     """Record, as __publish_cid_to_relay does, that the relay answered a pin/add of ``cid`` with 200 at ``at``."""
     engine._R1FSEngine__relay_publication_status[cid] = {

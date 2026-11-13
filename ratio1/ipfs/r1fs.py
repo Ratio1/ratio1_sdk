@@ -3945,6 +3945,10 @@ class R1FSEngine:
             With ``raise_on_error=True``, when the local ``ipfs pin rm`` fails for a
             reason other than Kubo's "not pinned", or the relay pin/rm is refused,
             fails or times out.
+        OSError
+            Whatever ``raise_on_error`` is, when a relay certificate file is
+            configured and does not exist: requests raises it before the relay
+            pin/rm is sent.
 
         Notes
         -----
@@ -3958,6 +3962,10 @@ class R1FSEngine:
         is and False is returned. Either way the relay is not told and the CID keeps
         its relay retry queue entry and waiting heal, since it may still be pinned
         here. (Before, with ``raise_on_error=False`` a failure passed as an unpin.)
+
+        The relay pin/rm checks the relay's certificate like the relay pin/add: with
+        the configured certificate file, or with the default check of requests when
+        no path is set.
 
         The relay pin/rm request is bounded by ``IPFSCt.RELAY_PIN_TIMEOUT_SECONDS``,
         like relay pin/add, so a hung relay API cannot hold the caller forever. A
@@ -4082,10 +4090,10 @@ class R1FSEngine:
               # The CID as the `arg` query parameter of the relay's pin/rm (see request_url above).
               params={"arg": cid},
               auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
-              # Verified with the configured certificate file. When the path is None, requests applies its default
-              # certificate check (its CA bundle, or the one REQUESTS_CA_BUNDLE or CURL_CA_BUNDLE names), the same
-              # check relay pin/add gets from __relay_verify_value.
-              verify=self.__ipfs_certificate_path,
+              # The same certificate check as relay pin/add and its undo: the configured certificate file, or True
+              # (the default check of requests) when no path is set. The path used to be passed as it is, so an
+              # empty path did not get the default check here.
+              verify=self.__relay_verify_value(),
               # Bound the relay pin/rm like relay pin/add: without a timeout a hung relay API holds the caller
               # (delete_file included) forever. The RequestException handler below turns it into a failed unpin.
               timeout=IPFSCt.RELAY_PIN_TIMEOUT_SECONDS,
