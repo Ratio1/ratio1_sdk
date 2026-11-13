@@ -109,10 +109,26 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   never carries a block request for as long as it lives (pings and circuits still work on it). A
   relay within about a millisecond loses that race on most starts. `R1FSEngine` holds the configured
   peers back, and once the daemon API answers it runs `swarm connect` for each and puts it back in
-  the list, so later re-dials behave as before. Proof of block transfer is a want that reaches the
+  the list, so later re-dials behave as before. Right before each such dial it runs
+  `swarm disconnect /p2p/<peer id>`, so a connection the peer opened while the daemon was being
+  built is not kept as "already connected" (in the lab 7 of 40 starts were blind without it, 0 of
+  40 with it, for about 40 ms more per start). Proof of block transfer is a want that reaches the
   relay (`ipfs bitswap wantlist --peer=<node>` on the relay), not a peer line or a ping.
+- When the relay is not connected after the daemon is up, the `maybe_start_ipfs` call that launched
+  the daemon dials it up to 6 times, 10 s apart (each try but the last bounded at 10 s), before
+  R1FS is left off for the run. The last try is the single dial of before (90 s bound) and ends
+  with the same red line; each failed try before it also prints the command runner's red line and
+  a yellow next-try line. A call that finds the daemon already running (a serving process) dials
+  once, as before. With the relay down, the bounds the launching call waits for the relay add up to
+  285 s (5 s disconnect and 90 s held-back dial at the launch, five 10 s tries and five 10 s pauses,
+  a 90 s last try); in the lab, with each dial failing after 4 to 5 s, such a start ended about
+  84 s later than a normal one, and a relay back about 25 s into the start was connected on the
+  second try, about 19 s later.
 - A failed read of a CID the relay had already accepted prints one boxed red `RELAY DATA PATH` line
-  (at most one per 600 s) with the direct-link state and the Bitswap ledger for the relay.
+  (at most one per 600 s) with the direct-link state and the Bitswap ledger for the relay. The
+  background relay pass then closes the relay link by peer id and dials it once (at most one
+  reconnect per printed line), and says the outcome in a second boxed red line; in the lab this
+  repaired 10 of 10 blind links, and the next read succeeded in 0.2 to 0.3 s.
 - CIDs are accepted only as bare CIDs (ASCII letters and digits, at most 255; `is_pinned`,
   `is_cid_available` and `cleanup_downloads` still handle None and "" as before), and any other
   value is refused before any file is deleted or any `ipfs` command or relay request runs. A
