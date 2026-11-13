@@ -345,11 +345,14 @@ class R1FSEngine:
       self.__relay_data_logged_at = 0
       # Per kind of event, [events since start, time.time() of the last line]: see __report_rate_limited.
       self.__rate_limited_reports = {}
-      # The relay pin/add the background pass is sending now, as [cid, unpinned], from just before it reads the
-      # CID's queue entry or takes it from the heal set until the request is over; None otherwise. unpin_file sets
-      # unpinned when it unpins that CID meanwhile; the request then records nothing, is not queued again and
-      # undoes a pin that got through. It lives for one request only: no list of unpinned CIDs is kept, since the
-      # same content uploaded again later has the same CID and must be healed and published as usual.
+      # The relay pin/add the background pass is sending, as [cid, unpinned], set just before the pass reads the CID's
+      # queue entry or takes it from the heal set. A queued publication clears it when its request is over; a heal's
+      # token, and that of a CID the pass skipped, stays until the next heal replaces it or the heal round ends and
+      # clears it, so a finished request can sit here briefly. unpin_file sets unpinned when it tells the relay to
+      # unpin that CID meanwhile (with unpin_remote=False nothing is marked); the request then records nothing, is
+      # not queued again and undoes a pin that got through. It lives for one request only: no list of unpinned CIDs
+      # is kept, since the same content uploaded again later has the same CID and must be healed and published as
+      # usual.
       self.__relay_in_flight = None
       self.__relay_config_warning_flags = set()
       
@@ -538,8 +541,8 @@ class R1FSEngine:
       cid : any
           The value the caller passed as a CID.
       raise_on_error : bool, optional
-          True raises ``ValueError`` for a refused value; False (default) logs it in red
-          and returns True.
+          True raises ``ValueError`` for a refused value; False (default) returns True
+          and logs the value in red (``show_logs`` says when it is not logged).
       show_logs : bool, optional
           The caller's ``show_logs``. It gates the red line only for ``None`` and ``""``;
           any other refused value is a caller bug or an attack and is logged whatever
@@ -548,8 +551,9 @@ class R1FSEngine:
       Returns
       -------
       bool
-          False when ``cid`` is a bare CID. True when it was refused and logged; the
-          caller then returns its own failure value.
+          False when ``cid`` is a bare CID. True when it was refused (logged in red,
+          except a ``None`` or ``""`` with ``show_logs`` False); the caller then
+          returns its own failure value.
 
       Raises
       ------
@@ -900,7 +904,8 @@ class R1FSEngine:
       last_error = None
       for attempt in range(1, retries + 1):
         if flight and flight[1]:
-          # Unpinned after an earlier attempt: send no further pin/add (the end of the method records nothing).
+          # Marked by unpin_file before this attempt (before attempt 1, or during or after an earlier one): send no
+          # further pin/add (the end of the method records nothing).
           break
         self.__set_upload_status(
           cid,
@@ -1189,7 +1194,7 @@ class R1FSEngine:
 
     def __attempt_download_self_heal(self, cid: str, flight: list, show_logs: bool = True) -> bool:
       """
-      Ask the relay to fetch a CID before retrying a failed download.
+      Ask the relay to fetch a CID whose read failed, so that a later read can find it.
 
       Sends a relay pin/add for the CID (2 attempts with an
       ``IPFSCt.RELAY_PIN_TIMEOUT_SECONDS`` request timeout, not queued on failure) so
@@ -1339,10 +1344,11 @@ class R1FSEngine:
 
         Retries every queued relay publication, healing the CIDs whose reads failed
         before each one, then heals the CIDs that are remembered at that moment (all
-        of them when the queue was empty, otherwise those added during the last
-        publication). The ``finally`` releases ``__relay_busy`` even when a step
-        raises, so a later read can start a new pass. It takes no arguments:
-        ``show_logs`` comes from the enclosing ``__relay_in_background`` call.
+        of them when the queue was empty, otherwise those added since the heal round
+        before the last queued CID took its snapshot). The ``finally`` releases
+        ``__relay_busy`` even when a step raises, so a later read can start a new
+        pass. It takes no arguments: ``show_logs`` comes from the enclosing
+        ``__relay_in_background`` call.
 
         Returns
         -------
@@ -1359,7 +1365,7 @@ class R1FSEngine:
           # backlog does not hold a heal back.
           self.__retry_queued_relay_publications(context="background pass", show_logs=show_logs)
           # Heal what is remembered now: every CID when the queue was empty (the drain returned at once),
-          # otherwise those whose reads failed during the last publication.
+          # otherwise those whose reads failed since the heal round before the last queued CID took its snapshot.
           self.__heal_remembered_cids(show_logs=show_logs)
         finally:
           # Always free the pass lock, even if a step raised, so the next read can start a new pass.
@@ -2780,6 +2786,11 @@ class R1FSEngine:
       ------
       ValueError
           If ``fn`` is not a plain file name and raise_on_error=True.
+      Exception
+          With raise_on_error=True, any other error is re-raised as it came: a
+          TypeError (or ValueError, for a circular reference) from json.dumps, an
+          OSError from making the folder or writing the file, or the error
+          ``add_file`` raises.
 
       Notes
       -----
@@ -2958,6 +2969,10 @@ class R1FSEngine:
       ------
       ValueError
           If ``fn`` is not a plain file name and raise_on_error=True.
+      Exception
+          With raise_on_error=True, any other error is re-raised as it came: a
+          pickling error from pickle.dump, an OSError from making the folder or
+          writing the file, or the error ``add_file`` raises.
 
       Notes
       -----
@@ -3333,7 +3348,8 @@ class R1FSEngine:
       node, while an R1FS object is one regular file by construction. So when
       ``local_folder/<cid>`` is itself a link (the CID's root is a symlink) the read is
       refused like a download that is not a directory, with nothing read, written or
-      deleted through the link, which the next read of that CID removes; and an entry
+      deleted through the link; the next read of that CID removes the link when its
+      target exists (a dangling link fails ``os.path.exists`` and stays); and an entry
       that is a link or not a regular file is refused before it is opened, through
       the decryption error path, which removes the folder with the link.
 
@@ -3385,7 +3401,7 @@ class R1FSEngine:
       # if the folder exists cleanup the content
       if os.path.exists(local_folder):
         # A link left by a crafted object (see the check after the get) is removed itself by os.remove below, never
-        # followed by rmtree.
+        # followed by rmtree, when its target exists; a dangling link fails os.path.exists above and is left in place.
         if os.path.isdir(local_folder) and not os.path.islink(local_folder):
           if show_logs:
             files = os.listdir(local_folder)
@@ -4064,7 +4080,9 @@ class R1FSEngine:
               # The CID as the `arg` query parameter of the relay's pin/rm (see request_url above).
               params={"arg": cid},
               auth=HTTPBasicAuth(self.__ipfs_api_key_username, self.__ipfs_api_key_password),
-              # The relay API is verified with the configured certificate file.
+              # Verified with the configured certificate file. When the path is None, requests applies its default
+              # certificate check (its CA bundle, or the one REQUESTS_CA_BUNDLE or CURL_CA_BUNDLE names), the same
+              # check relay pin/add gets from __relay_verify_value.
               verify=self.__ipfs_certificate_path,
               # Bound the relay pin/rm like relay pin/add: without a timeout a hung relay API holds the caller
               # (delete_file included) forever. The RequestException handler below turns it into a failed unpin.
@@ -4171,9 +4189,10 @@ class R1FSEngine:
         A CID that is not pinned on this node (Kubo's "not pinned or pinned
         indirectly") is not an error: the delete goes on to the relay and the
         cleanup, whatever ``raise_on_error`` is. When the local ``ipfs pin rm``
-        fails (the daemon does not answer, a timeout), False is returned (or
-        RuntimeError raised), nothing is cleaned up and no GC runs, and
-        ``unpin_file`` logs the failure in red whatever ``show_logs`` is.
+        fails (the daemon does not answer, a timeout), nothing is cleaned up and no
+        GC runs: with raise_on_error=False ``unpin_file`` logs the failure in red
+        whatever ``show_logs`` is and False is returned; with raise_on_error=True a
+        RuntimeError is raised and nothing is logged.
 
         Examples
         --------
