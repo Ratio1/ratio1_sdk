@@ -93,7 +93,12 @@ for the area you change. Keep each entry current: edit or delete it when the cod
 - Oracle registry reads in `ratio1/bc/evm.py` share a 600-second process-wide cache per network,
   RPC endpoint, contract and method, also used by `web3_is_dauth_oracle`. Refreshes serialize per
   entry, an expired snapshot never authorizes after a failed refresh, and registry changes can take
-  ten minutes to appear (`tests/test_evm_oracle_registry_cache.py`).
+  ten minutes to appear. A failed refresh is remembered per entry for 60 seconds from its failure:
+  until then the registry is not read, and every caller gets the error of that read at once (the
+  same object), so an endpoint that never answers holds a caller about 20 s once a minute per
+  registry, not on every call. The registry therefore stays unanswered for up to 60 seconds after
+  the endpoint answers again, also after a single failed read. One line is logged per failed read
+  (`tests/test_evm_oracle_registry_cache.py`).
 - Every RPC client the engine builds (`_rpc_provider` in `ratio1/bc/evm.py`) gives one request 10 s
   and one call 2 tries, for reads and transactions alike. A call the endpoint takes a connection for
   and never answers raises after about 20 s; a connection that never completes costs 10 s per
