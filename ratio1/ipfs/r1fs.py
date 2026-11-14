@@ -305,9 +305,11 @@ def _check_plain_pickle(data):
   refuses the file when it fetches a container from its memo or duplicates the
   top item (DUP), so every container has exactly one place; when it nests deeper
   than `_PLAIN_PICKLE_MAX_DEPTH`; when its memo fetches of leaves add up to more
-  than `_PLAIN_PICKLE_MAX_REUSE` times its size; and when it is larger than
-  `_PLAIN_PICKLE_MAX_BYTES`. Strings and other leaves stay shareable, as pickle
-  shares every repeated string object.
+  than `_PLAIN_PICKLE_MAX_REUSE` times its size; when it memoizes an item past
+  the next free memo index, which makes the load allocate and clear a memo of
+  16 bytes per index; and when it is larger than `_PLAIN_PICKLE_MAX_BYTES`.
+  Strings and other leaves stay shareable, as pickle shares every repeated
+  string object.
 
   Parameters
   ----------
@@ -323,8 +325,9 @@ def _check_plain_pickle(data):
   ------
   pickle.UnpicklingError
     "R1FS pickle refused: ..." with the reason: larger than the bound, a
-    container used in two places, nested too deep, too much re-use, or an opcode
-    that builds no plain data (DUP, REDUCE, BUILD and the like).
+    container used in two places, nested too deep, too much re-use, a memo index
+    out of order, or an opcode that builds no plain data (DUP, REDUCE, BUILD and
+    the like).
   ValueError
     From `pickletools.genops`, when the bytes are not a whole pickle.
   IndexError, KeyError
@@ -378,8 +381,14 @@ def _check_plain_pickle(data):
       # Drop the top item.
       stack.pop()
     elif name in ('PUT', 'BINPUT', 'LONG_BINPUT', 'MEMOIZE'):
-      # Memoize the top item; MEMOIZE uses the next free index, as the unpickler does.
-      memo[len(memo) if name == 'MEMOIZE' else arg] = stack[-1]
+      # The memo index of the top item; MEMOIZE uses the next free index, as the unpickler does.
+      index = len(memo) if name == 'MEMOIZE' else arg
+      if index > len(memo):
+        # Picklers number memo items 0, 1, 2, ... in order. Past the next free index, the load grows its memo to twice
+        # the index and clears every slot: a 9-byte file with index 2**27 makes it touch 2 GiB.
+        raise pickle.UnpicklingError("R1FS pickle refused: memo index out of order")
+      # Memoize the top item.
+      memo[index] = stack[-1]
     elif name in ('GET', 'BINGET', 'LONG_BINGET'):
       # The memoized item this opcode would push again.
       depth, value = memo[arg]
@@ -3898,7 +3907,9 @@ class R1FSEngine:
       exponential time to hash or serialize), one nested deeper than
       `_PLAIN_PICKLE_MAX_DEPTH` (32) levels, and one whose re-used strings and
       other leaves add up to more than `_PLAIN_PICKLE_MAX_REUSE` (16) times its
-      size; data with a container in two places must be stored as copies.
+      size, and one that memoizes an item past the next free memo index (the
+      load would allocate 16 bytes per index); data with a container in two
+      places must be stored as copies.
 
       Parameters
       ----------
@@ -3938,8 +3949,8 @@ class R1FSEngine:
         refused: <reason>", where the reason is "it names <module>.<name>; only
         plain data is loaded", "larger than <n> bytes", "it uses one container in
         two places", "it nests deeper than <n> levels", "its re-used values add up
-        to more than <n> times its size" or "opcode <name>; only plain data is
-        loaded".
+        to more than <n> times its size", "memo index out of order" or "opcode
+        <name>; only plain data is loaded".
 
       ValueError
         With raise_on_error=True, when ``cid`` is not a bare CID (see get_file).

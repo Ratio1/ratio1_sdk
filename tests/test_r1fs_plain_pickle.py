@@ -384,7 +384,8 @@ class R1FSPlainPickleTests(unittest.TestCase):
 
   def test_shared_deep_or_overreused_shapes_are_refused_in_milliseconds(self):
     """Small pickles that would expand exponentially (lists or dicts shared at every level, through memo fetches or
-    DUP), nest too deep, or re-use one string far past their size, are refused in milliseconds."""
+    DUP), nest too deep, re-use one string far past their size, or make the load clear a memo far larger than
+    themselves, are refused in milliseconds."""
     # One list used twice at each of 20 levels: 142 bytes that print as about 4 MB of JSON.
     shared_list = []
     # Each level holds the level below twice.
@@ -410,6 +411,9 @@ class R1FSPlainPickleTests(unittest.TestCase):
     # One level too deep, the deepest item in the first batch of a list's items: pickle writes a list of more than
     # 1,000 items in batches (APPENDS), and the later batch of zeros must not lower the list's depth.
     deep_then_shallow = [[_nested_lists(_PLAIN_PICKLE_MAX_DEPTH - 1)] + [0] * 1000]
+    # None put at memo index 2**24 (LONG_BINPUT) in a 9-byte file: the load would grow its memo to twice the index
+    # and clear every slot, 256 MiB here and gigabytes with a larger index.
+    memo_gap = b'\x80\x04N' + b'r' + struct.pack('<I', 1 << 24) + b'.'
     # Why each shape is refused.
     shared = 'it uses one container in two places'
     # The reason for both too-deep shapes.
@@ -425,6 +429,7 @@ class R1FSPlainPickleTests(unittest.TestCase):
       ('one level too deep, deepest item in an earlier batch', pickle.dumps(deep_then_shallow), deep),
       ('one string re-used 100 times', pickle.dumps(['v' * 1000] * 100),
        f'its re-used values add up to more than {_PLAIN_PICKLE_MAX_REUSE} times its size'),
+      ('a memo index far past the next free one', memo_gap, 'memo index out of order'),
     ]
     # Each shape on its own.
     for name, data, reason in shapes:
@@ -468,8 +473,8 @@ class R1FSPlainPickleTests(unittest.TestCase):
     hidden = {
       # A list, a mark, POP (which drops the mark), MEMOIZE of the list (index 0), POP of the list.
       'behind a POP that drops a mark': b'\x80\x04}\x8c\x02n1](0\x940(h\x00h\x00ls.',
-      # 's' put at index 5 and popped, a list memoized at the next free index, 1, and popped.
-      'behind MEMOIZE after BINPUT 5': b'\x80\x04}\x8c\x02n1\x8c\x01sq\x050]\x940(h\x01h\x01ls.',
+      # 's' put at index 0 and popped, a list memoized at the next free index, 1, and popped.
+      'behind MEMOIZE after BINPUT 0': b'\x80\x04}\x8c\x02n1\x8c\x01sq\x000]\x940(h\x01h\x01ls.',
     }
     # Each is refused.
     for name, data in hidden.items():
