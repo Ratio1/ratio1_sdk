@@ -377,7 +377,7 @@ class R1FSPlainPickleTests(unittest.TestCase):
       data += (b'j' + struct.pack('<I', level - 1)) * 2 + b'\x86\x94' + b'0'
     # A dict whose one key is the 50-level tuple, so SETITEM would hash it.
     data += b'}' + b'j' + struct.pack('<I', 50) + b'K\x01' + b's' + b'.'
-    # The size of the proof of concept.
+    # 665 bytes are enough.
     self.assertEqual(len(data), 665)
     # Refused at its first fetch of a container.
     self._assert_refused_fast(data, 'it uses one container in two places')
