@@ -3154,9 +3154,6 @@ class R1FSEngine:
             f.write(json_data)
         #end if tempfile
         
-        if show_logs:
-          self.Pd(f"About to call add_file with: file_path={fn}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
-        
         cid = self.add_file(
           file_path=fn,
           secret=secret,
@@ -3342,9 +3339,6 @@ class R1FSEngine:
           with open(fn, "wb") as f:
             pickle.dump(data, f)
         
-        if show_logs:
-          self.Pd(f"About to call add_file with: file_path={fn}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
-        
         cid = self.add_file(
           file_path=fn,
           secret=secret,
@@ -3470,7 +3464,6 @@ class R1FSEngine:
       if show_logs:
         self.Pd(f"Original basename: {original_basename}")
         self.Pd(f"Metadata: {meta_dict}")
-        self.Pd(f"Secret hash (first 16 bytes): {key[:16].hex()}")
 
       tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
       
@@ -5034,7 +5027,6 @@ class R1FSEngine:
         self.Pd(f"Nonce input: {nonce}, Generated nonce bytes: {nonce_bytes.hex()}")
         self.Pd(f"Original basename: {original_basename}")
         self.Pd(f"Metadata: {meta_dict}")
-        self.Pd(f"Secret hash (first 16 bytes): {key[:16].hex()}")
 
       # Create temporary encrypted file (same as in add_file)
       tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
@@ -5176,9 +5168,6 @@ class R1FSEngine:
         with open(tmp_json_path, "w") as f:
           f.write(json_data)
         
-        if show_logs:
-          self.Pd(f"About to call calculate_file_cid with: file_path={tmp_json_path}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
-        
         # Use calculate_file_cid to get the CID
         file_cid = self.calculate_file_cid(
           file_path=tmp_json_path,
@@ -5296,9 +5285,6 @@ class R1FSEngine:
         # Write pickle data to temporary file
         with open(tmp_pickle_path, "wb") as f:
           f.write(pickle_data)
-        
-        if show_logs:
-          self.Pd(f"About to call calculate_file_cid with: file_path={tmp_pickle_path}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
         
         # Use calculate_file_cid to get the CID
         file_cid = self.calculate_file_cid(

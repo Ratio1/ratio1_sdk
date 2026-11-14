@@ -1,0 +1,36 @@
+"""The R1FS engine logs no key material: none of its lines prints a secret, a part of one, or bytes of a derived key."""
+# The engine module's source is read.
+import inspect
+# The printed expressions are matched as patterns.
+import re
+# The test runner.
+import unittest
+
+# The R1FS engine module.
+from ratio1.ipfs import r1fs
+
+
+class R1FSLogSecretsTests(unittest.TestCase):
+  """The R1FS module source holds none of the expressions that printed key material in its log lines."""
+
+  def test_no_line_prints_a_secret_or_key_bytes(self):
+    """No line of the module slices a passphrase or hex-prints bytes of the AES key derived from it: the expressions
+    that the debug lines of add_json, add_pickle, add_file, calculate_file_cid, calculate_json_cid and
+    calculate_pickle_cid printed."""
+    # The module source, line by line.
+    lines = inspect.getsource(r1fs).splitlines()
+    # What each printed expression showed -> its pattern.
+    patterns = {
+      'a prefix of the passphrase': r'\bsecret\[:',
+      'bytes of the derived AES key': r'\bkey\[:\d*\]\.hex\(\)',
+    }
+    # Every line that matches a pattern: its number, what it showed, and the line.
+    found = [(number, shown, line.strip()) for number, line in enumerate(lines, 1)
+             for shown, pattern in patterns.items() if re.search(pattern, line)]
+    # None.
+    self.assertEqual(found, [])
+
+
+if __name__ == '__main__':
+  # Run this file alone.
+  unittest.main()
