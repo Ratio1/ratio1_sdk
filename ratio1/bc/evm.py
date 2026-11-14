@@ -51,6 +51,54 @@ else:
     """
 
 
+def _rpc_provider(rpc_url):
+  """
+  Build the HTTP provider of an RPC client with a bound on what one call can cost.
+
+  One request may take 10 s, a call gets 2 tries, and the chain id of the endpoint is kept once fetched.
+  Left to the client library, one request may take 30 s, a call gets 5 tries, and every contract read fetches
+  the chain id twice (measured on web3 7.16: 3 HTTP requests per license read; with this provider 1, after the
+  first read on a thread).
+
+  Parameters
+  ----------
+  rpc_url : str
+    Address of the RPC endpoint.
+
+  Returns
+  -------
+  web3.HTTPProvider
+    The provider to hand to ``Web3``.
+
+  Notes
+  -----
+  A call the endpoint never answers ends after about 20 s (2 tries of 10 s and one pause of 0.125 s) by raising
+  the timeout to the caller; before, 5 tries of 30 s could hold the calling thread for over 150 s. A license
+  read is one such call once its thread knows the chain id; a thread's first read adds the chain id fetch.
+  The timeout is the one ``requests`` applies to the connection and to each read, so it does not limit a slow,
+  steady answer. The tries apply to the methods and errors the library already tries again (a timeout, an HTTP
+  error status): only their number changes.
+
+  The library keeps the chain id per provider and per thread, and keeps only a successful answer, so a failed
+  fetch is asked again by the next call. The first use of a provider asks for the chain id twice: the library
+  asks once more to set up what it may keep. No other answer is kept.
+
+  Examples
+  --------
+  >>> w3 = Web3(_rpc_provider("https://rpc.example"))
+  >>> w3.provider.exception_retry_configuration.retries
+  2
+  """
+  # 10 s per request in place of the library's 30 s, and the chain id kept after its first fetch: of all the
+  # answers the library can keep, only eth_chainId is named, so nothing else about a call changes.
+  provider = Web3.HTTPProvider(
+    rpc_url, request_kwargs={"timeout": 10}, cache_allowed_requests=True, cacheable_requests={"eth_chainId"},
+  )
+  # 2 tries in place of the library's 5: with the timeout, a call that gets no answer costs about 20 s.
+  provider.exception_retry_configuration.retries = 2
+  # The provider for the caller to wrap in a Web3 client.
+  return provider
+
 
 class _EVMMixin:
   _SAFE_SIGNATURE_MAGIC_VALUE = b"\x16\x26\xba\x7e"
@@ -202,13 +250,26 @@ class _EVMMixin:
     
     def get_evm_network(self) -> str:
       """
-      Get the current network
+      Get the current network and keep the engine's RPC client built for it.
+
+      The network is the value of the ``EE_EVM_NET`` environment key, or the SDK default ("mainnet") when the
+      key is not set. On the first call, and whenever it differs from the network of the previous call, the
+      engine's ``web3`` client is built for the RPC endpoint of that network.
 
       Returns
       -------
       str
-        the network name.
+        The network name, or "VPN" when the VPN implementation is enabled (no client is built then).
 
+      Notes
+      -----
+      The client is built with ``_rpc_provider``: 10 s per request, 2 tries per call, and the chain id kept
+      after its first fetch. A client built again starts without a chain id.
+
+      Examples
+      --------
+      >>> engine.get_evm_network()  # EE_EVM_NET is not set
+      'mainnet'
       """
       if EE_VPN_IMPL:
         return "VPN"        
@@ -226,7 +287,8 @@ class _EVMMixin:
         self.current_evm_network = network
         network_data = self.get_network_data(network)
         rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
-        self.web3 = Web3(Web3.HTTPProvider(rpc_url))
+        # The engine's client, with the per-request timeout, the 2 tries and the kept chain id of _rpc_provider.
+        self.web3 = Web3(_rpc_provider(rpc_url))
         self.P(f"Resetting Web3 for {network=} via {rpc_url=}...")
       return network
     
@@ -257,6 +319,38 @@ class _EVMMixin:
 
 
     def _get_web3_vars(self, network=None) -> Web3Vars:
+      """
+      Collect the RPC client and the chain data of a network.
+
+      Parameters
+      ----------
+      network : str, optional
+        The network to read. When omitted, the engine's own network and its kept client are used. When given,
+        a client is built for this call and not kept.
+
+      Returns
+      -------
+      Web3Vars
+        The client (``w3``), the address of the RPC endpoint, the network name, its genesis date (UTC), the
+        epoch length in seconds and the contract addresses of the network.
+
+      Raises
+      ------
+      AssertionError
+        When the network is not one of the known networks (raised by ``get_network_data``).
+
+      Notes
+      -----
+      Both clients are built with ``_rpc_provider``: 10 s per request and 2 tries per call. The client built
+      for a named network is new on every call, so it fetches the chain id again each time.
+
+      Examples
+      --------
+      >>> engine._get_web3_vars().network  # EE_EVM_NET is not set
+      'mainnet'
+      >>> engine._get_web3_vars("testnet").rpc_url == engine.get_network_data("testnet")["EE_DAUTH_RPC"]
+      True
+      """
       if network is None:
         network = self.evm_network
         w3 = self.web3
@@ -280,7 +374,9 @@ class _EVMMixin:
       )
 
       if w3 is None:
-        w3 = Web3(Web3.HTTPProvider(rpc_url))
+        # A client for this one call on a named network, with the same timeout and tries. It is not kept, so
+        # the chain id is still fetched on each such call.
+        w3 = Web3(_rpc_provider(rpc_url))
         self.P(f"Created temporary Web3 for {network=} via {rpc_url=}...", verbosity=2)
       #end if
       

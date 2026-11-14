@@ -89,6 +89,10 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   RPC endpoint, contract and method, also used by `web3_is_dauth_oracle`. Refreshes serialize per
   entry, an expired snapshot never authorizes after a failed refresh, and registry changes can take
   ten minutes to appear (`tests/test_evm_oracle_registry_cache.py`).
+- Every RPC client the engine builds (`_rpc_provider` in `ratio1/bc/evm.py`) gives one request 10 s
+  and one call 2 tries, for reads and transactions alike, so a call the endpoint never answers
+  raises after about 20 s. The chain id is kept per client and thread after its first fetch; the
+  client built for a `network=` argument is not kept (`tests/test_evm_rpc_bounds.py`).
 
 ## Deeploy and webapps
 
