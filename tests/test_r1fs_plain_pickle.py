@@ -33,6 +33,9 @@ def _nested_lists(levels):
   """
   Build lists nested a given number of levels, each holding only the next one.
 
+  The tests use it for the deepest nesting the loader accepts and for the first
+  depth it refuses, so the depth bound is checked on both sides.
+
   Parameters
   ----------
   levels : int
@@ -314,6 +317,9 @@ class R1FSPlainPickleTests(unittest.TestCase):
     """
     Keep pickle bytes written by hand under a new CID, as R1FS keeps a file another node added.
 
+    The bytes bypass add_pickle, so a test can hand get_pickle a file no pickler
+    writes; get_pickle then reads them through the fake get_file like any file.
+
     Parameters
     ----------
     data : bytes
@@ -339,6 +345,10 @@ class R1FSPlainPickleTests(unittest.TestCase):
   def _assert_refused_fast(self, data, reason):
     """
     Assert that get_pickle refuses pickle bytes for the given reason, in well under a second.
+
+    The bytes are stored as another node's file and read with raise_on_error, as
+    oracle sync reads them; the refusal must be the RuntimeError with the given
+    reason, and the whole read must end within one second.
 
     Parameters
     ----------
@@ -383,9 +393,9 @@ class R1FSPlainPickleTests(unittest.TestCase):
     self._assert_refused_fast(data, 'it uses one container in two places')
 
   def test_shared_deep_or_overreused_shapes_are_refused_in_milliseconds(self):
-    """Small pickles that would expand exponentially (lists or dicts shared at every level, through memo fetches or
-    DUP), nest too deep, re-use one string far past their size, or make the load clear a memo far larger than
-    themselves, are refused in milliseconds."""
+    """Small pickles that would expand exponentially (lists or dicts shared at every level, through binary or text
+    memo fetches or DUP), nest too deep, re-use one string or one growing bytearray far past their size, or make the
+    load clear a memo far larger than themselves, are refused in milliseconds."""
     # One list used twice at each of 20 levels: 142 bytes that print as about 4 MB of JSON.
     shared_list = []
     # Each level holds the level below twice.
@@ -403,6 +413,9 @@ class R1FSPlainPickleTests(unittest.TestCase):
     by_memo = (b'\x80\x04' + b']\x94' + b'0'
                + b''.join(b'(' + (b'h' + bytes([level - 1])) * 2 + b'l\x94' + b'0' for level in range(1, 51))
                + b'}' + b'\x8c\x02n1' + b'h' + bytes([50]) + b's.')
+    # A list put in the memo and fetched twice with the text opcodes PUT and GET ('p0', 'g0'), which the load runs
+    # under any protocol header.
+    by_text_get = b'\x80\x04}\x8c\x02n1]p0\n0(g0\ng0\nls.'
     # The same through DUP, 20 levels: 21 lists, 20 marks between them; each (DUP, APPENDS) puts the top list twice
     # into the list below the mark.
     by_dup = b'\x80\x04}\x8c\x02n1' + b'](' * 20 + b']' + b'2e' * 20 + b's.'
@@ -428,6 +441,7 @@ class R1FSPlainPickleTests(unittest.TestCase):
       ('list shared at 20 levels', pickle.dumps({'n1': shared_list}), shared),
       ('dict shared at 20 levels', pickle.dumps({'n1': shared_dict}), shared),
       ('lists from memo fetches, 50 levels', by_memo, shared),
+      ('a list from text-mode memo fetches', by_text_get, shared),
       ('lists through DUP, 20 levels', by_dup, 'opcode DUP'),
       ('tuple nested 100,000 levels as a dict key', deep_key, deep),
       ('lists nested one level too deep', pickle.dumps(_nested_lists(_PLAIN_PICKLE_MAX_DEPTH + 1)), deep),

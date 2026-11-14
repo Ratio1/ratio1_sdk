@@ -1,4 +1,4 @@
-"""The R1FS engine logs no key material: none of its lines prints a secret, a part of one, or bytes of a derived key."""
+"""The R1FS engine module holds none of the expressions that printed key material in its log lines."""
 # The engine module's source is read.
 import inspect
 # The printed expressions are matched as patterns.
@@ -20,11 +20,12 @@ class R1FSLogSecretsTests(unittest.TestCase):
     maybe_start_ipfs, printed."""
     # The module source, line by line.
     lines = inspect.getsource(r1fs).splitlines()
-    # What each printed expression showed -> its pattern.
+    # What each printed expression showed -> its pattern. The swarm-key slice has no leading word boundary, so a slice
+    # of the engine's private copy (self.__base64_swarm_key) matches too.
     patterns = {
       'a prefix of the passphrase': r'\bsecret\[:',
       'bytes of the derived AES key': r'\bkey\[:\d*\]\.hex\(\)',
-      'a part of the swarm key': r'\bbase64_swarm_key\)?\[',
+      'a part of the swarm key': r'base64_swarm_key\)?\[',
       'the whole swarm key': r'\{base64_swarm_key\}',
     }
     # Every line that matches a pattern: its number, what it showed, and the line.
