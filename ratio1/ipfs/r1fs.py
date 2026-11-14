@@ -241,8 +241,8 @@ class _PlainDataUnpickler(pickle.Unpickler):
     Refuse the class or function a pickle names.
 
     Called by pickle for every class or function the file references
-    (GLOBAL, STACK_GLOBAL, INST and extension-code opcodes); plain data never
-    reaches it.
+    (GLOBAL, STACK_GLOBAL, INST, and extension codes registered in copyreg);
+    plain data never reaches it.
 
     Parameters
     ----------
@@ -272,8 +272,10 @@ class _PlainDataUnpickler(pickle.Unpickler):
     raise pickle.UnpicklingError(f"R1FS pickle refused: it names {module}.{name}; only plain data is loaded")
 
 
-# Largest pickle get_pickle loads: about 16 times oracle sync's largest file at 2,000 nodes (a 0.5 MB median table),
-# and a bound on what one load of a crafted file costs.
+# Largest pickle get_pickle loads: about 16 times oracle sync's largest file at 2,000 nodes (a 0.5 MB median table).
+# A crafted file's cost grows with its size: at this bound, one-byte opcodes take 6-7 s of walk at 2 cores (26-33 s
+# at 0.35 core) and up to 0.56 GB of walk memory, and a list of 8 million empty lists takes 0.7 GB in the load, on
+# top of the interpreter.
 _PLAIN_PICKLE_MAX_BYTES = 8 * 1024 * 1024
 # Deepest nesting get_pickle loads (an empty list is 1 level): oracle-sync files nest 1 or 2 levels, while a tuple
 # nested 400,000 levels as a dict key crashes the interpreter when the load hashes it.
@@ -339,13 +341,16 @@ def _check_plain_pickle(data):
 
   Notes
   -----
-  An opcode that names a class or function (GLOBAL, STACK_GLOBAL, INST, EXT*)
-  ends the walk: the load stops at that opcode, where
-  `_PlainDataUnpickler.find_class` refuses it and names what the file asked for.
+  An opcode that names a class or function (GLOBAL, STACK_GLOBAL, INST) ends
+  the walk: the load stops at that opcode, where `_PlainDataUnpickler.find_class`
+  refuses it and names what the file asked for. The extension-code opcodes
+  (EXT1, EXT2, EXT4) end the walk too: the load looks the code up in copyreg's
+  extension registry, which the node leaves empty, and fails there with
+  ValueError "unregistered extension code <n>".
   The walk is linear in the file's size. On the production interpreter it takes
   35-100 ms per MB of an oracle-sync table on one core and 120-240 ms at 0.35
-  CPU (the load itself takes 2-4 ms), and 0.5-0.6 s per MB on one core, 3 s at
-  0.35 CPU, for one-byte opcodes, the densest a file can be.
+  CPU (the load itself takes 2-4 ms), and 0.6-0.9 s per MB on one core, 3-3.7 s
+  at 0.35 CPU, for one-byte opcodes, the densest a file can be.
 
   Examples
   --------
