@@ -2075,9 +2075,9 @@ class BaseBlockEngine(
     at the coordinator's finalization step. The request body is never logged by
     this method, and of a response only this: a signed refusal is logged in red
     with the refusing server's ``server_alias``, the action ("job update" for a
-    request without an operation) and the server's ``error`` value, the one
-    field in which a server can name the check that failed, before the
-    RuntimeError is raised. The ``error`` value is logged as its ``repr`` cut to
+    request without an operation) and the server's ``error`` value, the field
+    in which a dAuth server says why it refused, before the RuntimeError is
+    raised. The ``error`` value is logged as its ``repr`` cut to
     200 characters; it is chosen by the answering dAuth server, so a server
     that put a value of the request there would have up to 200 characters of
     it logged. The raised error never carries it.
@@ -2142,8 +2142,8 @@ class BaseBlockEngine(
     if result.get("status") != "success" or result.get("error") not in (None, ""):
       # Name the server that refused: the signed answer always carries its alias, and the caller's retry log
       # does not say which dAuth server answered. Only lifecycle requests have an action. The line ends with
-      # the server's `error` value, the one field in which a server can name the check that failed: before,
-      # no log on this side said why. The signature, signer and nonce passed above, so the value comes from a
+      # the server's `error` value, the field in which a dAuth server says why it refused: before, no log
+      # on this side said why. The signature, signer and nonce passed above, so the value comes from a
       # registered dAuth oracle answering this request; it is still that server's text, so it is logged
       # escaped (its repr) and cut to 200 characters: one refusal writes one line of bounded length.
       self.P("dAuth server {} refused secret reconciliation ({}): {!r:.200}".format(
