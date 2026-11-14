@@ -64,43 +64,77 @@ class TestDauthSecretReconciliationClient(unittest.TestCase):
 
   def test_rejects_malformed_http_and_unauthenticated_or_unsuccessful_responses(self):
     """Reject invalid envelopes without retrying or exposing their body contents."""
+    # One answer per way an answer can be wrong: (name, HTTP status, body, signature valid, signer registered).
     cases = [
+      # The service answers an error status.
       ('http', 503, {'result': self.result}, True, True),
+      # The body is not an object.
       ('outer shape', 200, [], True, True),
+      # The result is not an object.
       ('result shape', 200, {'result': []}, True, True),
+      # The signature of the answer does not verify.
       ('signature', 200, {'result': self.result}, False, True),
+      # The signer is not a registered dAuth oracle.
       ('oracle', 200, {'result': self.result}, True, False),
+      # The answer carries the nonce of another request.
       ('nonce', 200, {'result': {**self.result, 'nonce': 'wrong'}}, True, True),
+      # A signed refusal by its status.
       ('status', 200, {'result': {**self.result, 'status': 'fail'}}, True, True),
+      # A signed refusal by its error text, which holds the value that must not show up anywhere.
       ('error', 200, {'result': {**self.result, 'error': 'private-token'}}, True, True),
+      # A success for another job.
       ('job', 200, {'result': {**self.result, 'job_id': '8'}}, True, True),
+      # A success without a CID.
       ('cid', 200, {'result': {**self.result, 'pipeline_cid': ''}}, True, True),
+      # A success whose configs are for other nodes than the request named.
       ('nodes', 200, {'result': {**self.result, 'pipeline_configs': {'other': {}}}}, True, True),
+      # A success with a config that is not an object.
       ('config', 200, {'result': {**self.result, 'pipeline_configs': {'worker': []}}}, True, True),
     ]
+    # Every case is sent once and must be refused.
     for name, status, data, valid, oracle in cases:
+      # Each case reports on its own.
       with self.subTest(case=name):
+        # Count the posts of this case only.
         self.post.reset_mock()
+        # The HTTP status the service answers.
         self.response.status_code = status
+        # The body it answers.
         self.response.json.return_value = data
+        # Whether the answer's signature verifies.
         self.engine.verification_valid = valid
+        # Whether the signer is a registered dAuth oracle.
         self.engine.dauth_oracle = oracle
+        # The client raises for every one of them.
         with self.assertRaises((ValueError, RuntimeError)) as caught:
+          # The request whose answer is wrong.
           self.engine.reconcile_dauth_job_secrets(self.payload)
+        # One post: nothing is sent again.
         self.assertEqual(self.post.call_count, 1)
+        # Neither the raised error nor any log line carries the value, the refusal's own error text included.
         self.assertNotIn('private-token', str(caught.exception) + str(self.engine.log_messages))
+    # The body was read: the cases did not all end at the status check.
     self.response.json.assert_called()
 
   def test_signed_refusal_still_raises_and_names_the_dauth_server_in_red(self):
     """A refusal says which dAuth server refused which action; its error text stays out of the log."""
+    # Every line the client logs, with its colour.
     logs = []
+    # The engine's log call is replaced so that whole lines can be compared.
     self.engine.P = lambda message, color=None, **kwargs: logs.append((message, color))
+    # A correctly signed answer that refuses, with an error text that must not reach the log.
     self.result.update(status='error', error='private-token')
+    # The refusal of a job update raises.
     with self.assertRaises(RuntimeError):
+      # The job update that is refused.
       self.engine.reconcile_dauth_job_secrets(self.payload)
+    # The same refusal for a lifecycle request with the action "revoke".
     self.lifecycle('revoke')
+    # It raises too.
     with self.assertRaises(RuntimeError):
+      # The lifecycle request that is refused.
       self.engine.reconcile_dauth_job_secrets(self.payload)
+    # One red line per refusal, naming the server and the action and ending there: no error text.
     self.assertEqual(logs, [('dAuth server dauth-a refused secret reconciliation (job update).', 'r'),
                             ('dAuth server dauth-a refused secret reconciliation (revoke).', 'r')])
 
