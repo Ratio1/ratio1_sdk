@@ -304,13 +304,15 @@ def _check_plain_pickle(data):
   only the nesting depth of each stack item and the value of each leaf, and
   refuses the file when it fetches a container from its memo or duplicates the
   top item (DUP), so every container, and every bytearray (the load extends one
-  on APPEND), has exactly one place; when it nests deeper
-  than `_PLAIN_PICKLE_MAX_DEPTH`; when its memo fetches of leaves add up to more
-  than `_PLAIN_PICKLE_MAX_REUSE` times its size; when it memoizes an item past
-  the next free memo index, which makes the load allocate and clear a memo of
-  16 bytes per index; and when it is larger than `_PLAIN_PICKLE_MAX_BYTES`.
-  Strings and other leaves stay shareable, as pickle shares every repeated
-  string object.
+  on APPEND), has exactly one place; when it nests deeper than
+  `_PLAIN_PICKLE_MAX_DEPTH`; when its memo fetches of leaves add up to more than
+  `_PLAIN_PICKLE_MAX_REUSE` times its size; when it memoizes an item past the
+  next free memo index, which makes the load allocate and clear a memo of 16
+  bytes per index; when a dict key or set item is anything but str, bytes,
+  bool, None or an int below 2**61 - 1 in size, since larger ints, tuples and
+  frozensets can be built to share one hash and make the load quadratic in
+  their count; and when it is larger than `_PLAIN_PICKLE_MAX_BYTES`. Strings and
+  other leaves stay shareable, as pickle shares every repeated string object.
 
   Parameters
   ----------
@@ -327,8 +329,8 @@ def _check_plain_pickle(data):
   pickle.UnpicklingError
     "R1FS pickle refused: ..." with the reason: larger than the bound, a
     container used in two places, nested too deep, too much re-use, a memo index
-    out of order, or an opcode that builds no plain data (DUP, REDUCE, BUILD and
-    the like).
+    out of order, a dict key or set item of a type or size not allowed, or an
+    opcode that builds no plain data (DUP, REDUCE, BUILD and the like).
   ValueError
     From `pickletools.genops`, when the bytes are not a whole pickle.
   IndexError, KeyError
@@ -416,6 +418,19 @@ def _check_plain_pickle(data):
       else:
         # All items above the newest mark, which is dropped.
         items, stack = stack, metastack.pop()
+      if name in ('SETITEM', 'SETITEMS', 'DICT', 'ADDITEMS', 'FROZENSET'):
+        # The items the load hashes: a dict's keys (every other item, from the first) or every item of a set.
+        hashed = items if name in ('ADDITEMS', 'FROZENSET') else items[::2]
+        # Each must be a leaf whose hash a file cannot choose: str and bytes hashes are randomized at each start
+        # (unless PYTHONHASHSEED fixes them), None and bool have one each, and an int below 2**61 - 1 in size is its
+        # own hash. Larger ints, tuples and frozensets can be built so that thousands share one hash, and the load
+        # compares each with every earlier one while holding the GIL (20,000 int keys, 0.28 MB: 4.3 s at 2 cores).
+        if any(key_depth or not (key is None or isinstance(key, (str, bytes))
+                                 or (isinstance(key, int) and abs(key) < 2 ** 61 - 1)) for key_depth, key in hashed):
+          # Refused before the load hashes any of them.
+          raise pickle.UnpicklingError(
+            "R1FS pickle refused: a dict key or set item is not str, bytes, bool, None or an int below 2**61 - 1"
+          )
       # A container is one level deeper than its deepest item.
       depth = 1 + max([item[0] for item in items], default=0)
       if into_below:
@@ -3907,11 +3922,14 @@ class R1FSEngine:
       larger than `_PLAIN_PICKLE_MAX_BYTES` (8 MiB), one that uses one container
       object in two places (a few hundred bytes of such a file can take
       exponential time to hash or serialize), one nested deeper than
-      `_PLAIN_PICKLE_MAX_DEPTH` (32) levels, and one whose re-used strings and
-      other leaves add up to more than `_PLAIN_PICKLE_MAX_REUSE` (16) times its
-      size, and one that memoizes an item past the next free memo index (the
-      load would allocate 16 bytes per index); data with a container in two
-      places must be stored as copies.
+      `_PLAIN_PICKLE_MAX_DEPTH` (32) levels, one whose re-used strings and other
+      leaves add up to more than `_PLAIN_PICKLE_MAX_REUSE` (16) times its size,
+      one that memoizes an item past the next free memo index (the load would
+      allocate 16 bytes per index), and one with a dict key or set item other
+      than str, bytes, bool, None or an int below 2**61 - 1 in size (larger
+      ints, tuples and frozensets can be built to share one hash, which makes
+      the load quadratic); data with a container in two places must be stored as
+      copies, and dicts keyed by tuples or floats are not loaded.
 
       Parameters
       ----------
@@ -3951,8 +3969,9 @@ class R1FSEngine:
         refused: <reason>", where the reason is "it names <module>.<name>; only
         plain data is loaded", "larger than <n> bytes", "it uses one container in
         two places", "it nests deeper than <n> levels", "its re-used values add up
-        to more than <n> times its size", "memo index out of order" or "opcode
-        <name>; only plain data is loaded".
+        to more than <n> times its size", "memo index out of order", "a dict key
+        or set item is not str, bytes, bool, None or an int below 2**61 - 1" or
+        "opcode <name>; only plain data is loaded".
 
       ValueError
         With raise_on_error=True, when ``cid`` is not a bare CID (see get_file).

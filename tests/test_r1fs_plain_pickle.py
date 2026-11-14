@@ -444,6 +444,39 @@ class R1FSPlainPickleTests(unittest.TestCase):
         # Refused, for its reason, in milliseconds.
         self._assert_refused_fast(data, reason)
 
+  def test_keys_whose_hash_a_file_can_choose_are_refused_in_milliseconds(self):
+    """Dict keys and set items that a file can build to share one hash (ints of 2**61 - 1 or more in size, tuples,
+    frozensets), and floats, are refused in milliseconds, before the load hashes them; str, bytes, bool, None and
+    smaller int keys and set items still load."""
+    # The modulus of Python's int hash: every multiple of it hashes to 0.
+    modulus = 2 ** 61 - 1
+    # The largest and smallest int keys that load, a str key, set items of every allowed type, and a None key.
+    allowed = {modulus - 1: 0, 1 - modulus: 1, 'k': {b'b', True, None, 2}, None: frozenset(['s'])}
+    # Read with raise_on_error, so a refusal would be the exception.
+    loaded = self.engine.get_pickle(self._store_bytes(pickle.dumps(allowed)), raise_on_error=True, show_logs=False)
+    # Unchanged.
+    self.assertEqual(loaded, allowed)
+    # 5,000 int keys that all hash to 0 (69 KB): the load's dict compares each new key with every earlier one while
+    # holding the GIL, 0.26 s at 2 cores, and 4 times as long per doubling (20,000 keys, 0.28 MB: 4.3 s).
+    colliding = {modulus * (number + 1): 0 for number in range(5000)}
+    # Shape name and pickle bytes: SETITEMS, SETITEM, DICT, ADDITEMS and FROZENSET each meet one.
+    shapes = [
+      ('5,000 int keys of one hash', pickle.dumps(colliding)),
+      ('one int key of 2**61 - 1', pickle.dumps({modulus: 0})),
+      ('a tuple key', pickle.dumps({(1, 2): 0})),
+      ('a frozenset key', pickle.dumps({frozenset([1]): 0})),
+      ('a float key', pickle.dumps({1.5: 0})),
+      ('a tuple key in a DICT opcode', b'\x80\x02(K\x01K\x02\x86K\x00d.'),
+      ('a set item of 2**61 - 1', pickle.dumps({modulus})),
+      ('a frozenset item of 2**61 - 1', pickle.dumps(frozenset([modulus]))),
+    ]
+    # Each shape on its own.
+    for name, data in shapes:
+      # A failure names the shape.
+      with self.subTest(shape=name):
+        # Refused, for this reason, in milliseconds.
+        self._assert_refused_fast(data, 'a dict key or set item is not str, bytes, bool, None or an int below 2**61 - 1')
+
   def test_file_larger_than_the_bound_is_refused(self):
     """A pickle of exactly the size bound loads; one byte more is refused before it is parsed."""
     # The bytes a pickle adds around a large bytes value, measured on this interpreter.
