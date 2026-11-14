@@ -20,10 +20,11 @@ EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
 ]
 
 _ORACLE_REGISTRY_TTL = 10 * 60
-# Seconds a failed registry read is remembered: until then the registry is not read again and its callers get
-# the error of that read at once. A read that the endpoint never answers holds its thread about 20 s (measured
-# 20.2 s), so with 60 s a thread that asks all the time is held a quarter of the time, where every call held it.
-_ORACLE_REGISTRY_FAILURE_TTL = 60
+# A failed registry read is remembered for this many times the time the read took: until then the registry is
+# not read again and its callers get the error of that read at once. A read the endpoint never answers takes
+# about 20 s and is remembered 60 s, so a thread that asks all the time is held a quarter of the time, where
+# every call held it; a read that fails in milliseconds is made again milliseconds later, as before.
+_ORACLE_REGISTRY_FAILURE_FACTOR = 3
 _ORACLE_REGISTRY_CACHE = {}
 _ORACLE_REGISTRY_CACHE_LOCK = Lock()
 
@@ -1108,13 +1109,13 @@ class _EVMMixin:
 
 
     def _get_cached_oracle_registry(self, w3vars, address, abi, method):
-      """Read one registry through a process-wide, ten-minute cache that remembers a failed read for a minute.
+      """Read one registry through a process-wide, ten-minute cache that remembers a failed read for a while.
 
       The addresses a registry method returns are kept for ten minutes per network, RPC endpoint, contract and
       method, for every engine of the process. When no list is kept, or the kept one is older than that, the
-      registry is read again. A read that fails is remembered for 60 s (``_ORACLE_REGISTRY_FAILURE_TTL``):
-      until then the registry is not read, and every call for it raises the error of that read at once. The
-      expired list is never returned in its place.
+      registry is read again. A read that fails is remembered for three times the time it took
+      (``_ORACLE_REGISTRY_FAILURE_FACTOR``): until then the registry is not read, and every call for it raises
+      the error of that read at once. The expired list is never returned in its place.
 
       Parameters
       ----------
@@ -1136,8 +1137,8 @@ class _EVMMixin:
       ------
       Exception
         What the registry read raised (a timeout, a connection or HTTP error of the RPC client, an RPC error),
-        when no list younger than ten minutes is kept: by the read itself, and by every call of the 60 s after
-        it, which gets the same error object and makes no read.
+        when no list younger than ten minutes is kept: by the read itself, and by every call made within three
+        times the read's duration after it, which gets the same error object and makes no read.
 
       Notes
       -----
@@ -1147,12 +1148,23 @@ class _EVMMixin:
 
       Before a failed read was remembered, every call made while the list was expired and the endpoint failed
       made the read again, on its own thread: 20.2 s each against an endpoint that takes a request and never
-      answers (two tries of 10 s), and a thread that had waited for the lock then made its own. Now the read
-      is made once per registry and 60 s, counted from the moment it failed: the caller that makes it waits as
-      before, a caller waiting for the lock gets its error when it ends, and the callers after that get it at
-      once. The price is that the registry stays unanswered for up to 60 s after the endpoint answers again,
-      also after a single read that failed. The memory only turns a read into its last error: no call is given
-      a list that a read of its own would not have returned.
+      answers (two tries of 10 s), and a thread that had waited for the lock then made its own. Now such a
+      read is remembered for 60 s from the moment it failed: the caller that makes it waits as before, a
+      caller waiting for the lock gets its error when it ends, and the callers after that get it at once, so a
+      thread that asks all the time is held a quarter of the time. A read that fails quickly is remembered as
+      briefly (an HTTP error answer after 0.13 s for 0.4 s, a refused connection or an RPC error answer after
+      a few milliseconds for three times as many), so one such failure costs the callers after it no more than
+      it did before: once the endpoint answers again, so does the registry, within that time. Measured with
+      one thread asking without a pause, 25% of its time went into reads that fail after 0.13 s and 34 to 38%
+      into reads that fail within milliseconds, as the time a call spends around its read is not counted. The
+      memory only turns a read into its last error: no call is given a list that a read of its own would not
+      have returned.
+
+      The time a read took is measured on the monotonic clock, so setting the wall clock does not change how
+      long a failure is remembered. That time has no upper bound here: a read that takes longer is remembered
+      longer in proportion (a connection that never completes takes about 20 s per address of the host name,
+      so 40 s and a memory of 120 s for two addresses), and the registry stays unanswered that long after such
+      an endpoint answers again.
 
       The error raised from the memory is the object the read raised, so its type, text and attributes are the
       read's. Its traceback is reset before each such raise, so it does not grow with the calls; two threads
@@ -1161,9 +1173,12 @@ class _EVMMixin:
       local data, of the last call answered with it and, when the error carries the error that caused it (a
       timeout does), of the call whose read failed: measured with a node's chain store, the values of one or
       two refused writes. It is let go when the registry is read successfully again. An interrupt of the
-      program during the read (``KeyboardInterrupt``) is not an error of the read and is not remembered. One
-      line is logged per failed read, with the error's text cut to 400 characters, and none per call answered
-      from the memory.
+      program during the read (``KeyboardInterrupt``) is not an error of the read and is not remembered.
+
+      One line is logged when a registry's read fails after its last one answered (or as its first read), with
+      the time the read took and the error's text cut to 400 characters. The failed reads that follow, and the
+      calls answered from the memory, log nothing until the registry has answered again: a line per failed
+      read would be a line per call for a read that fails in milliseconds.
 
       Examples
       --------
@@ -1175,31 +1190,41 @@ class _EVMMixin:
       """
       key = (w3vars.network.lower(), w3vars.rpc_url, address.lower(), method)
       with _ORACLE_REGISTRY_CACHE_LOCK:
-        # A registry starts with no failed read to wait out (time 0 is always past), so its first read is made
-        # at once.
-        entry = _ORACLE_REGISTRY_CACHE.setdefault(key, {"lock": Lock(), "failed_until": 0})
+        # A registry starts with no failed read: none to wait out (time 0 is always past), so its first read is
+        # made at once, and no error kept, so its first failed read is logged.
+        entry = _ORACLE_REGISTRY_CACHE.setdefault(key, {"lock": Lock(), "failed_until": 0, "failure": None})
       with entry["lock"]:
         if "addresses" not in entry or monotonic() >= entry["expires_at"]:
           if monotonic() < entry["failed_until"]:
-            # The last read failed less than 60 s ago: its error again, at once and without a read, where each
-            # call made the failing read again (20.2 s each for an endpoint that never answers). The traceback
-            # is reset first: raised again as it is, the object would gain the frames of every call.
+            # The last read failed and less than three times its own duration has passed since: its error
+            # again, at once and without a read, where each call made the failing read again (20.2 s each for
+            # an endpoint that never answers). The traceback is reset first: raised again as it is, the object
+            # would gain the frames of every call.
             raise entry["failure"].with_traceback(None)
           contract = w3vars.w3.eth.contract(address=address, abi=abi)
           started_at = monotonic()
           try:
-            # The registry read, as before; now inside a try so that a failure can be remembered.
+            # The registry read, as before; inside a try so that a failure can be remembered.
             addresses = tuple(getattr(contract.functions, method)().call())
           except Exception as failure:
-            # Remember the error for 60 s from now (the read may have taken 20 s itself), under the registry's
-            # lock: a caller that waited for the lock finds it and makes no read of its own.
-            entry.update(failure=failure, failed_until=monotonic() + _ORACLE_REGISTRY_FAILURE_TTL)
-            self.P(f"Registry read {method} on {w3vars.network} failed and is not made again for "
-                   f"{_ORACLE_REGISTRY_FAILURE_TTL} s: {failure!r:.400}", color='r')
+            # The moment the read failed, on the same clock as its start: one that setting the wall clock does
+            # not move, so the time the read took is the time that passed.
+            failed_at = monotonic()
+            if entry["failure"] is None:
+              self.P(f"Registry read {method} on {w3vars.network} failed after {failed_at - started_at:.3f} s; "
+                     f"its failed reads are not logged again until it answers: {failure!r:.400}", color='r')
+            # Remember the error for three times the time the read took, from now, under the registry's lock: a
+            # read that hung 20 s is not made again for 60 s, one that failed within milliseconds is made again
+            # three times as many milliseconds later (a fixed 60 s left the registry unanswered for a minute
+            # after one error answer). A caller that waited for the lock finds the error and makes no read of
+            # its own.
+            entry.update(
+              failure=failure, failed_until=failed_at + _ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at),
+            )
             # The caller of the failed read gets its error, as before.
             raise
           # The list is kept for ten minutes, and the error of an earlier failed read is let go with the frames
-          # it holds.
+          # it holds; the next failed read is logged again.
           entry.update(addresses=addresses, expires_at=started_at + _ORACLE_REGISTRY_TTL, failure=None)
         return list(entry["addresses"])
 

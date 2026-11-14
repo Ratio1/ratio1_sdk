@@ -16,9 +16,9 @@ from ratio1.bc import evm
 
 ORACLE = "0x000000000000000000000000000000000000dEaD"
 OTHER = "0x0000000000000000000000000000000000000001"
-# Seconds a failed registry read is remembered. A number of its own, not the SDK's constant: a change of that
-# constant must fail here.
-FAILURE_TTL = 60
+# How many times the time a failed registry read took its error is remembered. A number of its own, not the SDK's
+# constant: a change of that constant must fail here.
+FAILURE_FACTOR = 3
 
 
 class _Unanswered(Exception):
@@ -114,6 +114,57 @@ class OracleRegistryCacheTests(unittest.TestCase):
     # The engine resolves its network to them without reading the environment.
     self.engine._get_web3_vars = Mock(return_value=self.vars)
 
+  def failing_read(self, seconds, error):
+    """
+    Build the stand-in for a registry read that takes ``seconds`` on the test clock and then fails.
+
+    Parameters
+    ----------
+    seconds : float
+      The time the read takes: the test clock moves on by it before the error is raised.
+    error : BaseException
+      The error the read ends with; every call raises this one object.
+
+    Returns
+    -------
+    callable
+      The stand-in, to be set as the ``side_effect`` of a registry's read.
+
+    Examples
+    --------
+    >>> self.dauth.side_effect = self.failing_read(20, _Unanswered("no answer"))
+    >>> self.engine.web3_get_dauth_oracles()   # the test clock is 20 s further on when this raises
+    Traceback (most recent call last):
+    _Unanswered: no answer
+    """
+    def read():
+      """
+      Let the read's time pass on the test clock, then fail.
+
+      Returns
+      -------
+      None
+        Nothing is returned: the call always raises.
+
+      Raises
+      ------
+      BaseException
+        The ``error`` given to ``failing_read``.
+
+      Examples
+      --------
+      >>> read()
+      Traceback (most recent call last):
+      _Unanswered: no answer
+      """
+      # The time the read takes passes on the test clock.
+      self.clock.return_value += seconds
+      # The read ends with its error.
+      raise error
+
+    # The stand-in for a registry's read.
+    return read
+
   def test_lists_are_shared_between_engines_and_callers_get_copies(self):
     second = evm._EVMMixin()
     second._get_web3_vars = self.engine._get_web3_vars
@@ -127,7 +178,7 @@ class OracleRegistryCacheTests(unittest.TestCase):
 
   def test_refresh_at_ten_minutes_and_failure_never_grants_stale_membership(self):
     """The kept list answers for ten minutes; a read that then fails raises, and the expired list grants nothing;
-    once that failure is no longer remembered the registry is read again and its new, empty list answers."""
+    a read that failed in no time is made again by the next question, and its new, empty list answers."""
     # The first question reads the registry: a member.
     self.assertTrue(self.engine.web3_is_dauth_oracle(ORACLE))
     # One second before the ten minutes are over.
@@ -144,10 +195,8 @@ class OracleRegistryCacheTests(unittest.TestCase):
     with self.assertRaisesRegex(RuntimeError, "RPC unavailable"):
       # The question that finds the list expired.
       self.engine.web3_is_dauth_oracle(ORACLE)
-    # The failed read is remembered for 60 s. The test clock stood still while it failed, so the registry is read
-    # again from second 760 on; before, the next question read it at once.
-    self.clock.return_value = 700 + FAILURE_TTL
-    # The read answers again.
+    # The read failed in no time on the test clock, so its error is remembered for no time: the next question
+    # reads the registry again at once. The read answers again.
     self.dauth.side_effect = None
     # The registry is empty now.
     self.dauth.return_value = []
@@ -155,7 +204,7 @@ class OracleRegistryCacheTests(unittest.TestCase):
     self.assertFalse(self.engine.web3_is_dauth_oracle(ORACLE))
     # The kept list is the empty one.
     self.assertEqual(self.engine.web3_get_dauth_oracles(), [])
-    # Three reads: the first, the failed one, and the one after the 60 s.
+    # Three reads: the first, the failed one, and the one right after it.
     self.assertEqual(self.dauth.call_count, 3)
     # Membership is answered from the list: the contract's own membership method is never called.
     self.contract.functions.isDAuthOracle.assert_not_called()
@@ -174,8 +223,7 @@ class OracleRegistryCacheTests(unittest.TestCase):
     self.assertEqual(self.oracles.call_count, 4)
 
   def test_failed_initial_fetch_can_retry(self):
-    """A registry whose very first read fails is read again once that failure is no longer remembered, and then
-    answers."""
+    """A registry whose very first read fails in no time is read again by the next question, and then answers."""
     # The first read of the registry fails.
     self.oracles.side_effect = RuntimeError("RPC unavailable")
     # The caller gets that error.
@@ -184,9 +232,8 @@ class OracleRegistryCacheTests(unittest.TestCase):
       self.engine.web3_get_oracles()
     # The endpoint answers again.
     self.oracles.side_effect = None
-    # The failure of second 100 is remembered for 60 s; before, the next question read the registry at once.
-    self.clock.return_value = 100 + FAILURE_TTL
-    # The registry is read again and its list returned.
+    # The read failed in no time on the test clock, so it is remembered for no time: the registry is read again at
+    # once and its list returned.
     self.assertEqual(self.engine.web3_get_oracles(), [ORACLE])
     # Two reads: the failed one and this one.
     self.assertEqual(self.oracles.call_count, 2)
@@ -227,50 +274,23 @@ class OracleRegistryCacheTests(unittest.TestCase):
       self.assertFalse(self.engine.web3_is_dauth_oracle(ORACLE))
     self.dauth.assert_not_called()
 
-  def test_a_failed_read_is_made_once_a_minute_and_answered_with_its_error_meanwhile(self):
-    """While the list is expired and the registry's read fails, the read is made once per 60 s counted from its
-    failure; every question in between gets the error of that read, without a read, and never the expired list."""
+  def test_a_slow_failed_read_is_held_three_times_the_time_it_took_and_no_longer(self):
+    """While the list is expired, a read that fails after 20 s is not made again for 60 s counted from its failure,
+    and one that fails after 7 s for 21 s; every question in between gets the error of that read, without a read,
+    and never the expired list."""
     # The list is read and kept at second 100.
     self.assertTrue(self.engine.web3_is_dauth_oracle(ORACLE))
     # Ten minutes later it has expired.
     self.clock.return_value = 700
-
-    def unanswered():
-      """
-      Stand in for a registry read the endpoint never answers: 20 s pass, then the read ends with an error.
-
-      Returns
-      -------
-      None
-        Nothing is returned: the call always raises.
-
-      Raises
-      ------
-      _Unanswered
-        Always, after the test clock moved 20 s on.
-
-      Examples
-      --------
-      >>> self.clock.return_value = 700
-      >>> unanswered()
-      Traceback (most recent call last):
-      _Unanswered: no answer
-      >>> self.clock.return_value
-      720
-      """
-      # Two tries of 10 s pass on the test clock while the read waits.
-      self.clock.return_value += 20
-      # The read ends without an answer.
-      raise _Unanswered("no answer")
-
-    # From now on the registry's read fails after 20 s.
-    self.dauth.side_effect = unanswered
+    # From now on the registry's read takes 20 s, as two tries of 10 s do, and ends without an answer.
+    self.dauth.side_effect = self.failing_read(20, _Unanswered("no answer"))
     # The question that finds the list expired makes the read and gets its error.
     with self.assertRaisesRegex(_Unanswered, "no answer"):
       # Asked at second 700; the read fails at second 720.
       self.engine.web3_is_dauth_oracle(ORACLE)
-    # Right after the failure, and one second before 60 s have passed since it (not since the read began).
-    for second in (720, 720 + FAILURE_TTL - 1):
+    # Right after the failure, and one second before three times 20 s have passed since it (not since the read
+    # began).
+    for second in (720, 720 + FAILURE_FACTOR * 20 - 1):
       # The moment of the next two questions.
       self.clock.return_value = second
       # A membership question gets the read's error: neither the True of the expired list nor a False.
@@ -281,42 +301,149 @@ class OracleRegistryCacheTests(unittest.TestCase):
       with self.assertRaisesRegex(_Unanswered, "no answer"):
         # Answered from the memory of the failed read.
         self.engine.web3_get_dauth_oracles()
-    # No read was made for those four questions: one read answered, one failed. Before, each made the read again.
+    # No read was made for those four questions: one read answered, one failed. Without a memory each made the
+    # read again.
     self.assertEqual(self.dauth.call_count, 2)
     # 60 s after the failure the memory is over.
-    self.clock.return_value = 720 + FAILURE_TTL
-    # The next question makes the read again, and it fails again.
+    self.clock.return_value = 720 + FAILURE_FACTOR * 20
+    # The read now takes 7 s before it fails.
+    self.dauth.side_effect = self.failing_read(7, _Unanswered("no answer"))
+    # The next question makes the read again.
     with self.assertRaisesRegex(_Unanswered, "no answer"):
-      # Asked at second 780; this read fails at second 800.
+      # Asked at second 780; this read fails at second 787.
       self.engine.web3_is_dauth_oracle(ORACLE)
     # That was the third read.
     self.assertEqual(self.dauth.call_count, 3)
-    # Its failure is remembered anew: the question that follows is answered with it.
+    # One second before three times 7 s have passed since that failure.
+    self.clock.return_value = 787 + FAILURE_FACTOR * 7 - 1
+    # Still answered with its error.
     with self.assertRaisesRegex(_Unanswered, "no answer"):
-      # Asked at second 800, inside the new 60 s.
+      # Asked at second 807, from the memory.
       self.engine.web3_is_dauth_oracle(ORACLE)
     # Still three reads.
     self.assertEqual(self.dauth.call_count, 3)
+    # 21 s after the failure: a read of 7 s is not held for the 60 s of the read of 20 s.
+    self.clock.return_value = 787 + FAILURE_FACTOR * 7
+    # The question makes the read again.
+    with self.assertRaisesRegex(_Unanswered, "no answer"):
+      # Asked at second 808.
+      self.engine.web3_is_dauth_oracle(ORACLE)
+    # The fourth read.
+    self.assertEqual(self.dauth.call_count, 4)
+
+  def test_a_fast_failed_read_is_made_again_after_its_own_short_time(self):
+    """A read that fails after an eighth of a second is remembered for three eighths: half a second after it was
+    asked the registry is read again, and answers if the endpoint does."""
+    # The list is read and kept at second 100.
+    self.assertTrue(self.engine.web3_is_dauth_oracle(ORACLE))
+    # Ten minutes later it has expired.
+    self.clock.return_value = 700
+    # The registry's read fails after 0.125 s, as an error answer of the endpoint does.
+    self.dauth.side_effect = self.failing_read(0.125, _Unanswered("error answer"))
+    # The question that finds the list expired gets the error.
+    with self.assertRaisesRegex(_Unanswered, "error answer"):
+      # Asked at second 700; the read fails at second 700.125.
+      self.engine.web3_is_dauth_oracle(ORACLE)
+    # A sixteenth of a second before three times 0.125 s have passed since the failure.
+    self.clock.return_value = 700.125 + FAILURE_FACTOR * 0.125 - 0.0625
+    # Still answered with the error.
+    with self.assertRaisesRegex(_Unanswered, "error answer"):
+      # Asked at second 700.4375, from the memory.
+      self.engine.web3_is_dauth_oracle(ORACLE)
+    # Two reads: the first and the failed one.
+    self.assertEqual(self.dauth.call_count, 2)
+    # The endpoint answers again.
+    self.dauth.side_effect = None
+    # 0.375 s after the failure.
+    self.clock.return_value = 700.125 + FAILURE_FACTOR * 0.125
+    # The registry is read again and answers: one failed read of an eighth of a second cost half a second, not
+    # the minute a read of 20 s is held.
+    self.assertTrue(self.engine.web3_is_dauth_oracle(ORACLE))
+    # The third read.
+    self.assertEqual(self.dauth.call_count, 3)
+
+  def test_a_step_of_the_wall_clock_does_not_change_how_long_a_failed_read_is_held(self):
+    """The time a failed read took is not read from the wall clock: with the wall clock set an hour forward, or an
+    hour back, while the read is made, a read of 8 s is held 24 s."""
+    # The wall clock as the time module gives it: second 1,000,000 until a read moves it.
+    wall = patch("time.time", return_value=1_000_000.0).start()
+    # The dAuth registry with the wall clock set forward during its read, the oracle registry with it set back.
+    for call, question, step in ((self.dauth, self.engine.web3_get_dauth_oracles, 3600),
+                                 (self.oracles, self.engine.web3_get_oracles, -3600)):
+      # Each case reports on its own.
+      with self.subTest(step=step):
+        # Each case starts at second 100 of the test clock.
+        self.clock.return_value = 100
+
+        def stepped():
+          """
+          Stand in for a registry read of 8 s during which the wall clock is set by ``step`` seconds.
+
+          Returns
+          -------
+          None
+            Nothing is returned: the call always raises.
+
+          Raises
+          ------
+          _Unanswered
+            Always, after the test clock moved 8 s on and the wall clock ``step`` s.
+
+          Examples
+          --------
+          >>> stepped()
+          Traceback (most recent call last):
+          _Unanswered: no answer
+          """
+          # The read takes 8 s.
+          self.clock.return_value += 8
+          # Meanwhile the wall clock is set.
+          wall.return_value += step
+          # The read ends without an answer.
+          raise _Unanswered("no answer")
+
+        # The registry's read fails that way.
+        call.side_effect = stepped
+        # The registry's first question gets the error.
+        with self.assertRaises(_Unanswered):
+          # Asked at second 100; the read fails at second 108.
+          question()
+        # One second before three times 8 s have passed since the failure.
+        self.clock.return_value = 108 + FAILURE_FACTOR * 8 - 1
+        # Still answered with the error: a wall clock set back did not end the memory early.
+        with self.assertRaises(_Unanswered):
+          # Asked at second 131, from the memory.
+          question()
+        # The one read.
+        self.assertEqual(call.call_count, 1)
+        # 24 s after the failure.
+        self.clock.return_value = 108 + FAILURE_FACTOR * 8
+        # The read is made again: a wall clock set forward did not stretch the memory to hours.
+        with self.assertRaises(_Unanswered):
+          # Asked at second 132.
+          question()
+        # The second read.
+        self.assertEqual(call.call_count, 2)
 
   def test_a_read_that_answers_again_ends_the_memory_and_lets_the_error_go(self):
-    """Once the 60 s are over and the read answers, the new list is returned and kept for ten minutes from that
-    read, and the error object of the failed read is no longer held."""
+    """Once the memory of a failed read is over and the read answers, the new list is returned and kept for ten
+    minutes from that read, and the error object of the failed read is no longer held."""
     # The list is read and kept at second 100.
     self.assertEqual(self.engine.web3_get_dauth_oracles(), [ORACLE])
     # Ten minutes later it has expired.
     self.clock.return_value = 700
-    # The error the registry's read ends with from now on.
+    # The error the registry's read ends with.
     error = _Unanswered("no answer")
-    # The stand-in raises this one object.
-    self.dauth.side_effect = error
+    # The read takes 20 s and raises this one object.
+    self.dauth.side_effect = self.failing_read(20, error)
     # The question that finds the list expired gets the error.
     with self.assertRaises(_Unanswered):
-      # The read that fails, at second 700.
+      # Asked at second 700; the read fails at second 720.
       self.engine.web3_get_dauth_oracles()
     # The endpoint answers again at once, with another list.
     self.dauth.side_effect, self.dauth.return_value = None, [OTHER]
-    # One second before the 60 s are over.
-    self.clock.return_value = 700 + FAILURE_TTL - 1
+    # One second before the 60 s of that read are over.
+    self.clock.return_value = 720 + FAILURE_FACTOR * 20 - 1
     # The registry is not read yet: the question still gets the remembered error. This is the price of the memory.
     with self.assertRaises(_Unanswered):
       # Answered from the memory.
@@ -324,17 +451,17 @@ class OracleRegistryCacheTests(unittest.TestCase):
     # Two reads so far: the first and the failed one.
     self.assertEqual(self.dauth.call_count, 2)
     # The 60 s are over.
-    self.clock.return_value = 700 + FAILURE_TTL
+    self.clock.return_value = 720 + FAILURE_FACTOR * 20
     # The registry is read and its new list returned.
     self.assertEqual(self.engine.web3_get_dauth_oracles(), [OTHER])
-    # One second before ten minutes have passed since that read.
-    self.clock.return_value = 700 + FAILURE_TTL + 599
+    # One second before ten minutes have passed since that read, made at second 780.
+    self.clock.return_value = 780 + 599
     # Answered from the kept list.
     self.assertEqual(self.engine.web3_get_dauth_oracles(), [OTHER])
     # Three reads: no further one.
     self.assertEqual(self.dauth.call_count, 3)
     # Ten minutes after that read.
-    self.clock.return_value = 700 + FAILURE_TTL + 600
+    self.clock.return_value = 780 + 600
     # The list has expired and the registry is read again: the old failure does not stand in the way.
     self.assertEqual(self.engine.web3_get_dauth_oracles(), [OTHER])
     # The fourth read.
@@ -350,14 +477,14 @@ class OracleRegistryCacheTests(unittest.TestCase):
     self.assertIsNone(held())
 
   def test_two_threads_asking_at_once_share_one_failed_read(self):
-    """Two threads ask while the registry's read fails: one makes the read, the other waits for the registry's
-    lock, gets the same error when the read ends and makes no read of its own."""
+    """Two threads ask while the registry's read fails slowly: one makes the read, the other waits for the
+    registry's lock, gets the same error when the read ends and makes no read of its own."""
     # Both threads ask at the same moment.
     ready = Barrier(2)
 
     def unanswered():
       """
-      Stand in for a registry read that takes a fifth of a second and then fails.
+      Stand in for a registry read of 20 s that fails; it takes a fifth of a second of real time.
 
       Returns
       -------
@@ -367,7 +494,7 @@ class OracleRegistryCacheTests(unittest.TestCase):
       Raises
       ------
       _Unanswered
-        Always, after 0.2 s.
+        Always, after 20 s of the test clock and 0.2 s of real time.
 
       Examples
       --------
@@ -375,7 +502,9 @@ class OracleRegistryCacheTests(unittest.TestCase):
       Traceback (most recent call last):
       _Unanswered: no answer
       """
-      # Far longer than the other thread needs to reach the registry's lock and wait for it.
+      # The read takes 20 s on the test clock, so its error is remembered for 60 s.
+      self.clock.return_value += 20
+      # In real time, far longer than the other thread needs to reach the registry's lock and wait for it.
       sleep(0.2)
       # The read ends without an answer.
       raise _Unanswered("no answer")
@@ -405,7 +534,7 @@ class OracleRegistryCacheTests(unittest.TestCase):
       # The question.
       return self.engine.web3_get_oracles()
 
-    # The registry's read fails after 0.2 s.
+    # The registry's read fails that way.
     self.oracles.side_effect = unanswered
     # Two threads.
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -417,7 +546,7 @@ class OracleRegistryCacheTests(unittest.TestCase):
         with self.assertRaisesRegex(_Unanswered, "no answer"):
           # The asker's result, 3 s at most.
           future.result(timeout=3)
-    # One read for the two of them. Before, the thread that had waited for the lock made its own.
+    # One read for the two of them. Without a memory the thread that had waited for the lock made its own.
     self.oracles.assert_called_once()
 
   def test_a_failed_read_of_one_registry_does_not_hold_the_other(self):
@@ -427,11 +556,11 @@ class OracleRegistryCacheTests(unittest.TestCase):
     self.assertEqual(self.engine.web3_get_oracles(), [ORACLE])
     # Ten minutes later the oracle registry's list has expired.
     self.clock.return_value = 700
-    # The dAuth registry's read fails.
-    self.dauth.side_effect = _Unanswered("no answer")
+    # The dAuth registry's read takes 20 s and fails.
+    self.dauth.side_effect = self.failing_read(20, _Unanswered("no answer"))
     # Its first question gets the error.
     with self.assertRaises(_Unanswered):
-      # The very first read of the dAuth registry.
+      # The very first read of the dAuth registry: asked at second 700, failed at second 720.
       self.engine.web3_get_dauth_oracles()
     # The oracle registry is read again and answers: the other registry's failure does not stand in for it.
     self.assertEqual(self.engine.web3_get_oracles(), [ORACLE])
@@ -439,36 +568,50 @@ class OracleRegistryCacheTests(unittest.TestCase):
     with self.assertRaises(_Unanswered):
       # Answered from the memory.
       self.engine.web3_get_dauth_oracles()
-    # One read of the dAuth registry (before, its second question made the failing read again) and two of the
-    # oracle registry.
+    # One read of the dAuth registry (without a memory its second question made the failing read again) and two
+    # of the oracle registry.
     self.assertEqual((self.dauth.call_count, self.oracles.call_count), (1, 2))
 
-  def test_one_line_is_logged_per_failed_read_and_none_per_question_answered_from_it(self):
-    """A failed read writes one log line that names the registry method, the network, the 60 s and the error, cut
-    to 400 characters; the questions answered from its memory write none."""
-    # The dAuth registry's read fails.
-    self.dauth.side_effect = _Unanswered("no answer")
-    # Three questions: one read, two answers from its memory.
+  def test_one_line_is_logged_when_a_registry_stops_answering_and_none_until_it_answered_again(self):
+    """The first failed read of a registry writes one log line that names the registry method, the network, the
+    time the read took and the error, cut to 400 characters; the questions answered from its memory and the
+    failed reads that follow write none, until the registry has answered and fails again."""
+    # The dAuth registry's read takes 20 s and fails.
+    self.dauth.side_effect = self.failing_read(20, _Unanswered("no answer"))
+    # Three questions: one read (asked at second 100, failed at second 120), two answers from its memory.
     for _ in range(3):
       # Each gets the error.
       with self.assertRaises(_Unanswered):
         # One question.
         self.engine.web3_get_dauth_oracles()
-    # One line for the three of them. Before, a failed read wrote none.
+    # One line for the three of them.
     self.assertEqual(self.engine.P.call_count, 1)
     # The line's text.
     line = self.engine.P.call_args.args[0]
-    # What its reader needs: which registry, on which network, for how long it is not read, and why.
-    for part in ("getDAuthOracles", "devnet", "60 s", "_Unanswered('no answer')"):
+    # What its reader needs: which registry, on which network, how long the read took, and why it failed.
+    for part in ("getDAuthOracles", "devnet", "after 20.000 s", "_Unanswered('no answer')"):
       # Each is in the line.
       self.assertIn(part, line)
-    # The 60 s are over, and the next read fails with a text of 1000 characters.
-    self.clock.return_value, self.dauth.side_effect = 100 + FAILURE_TTL, _Unanswered("x" * 1000)
+    # The 60 s of that read are over.
+    self.clock.return_value = 120 + FAILURE_FACTOR * 20
+    # The question that makes the read again; it fails again, at second 200.
+    with self.assertRaises(_Unanswered):
+      # The second failed read in a row.
+      self.engine.web3_get_dauth_oracles()
+    # No line for it: the registry has not answered in between. A line per failed read would be a line per
+    # question for a read that fails in milliseconds.
+    self.assertEqual(self.engine.P.call_count, 1)
+    # The 60 s of the second read are over, and the endpoint answers.
+    self.clock.return_value, self.dauth.side_effect = 200 + FAILURE_FACTOR * 20, None
+    # The registry is read and answers, at second 260.
+    self.assertEqual(self.engine.web3_get_dauth_oracles(), [ORACLE])
+    # Ten minutes later that list has expired, and the read fails with a text of 1000 characters.
+    self.clock.return_value, self.dauth.side_effect = 260 + 600, self.failing_read(20, _Unanswered("x" * 1000))
     # The question that makes that read.
     with self.assertRaises(_Unanswered):
-      # The second failed read.
+      # The first failed read since the registry answered.
       self.engine.web3_get_dauth_oracles()
-    # One more line.
+    # One more line: two in all, none for the read that answered.
     self.assertEqual(self.engine.P.call_count, 2)
     # The error's text is what follows the line's last ": ".
     shown = self.engine.P.call_args.args[0].rpartition(": ")[2]
@@ -478,15 +621,15 @@ class OracleRegistryCacheTests(unittest.TestCase):
   def test_the_error_answered_from_the_memory_does_not_grow_with_the_questions(self):
     """The error a question gets from the memory of a failed read arrives with a traceback of the same length
     however many questions were answered with it before."""
-    # The dAuth registry's read fails.
-    self.dauth.side_effect = _Unanswered("no answer")
+    # The dAuth registry's read takes 20 s and fails.
+    self.dauth.side_effect = self.failing_read(20, _Unanswered("no answer"))
     # The question that makes the read.
     with self.assertRaises(_Unanswered):
       # The read that fails.
       self.engine.web3_get_dauth_oracles()
     # Five more questions, each answered from the memory: the length of the traceback each one's error has.
     lengths = [_traceback_entries(self.engine.web3_get_dauth_oracles) for _ in range(5)]
-    # No read was made for them. Before, each made the read again.
+    # No read was made for them.
     self.assertEqual(self.dauth.call_count, 1)
     # Each got an error.
     self.assertGreater(lengths[0], 0)
@@ -495,15 +638,16 @@ class OracleRegistryCacheTests(unittest.TestCase):
 
   def test_an_interrupted_read_is_not_remembered_and_the_error_of_the_next_one_is(self):
     """A read ended by an interrupt of the program (Ctrl-C in an interactive session), which is no error of the
-    read, is not remembered: the next question makes the read, and the error of that read is remembered."""
-    # The read is interrupted.
-    self.dauth.side_effect = KeyboardInterrupt()
+    read, is not remembered however long it took: the next question makes the read, and the error of that read
+    is remembered."""
+    # The read is interrupted after 20 s.
+    self.dauth.side_effect = self.failing_read(20, KeyboardInterrupt())
     # The interrupt reaches the caller.
     with self.assertRaises(KeyboardInterrupt):
       # The interrupted read.
       self.engine.web3_get_dauth_oracles()
-    # From now on the read fails with an error.
-    self.dauth.side_effect = _Unanswered("no answer")
+    # From now on the read fails with an error after 20 s.
+    self.dauth.side_effect = self.failing_read(20, _Unanswered("no answer"))
     # The next question is not answered with the interrupt: it makes the read and gets that read's error.
     with self.assertRaises(_Unanswered):
       # The second read.
@@ -512,7 +656,7 @@ class OracleRegistryCacheTests(unittest.TestCase):
     with self.assertRaises(_Unanswered):
       # Answered from the memory.
       self.engine.web3_get_dauth_oracles()
-    # Two reads: the interrupted one and the failed one. Before, the third question made a third read.
+    # Two reads: the interrupted one and the failed one.
     self.assertEqual(self.dauth.call_count, 2)
 
 
