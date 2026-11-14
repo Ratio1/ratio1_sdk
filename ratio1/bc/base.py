@@ -2072,15 +2072,10 @@ class BaseBlockEngine(
     a timeout does not establish whether dAuth persisted the result. Deployment
     failure does not restore metadata in the unversioned path. Lifecycle
     preparation leaves the active pointer unchanged; commit/delete publish only
-    at the coordinator's finalization step. The request body is never logged by
-    this method, and of a response only this: a signed refusal is logged in red
-    with the refusing server's ``server_alias``, the action ("job update" for a
-    request without an operation) and the server's ``error`` value, the field
-    in which a dAuth server says why it refused, before the RuntimeError is
-    raised. The ``error`` value is logged as its ``repr`` cut to
-    200 characters; it is chosen by the answering dAuth server, so a server
-    that put a value of the request there would have up to 200 characters of
-    it logged. The raised error never carries it.
+    at the coordinator's finalization step. Request and response bodies are
+    never logged by this method. A signed refusal is logged in red with only the
+    refusing server's ``server_alias`` and the action ("job update" for a request
+    without an operation) before the RuntimeError is raised.
 
     Examples
     --------
@@ -2141,13 +2136,9 @@ class BaseBlockEngine(
       raise ValueError("dAuth reconciliation response nonce mismatch.")
     if result.get("status") != "success" or result.get("error") not in (None, ""):
       # Name the server that refused: the signed answer always carries its alias, and the caller's retry log
-      # does not say which dAuth server answered. Only lifecycle requests have an action. The line ends with
-      # the server's `error` value, the field in which a dAuth server says why it refused: before, no log
-      # on this side said why. The signature, signer and nonce passed above, so the value comes from a
-      # registered dAuth oracle answering this request; it is still that server's text, so it is logged
-      # escaped (its repr) and cut to 200 characters: one refusal writes one line of bounded length.
-      self.P("dAuth server {} refused secret reconciliation ({}): {!r:.200}".format(
-        result["server_alias"], payload["action"] if operation is not None else "job update", result.get("error")), color='r')
+      # does not say which dAuth server answered. Only lifecycle requests have an action.
+      self.P("dAuth server {} refused secret reconciliation ({}).".format(
+        result["server_alias"], payload["action"] if operation is not None else "job update"), color='r')
       raise RuntimeError("dAuth rejected secret reconciliation.")
     if operation is not None:
       if (
