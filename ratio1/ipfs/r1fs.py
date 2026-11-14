@@ -70,6 +70,8 @@ import tempfile
 import random
 import ipaddress
 import signal
+# At module level for _PlainDataUnpickler, the loader get_pickle uses for files that other nodes name by CID.
+import pickle
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -187,6 +189,85 @@ def require_ipfs_started(method):
     return method(self, *args, **kwargs)
   return wrapper  
 
+
+# get_pickle loads files whose CID usually comes from another node's message: plain pickle.load would run any
+# callable the file names, so this loader builds plain data only.
+class _PlainDataUnpickler(pickle.Unpickler):
+  """
+  Unpickler that builds plain data only and refuses everything else.
+
+  Pickle builds None, bool, int, float, str, bytes, and lists, tuples, dicts,
+  sets and frozensets of these from its own opcodes (bytearray too, with
+  protocol 5). Every other object (a class instance, a function, a numpy value,
+  a set or bytes written with a protocol older than 4 or 3) needs a class or
+  function the file names, which pickle looks up through `find_class`; here that
+  lookup always fails, so no code the file chose is ever imported or called.
+
+  Parameters
+  ----------
+  file : binary file object
+    The open pickle file, as for `pickle.Unpickler`.
+
+  Returns
+  -------
+  _PlainDataUnpickler
+    The loader; its `load()` returns the plain data or raises.
+
+  Raises
+  ------
+  pickle.UnpicklingError
+    From `load()`, when the file names any class or function.
+
+  Notes
+  -----
+  `add_pickle` writes with the default protocol (4 up to Python 3.13, 5 from
+  3.14), which encodes sets, frozensets and bytes without naming a class.
+
+  Examples
+  --------
+  >>> import io, pickle
+  >>> _PlainDataUnpickler(io.BytesIO(pickle.dumps({"a": [1, 2.5, None]}))).load()
+  {'a': [1, 2.5, None]}
+  >>> _PlainDataUnpickler(io.BytesIO(pickle.dumps(len))).load()
+  Traceback (most recent call last):
+  ...
+  _pickle.UnpicklingError: R1FS pickle refused: it names builtins.len; only plain data is loaded
+  """
+
+  def find_class(self, module, name):
+    """
+    Refuse the class or function a pickle names.
+
+    Called by pickle for every class or function the file references
+    (GLOBAL, STACK_GLOBAL, INST and extension-code opcodes); plain data never
+    reaches it.
+
+    Parameters
+    ----------
+    module : str
+      The module the file names.
+    name : str
+      The class or function name the file names in that module.
+
+    Returns
+    -------
+    None
+      Never returns.
+
+    Raises
+    ------
+    pickle.UnpicklingError
+      Always, naming what the file asked for.
+
+    Examples
+    --------
+    >>> _PlainDataUnpickler(io.BytesIO(b"")).find_class("os", "system")
+    Traceback (most recent call last):
+    ...
+    _pickle.UnpicklingError: R1FS pickle refused: it names os.system; only plain data is loaded
+    """
+    # Nothing the file names is imported or called; the error reaches get_pickle's caller like any load error.
+    raise pickle.UnpicklingError(f"R1FS pickle refused: it names {module}.{name}; only plain data is loaded")
 
 
 class R1FSEngine:
@@ -3654,8 +3735,15 @@ class R1FSEngine:
       show_logs: bool = True,
     ):
       """
-      Retrieve and deserialize a pickle file from R1FS by CID.
-      Uses get_file under the hood to download and decrypt the file, then loads it with pickle.
+      Retrieve and deserialize a pickle file from R1FS by CID, as plain data only.
+
+      Uses get_file under the hood to download and decrypt the file, then loads it
+      with `_PlainDataUnpickler`: only None, bool, int, float, str, bytes, and
+      lists, tuples, dicts, sets and frozensets of these are built. A file that
+      names any class or function (a class instance, a numpy value) is refused
+      before anything it names is imported or called, because the CID usually
+      comes from another node's message and a full pickle load would run whatever
+      the file asks for.
 
       Parameters
       ----------
@@ -3666,10 +3754,10 @@ class R1FSEngine:
         Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
 
       secret : str, optional
-        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+        Passphrase for AES-GCM. None or '' means the default, 'ratio1'.
 
       timeout : int, optional
-        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+        Maximum seconds for the IPFS get. If None, get_file uses 90 s.
 
       pin : bool, optional
         If True, we optionally pin the folder. Default True.
@@ -3683,20 +3771,25 @@ class R1FSEngine:
       Returns
       -------
       any
-        The deserialized Python object from the pickle file.
+        The plain data from the pickle file, or None when the read or the load
+        fails (a refused file included) and raise_on_error=False.
 
       Raises
       ------
-      ValueError
-        If the secret is empty.
-
       RuntimeError
-        If multiple or zero files are found in the downloaded folder,
-        or if we fail to parse the JSON metadata.
+        When R1FS is not started (always). With raise_on_error=True: when the
+        download or decryption fails (see get_file), and when the file does not
+        load; a refused file gives "Error loading pickle file <path>: R1FS pickle
+        refused: it names <module>.<name>; only plain data is loaded".
 
-      Exception
-        If the GCM tag is invalid or the IPFS command times out
-        and raise_on_error=True.
+      ValueError
+        With raise_on_error=True, when ``cid`` is not a bare CID (see get_file).
+
+      Notes
+      -----
+      The decrypted file is removed after a successful load. A file that does not
+      load (a refused one included) is left in the downloads folder unloaded; the
+      next get_file of that CID clears it.
 
       Examples
       --------
@@ -3705,9 +3798,10 @@ class R1FSEngine:
       >>> print(data)
       {'key': 'value', 'list': [1, 2, 3]}
       
+      >>> # A file that holds a class instance: refused, nothing of it runs
+      >>> print(engine.get_pickle("QmFileWithAnObject"))
+      None
       """
-      import pickle
-      
       # Use get_file to download and decrypt the file
       file_path = self.get_file(
         cid=cid,
@@ -3731,7 +3825,8 @@ class R1FSEngine:
       # Load the pickle file
       try:
         with open(file_path, "rb") as f:
-          data = pickle.load(f)
+          # Plain data only: a file that names a class or function raises here, before anything of it runs.
+          data = _PlainDataUnpickler(f).load()
         
         if show_logs:
           self.Pd(f"Successfully loaded pickle data from {file_path}")
