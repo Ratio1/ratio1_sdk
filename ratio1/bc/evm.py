@@ -72,12 +72,22 @@ def _rpc_provider(rpc_url):
 
   Notes
   -----
-  A call the endpoint never answers ends after about 20 s (2 tries of 10 s and one pause of 0.125 s) by raising
-  the timeout to the caller; before, 5 tries of 30 s could hold the calling thread for over 150 s. A license
-  read is one such call once its thread knows the chain id; a thread's first read adds the chain id fetch.
+  A call the endpoint takes a connection for and never answers ends after about 20 s (2 tries of 10 s and one
+  pause of 0.125 s) by raising the timeout to the caller; before, 5 tries of 30 s could hold the calling thread
+  for over 150 s. A connection that never completes is bounded per address: each try gives 10 s to every address
+  the host name resolves to, one after the other, so the call ends after about 20 s for one address and about
+  40 s for two (measured: 20.1 s and 40.2 s). A license read is one call once its thread knows the chain id; a
+  thread's first read adds the chain id fetch.
   The timeout is the one ``requests`` applies to the connection and to each read, so it does not limit a slow,
   steady answer. The tries apply to the methods and errors the library already tries again (a timeout, an HTTP
   error status): only their number changes.
+
+  Sending a signed transaction is one of the methods tried again. When the endpoint takes the transaction in
+  and answers after more than 10 s, the first try ends in a timeout, the second sends the same transaction once
+  more, and what the endpoint answers to that (for example "already known") is raised as an RPC error although
+  the transaction is pending. Left to the library the same happened for an answer slower than 30 s (measured:
+  an answer after 12 s gave the hash before and raises after 10.1 s now; an answer after 31 s raised before, at
+  30.2 s). The caller gets that error, not a hash.
 
   The library keeps the chain id per provider and per thread, and keeps only a successful answer, so a failed
   fetch is asked again by the next call. No other answer is kept. The provider is built with no validation
@@ -103,7 +113,7 @@ def _rpc_provider(rpc_url):
     # requests, was 3.
     request_cache_validation_threshold=None,
   )
-  # 2 tries in place of the library's 5: with the timeout, a call that gets no answer costs about 20 s.
+  # 2 tries in place of the library's 5: with the timeout, a connected call that gets no answer costs about 20 s.
   provider.exception_retry_configuration.retries = 2
   # The provider for the caller to wrap in a Web3 client.
   return provider
