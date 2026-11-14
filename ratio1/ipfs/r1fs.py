@@ -303,7 +303,8 @@ def _check_plain_pickle(data):
   checked. This walk follows the file's opcodes as the unpickler would, keeping
   only the nesting depth of each stack item and the value of each leaf, and
   refuses the file when it fetches a container from its memo or duplicates the
-  top item (DUP), so every container has exactly one place; when it nests deeper
+  top item (DUP), so every container, and every bytearray (the load extends one
+  on APPEND), has exactly one place; when it nests deeper
   than `_PLAIN_PICKLE_MAX_DEPTH`; when its memo fetches of leaves add up to more
   than `_PLAIN_PICKLE_MAX_REUSE` times its size; when it memoizes an item past
   the next free memo index, which makes the load allocate and clear a memo of
@@ -427,9 +428,10 @@ def _check_plain_pickle(data):
       stack.append((depth, None))
     elif not opcode.stack_before and len(opcode.stack_after) == 1:
       # Any other opcode that pushes one item and takes none: an empty container (EMPTY_LIST, EMPTY_DICT, EMPTY_SET,
-      # EMPTY_TUPLE) or a leaf (None, a bool, int, float, str, bytes or bytearray), whose value is kept. PERSID and
-      # NEXT_BUFFER land here too; the load refuses both.
-      stack.append((1, None) if name.startswith('EMPTY_') else (0, arg))
+      # EMPTY_TUPLE) or a bytearray, which counts as a container because the load extends it on APPEND and APPENDS,
+      # or a leaf (None, a bool, int, float, str or bytes), whose value is kept. PERSID and NEXT_BUFFER land here too;
+      # the load refuses both.
+      stack.append((1, None) if name.startswith('EMPTY_') or name == 'BYTEARRAY8' else (0, arg))
     elif name not in ('PROTO', 'FRAME', 'STOP'):
       # DUP (a second place for the top item), and REDUCE, BUILD and the like, which build no plain data.
       raise pickle.UnpicklingError(f"R1FS pickle refused: opcode {name}; only plain data is loaded")

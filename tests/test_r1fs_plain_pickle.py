@@ -414,6 +414,11 @@ class R1FSPlainPickleTests(unittest.TestCase):
     # None put at memo index 2**24 (LONG_BINPUT) in a 9-byte file: the load would grow its memo to twice the index
     # and clear every slot, 256 MiB here and gigabytes with a larger index.
     memo_gap = b'\x80\x04N' + b'r' + struct.pack('<I', 1 << 24) + b'.'
+    # An empty bytearray memoized at index 0, extended by 1,000 bytes (APPENDS, which the load applies to a bytearray
+    # through its extend), then fetched 1,000 times into a list: one growing object in 1,001 places. With 200,000 of
+    # each, 0.8 MB prints as about 160 GB.
+    grown_bytearray = (b'\x80\x05](' + b'\x96' + struct.pack('<Q', 0) + b'q\x00' + b'(' + b'K\x00' * 1000 + b'e'
+                       + b'h\x00' * 1000 + b'e.')
     # Why each shape is refused.
     shared = 'it uses one container in two places'
     # The reason for both too-deep shapes.
@@ -430,6 +435,7 @@ class R1FSPlainPickleTests(unittest.TestCase):
       ('one string re-used 100 times', pickle.dumps(['v' * 1000] * 100),
        f'its re-used values add up to more than {_PLAIN_PICKLE_MAX_REUSE} times its size'),
       ('a memo index far past the next free one', memo_gap, 'memo index out of order'),
+      ('a bytearray extended after it is memoized, fetched again', grown_bytearray, shared),
     ]
     # Each shape on its own.
     for name, data, reason in shapes:
