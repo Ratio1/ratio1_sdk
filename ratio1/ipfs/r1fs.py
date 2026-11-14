@@ -5460,9 +5460,9 @@ class R1FSEngine:
       if base64_swarm_key is None:
         base64_swarm_key = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
         if base64_swarm_key is not None:
-          self.P(f"Found env IPFS swarm key: {str(base64_swarm_key)[:4]}...", color='d')
+          self.P("Found env IPFS swarm key.", color='d')
           if len(base64_swarm_key) < 10:
-            self.P(f"Invalid IPFS swarm key: `{base64_swarm_key}`", color='r')
+            self.P(f"Invalid IPFS swarm key: {len(base64_swarm_key)} characters", color='r')
             return False
         
       if ipfs_relay is None:
@@ -5533,7 +5533,6 @@ class R1FSEngine:
       self.__ipfs_api_key_username = ipfs_api_key_username
       self.__ipfs_api_key_password = ipfs_api_key_password
       self.__ipfs_certificate_path = ipfs_certificate_path
-      hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
       
       existing_ipfs_home = os.getenv("IPFS_PATH")
       home_ready = False
@@ -5561,7 +5560,6 @@ class R1FSEngine:
       msg += f"\n  Relay:    {self.__ipfs_relay}"
       msg += f"\n  Download: {self.__downloads_dir}"
       msg += f"\n  Upload:   {self.__uploads_dir}"
-      msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
       msg += f"\n  Debug:    {self.__debug}"
       msg += f"\n  Repo:     {self.ipfs_home}"
       self.P(msg, color='d')
