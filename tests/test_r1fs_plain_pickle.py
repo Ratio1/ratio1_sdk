@@ -3,8 +3,14 @@
 import os
 # The control load, with the plain pickle loader.
 import pickle
+# Refusal reasons are matched as plain text.
+import re
+# Memo indexes of the crafted pickles, packed as the opcodes take them.
+import struct
 # Each test's files live in a temporary folder.
 import tempfile
+# Refusals are timed: the crafted files must be refused in milliseconds.
+import time
 # The test runner.
 import unittest
 # New CIDs and unique engine names.
@@ -17,8 +23,39 @@ import numpy
 from ratio1 import Logger
 # A real block engine signs the oracle-sync tables.
 from ratio1.bc import DefaultBlockEngine
-# The R1FS engine whose add_pickle and get_pickle are tested.
-from ratio1.ipfs.r1fs import R1FSEngine
+# The R1FS engine whose add_pickle and get_pickle are tested, and the bounds its loader applies.
+from ratio1.ipfs.r1fs import (
+  R1FSEngine, _PLAIN_PICKLE_MAX_BYTES, _PLAIN_PICKLE_MAX_DEPTH, _PLAIN_PICKLE_MAX_REUSE,
+)
+
+
+def _nested_lists(levels):
+  """
+  Build lists nested a given number of levels, each holding only the next one.
+
+  Parameters
+  ----------
+  levels : int
+    How many levels deep: an empty list is 1 level.
+
+  Returns
+  -------
+  list
+    The outermost list.
+
+  Examples
+  --------
+  >>> _nested_lists(3)
+  [[[]]]
+  """
+  # The innermost level.
+  nested = []
+  # Each further level wraps the one before.
+  for _ in range(levels - 1):
+    # One level deeper.
+    nested = [nested]
+  # The outermost list.
+  return nested
 
 
 class _WritesMarker:
@@ -223,6 +260,12 @@ class R1FSPlainPickleTests(unittest.TestCase):
       # Every type the loader builds.
       'plain types': {'none': None, 'bool': True, 'int': 2 ** 70, 'float': -1.5, 'str': 'text', 'bytes': b'\x00',
                       'list': [1], 'tuple': (1, 'a'), 'dict': {1: 2}, 'set': {1, 2}, 'frozenset': frozenset([3])},
+      # A file that holds None, which oracle sync's reader fetches again.
+      'none': None,
+      # The deepest nesting the loader builds.
+      'deepest nesting': _nested_lists(_PLAIN_PICKLE_MAX_DEPTH),
+      # One string re-used within the loader's budget: pickle writes it once and fetches it 9 times.
+      'one string re-used 10 times': ['v' * 1000] * 10,
     }
     # Each shape on its own.
     for name, payload in payloads.items():
@@ -238,6 +281,206 @@ class R1FSPlainPickleTests(unittest.TestCase):
         self.assertEqual(repr(loaded), repr(payload))
     # Nothing was refused.
     self.assertEqual(self.engine.logged, [])
+
+  def test_oracle_sync_tables_at_network_size_load(self):
+    """Oracle sync's tables at network size (2,000 nodes, 300 signed median entries) load unchanged in well under a
+    second: their repeated keys and signer address stay inside the loader's bounds."""
+    # Node addresses as the network has them: '0xai_' and 44 characters.
+    nodes = ['0xai_' + (uuid4().hex * 2)[:44] for _ in range(2000)]
+    # The two table shapes oracle sync writes, at network size.
+    payloads = {
+      # The local and agreed availability tables: node -> 0..255.
+      'availability table': {node: index % 256 for index, node in enumerate(nodes)},
+      # The median table: node -> signed VALUE, with EPOCH and NODE dropped after signing.
+      'median table': {node: self._signed({'VALUE': 255, 'EPOCH': 41, 'NODE': node}, 'EPOCH', 'NODE')
+                       for node in nodes[:300]},
+    }
+    # Each table on its own.
+    for name, payload in payloads.items():
+      # A failure names the table.
+      with self.subTest(payload=name):
+        # Stored through the real add_pickle.
+        cid = self.engine.add_pickle(payload, show_logs=False)
+        # The read is timed.
+        started = time.perf_counter()
+        # Read as oracle sync reads it.
+        loaded = self.engine.get_pickle(cid, raise_on_error=True, show_logs=False)
+        # Well under a second.
+        self.assertLess(time.perf_counter() - started, 1.0)
+        # Unchanged.
+        self.assertEqual(loaded, payload)
+
+  def _store_bytes(self, data):
+    """
+    Keep pickle bytes written by hand under a new CID, as R1FS keeps a file another node added.
+
+    Parameters
+    ----------
+    data : bytes
+      The pickle bytes, crafted rather than written by add_pickle.
+
+    Returns
+    -------
+    str
+      The CID get_pickle reads them back by.
+
+    Examples
+    --------
+    >>> self.engine.get_pickle(self._store_bytes(pickle.dumps([1])))
+    [1]
+    """
+    # A new CID, as for any stored file.
+    cid = 'Qm' + uuid4().hex
+    # Kept as the fake add_file keeps a file: its name and its bytes.
+    self.engine.stored[cid] = ('crafted.pkl', data)
+    # get_pickle reads them back through the fake get_file.
+    return cid
+
+  def _assert_refused_fast(self, data, reason):
+    """
+    Assert that get_pickle refuses pickle bytes for the given reason, in well under a second.
+
+    Parameters
+    ----------
+    data : bytes
+      The pickle bytes.
+    reason : str
+      The text that follows "R1FS pickle refused: " in the error.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self._assert_refused_fast(b'\\x80\\x04]2e.', 'opcode DUP')
+    """
+    # Stored as another node's file would be.
+    cid = self._store_bytes(data)
+    # The refusal is timed from the read.
+    started = time.perf_counter()
+    # With raise_on_error the refusal is the exception, its reason in the text.
+    with self.assertRaisesRegex(RuntimeError, re.escape('R1FS pickle refused: ' + reason)):
+      # Read as oracle sync reads a file another oracle names.
+      self.engine.get_pickle(cid, raise_on_error=True, show_logs=False)
+    # Refused in milliseconds; one second leaves room for a slow host.
+    self.assertLess(time.perf_counter() - started, 1.0)
+
+  def test_shared_tuple_used_as_dict_key_is_refused_in_milliseconds(self):
+    """A 665-byte pickle whose dict key is one tuple shared down 50 levels, which a load would hash in 2**50 steps
+    while holding the GIL, is refused before anything of it is built."""
+    # Level 0: the empty tuple, memoized at index 0 and popped.
+    data = b'\x80\x04' + b')\x94' + b'0'
+    # Levels 1 to 50.
+    for level in range(1, 51):
+      # A pair of the level below, fetched twice from the memo (LONG_BINGET), memoized at the next index and popped.
+      data += (b'j' + struct.pack('<I', level - 1)) * 2 + b'\x86\x94' + b'0'
+    # A dict whose one key is the 50-level tuple, so SETITEM would hash it.
+    data += b'}' + b'j' + struct.pack('<I', 50) + b'K\x01' + b's' + b'.'
+    # The size of the proof of concept.
+    self.assertEqual(len(data), 665)
+    # Refused at its first fetch of a container.
+    self._assert_refused_fast(data, 'it uses one container in two places')
+
+  def test_shared_deep_or_overreused_shapes_are_refused_in_milliseconds(self):
+    """Small pickles that would expand exponentially (lists or dicts shared at every level, through memo fetches or
+    DUP), nest too deep, or re-use one string far past their size, are refused in milliseconds."""
+    # One list used twice at each of 20 levels: 142 bytes that print as about 4 MB of JSON.
+    shared_list = []
+    # Each level holds the level below twice.
+    for _ in range(20):
+      # Both items are one object.
+      shared_list = [shared_list, shared_list]
+    # The same with dicts.
+    shared_dict = {}
+    # Each level holds the level below twice.
+    for _ in range(20):
+      # Both values are one object.
+      shared_dict = {'a': shared_dict, 'b': shared_dict}
+    # Lists of two items built from memo fetches (MARK, BINGET, BINGET, LIST, MEMOIZE) for 50 levels, the top one
+    # stored under 'n1'.
+    by_memo = (b'\x80\x04' + b']\x94' + b'0'
+               + b''.join(b'(' + (b'h' + bytes([level - 1])) * 2 + b'l\x94' + b'0' for level in range(1, 51))
+               + b'}' + b'\x8c\x02n1' + b'h' + bytes([50]) + b's.')
+    # The same through DUP, 20 levels: 21 lists, 20 marks between them; each (DUP, APPENDS) puts the top list twice
+    # into the list below the mark.
+    by_dup = b'\x80\x04}\x8c\x02n1' + b'](' * 20 + b']' + b'2e' * 20 + b's.'
+    # A 100,000-level tuple as a dict key (EMPTY_TUPLE, then TUPLE1 per level), which SETITEM would hash recursively.
+    deep_key = b'\x80\x04}' + b')' + b'\x85' * 100000 + b'K\x01s.'
+    # One level too deep, the deepest item in the first batch of a list's items: pickle writes a list of more than
+    # 1,000 items in batches (APPENDS), and the later batch of zeros must not lower the list's depth.
+    deep_then_shallow = [[_nested_lists(_PLAIN_PICKLE_MAX_DEPTH - 1)] + [0] * 1000]
+    # Why each shape is refused.
+    shared = 'it uses one container in two places'
+    # The reason for both too-deep shapes.
+    deep = f'it nests deeper than {_PLAIN_PICKLE_MAX_DEPTH} levels'
+    # Shape name, pickle bytes, refusal reason.
+    shapes = [
+      ('list shared at 20 levels', pickle.dumps({'n1': shared_list}), shared),
+      ('dict shared at 20 levels', pickle.dumps({'n1': shared_dict}), shared),
+      ('lists from memo fetches, 50 levels', by_memo, shared),
+      ('lists through DUP, 20 levels', by_dup, 'opcode DUP'),
+      ('tuple nested 100,000 levels as a dict key', deep_key, deep),
+      ('lists nested one level too deep', pickle.dumps(_nested_lists(_PLAIN_PICKLE_MAX_DEPTH + 1)), deep),
+      ('one level too deep, deepest item in an earlier batch', pickle.dumps(deep_then_shallow), deep),
+      ('one string re-used 100 times', pickle.dumps(['v' * 1000] * 100),
+       f'its re-used values add up to more than {_PLAIN_PICKLE_MAX_REUSE} times its size'),
+    ]
+    # Each shape on its own.
+    for name, data, reason in shapes:
+      # A failure names the shape.
+      with self.subTest(shape=name):
+        # Refused, for its reason, in milliseconds.
+        self._assert_refused_fast(data, reason)
+
+  def test_file_larger_than_the_bound_is_refused(self):
+    """A pickle of exactly the size bound loads; one byte more is refused before it is parsed."""
+    # The bytes a pickle adds around a large bytes value, measured on this interpreter.
+    overhead = len(pickle.dumps(bytes(1 << 20))) - (1 << 20)
+    # A bytes value whose pickle is exactly the bound.
+    at_bound = pickle.dumps(bytes(_PLAIN_PICKLE_MAX_BYTES - overhead))
+    # The boundary is exact.
+    self.assertEqual(len(at_bound), _PLAIN_PICKLE_MAX_BYTES)
+    # It loads, whole.
+    loaded = self.engine.get_pickle(self._store_bytes(at_bound), raise_on_error=True, show_logs=False)
+    # Every byte came back.
+    self.assertEqual(len(loaded), _PLAIN_PICKLE_MAX_BYTES - overhead)
+    # One byte more is refused.
+    self._assert_refused_fast(pickle.dumps(bytes(_PLAIN_PICKLE_MAX_BYTES - overhead + 1)),
+                              f'larger than {_PLAIN_PICKLE_MAX_BYTES} bytes')
+
+  def test_marks_and_memo_indexes_are_followed_as_the_unpickler_follows_them(self):
+    """POP with nothing above a mark drops the mark, and MEMOIZE takes the next free memo index, as in the unpickler:
+    files that do this load as a plain load builds them, and files that hide a shared list behind them are refused."""
+    # An empty list, a mark, then POP: with nothing above the mark, POP drops the mark and the list is the result.
+    pop_drops_mark = b'\x80\x04](0.'
+    # 's' put at index 0 (BINPUT), a list memoized at the next free index, 1, then 's' fetched from index 0 into it.
+    put_then_memoize = b'\x80\x04\x8c\x01sq\x00]\x94h\x00a.'
+    # Each loads as a plain load builds it.
+    for name, data in (('POP drops a mark', pop_drops_mark), ('BINPUT then MEMOIZE', put_then_memoize)):
+      # A failure names the file.
+      with self.subTest(shape=name):
+        # Read with raise_on_error, so a refusal would be the exception.
+        loaded = self.engine.get_pickle(self._store_bytes(data), raise_on_error=True, show_logs=False)
+        # As built by the plain loader.
+        self.assertEqual(loaded, pickle.loads(data))
+    # Files that hide a list fetched twice from the memo behind these rules, the list then stored twice under 'n1'.
+    hidden = {
+      # A list, a mark, POP (which drops the mark), MEMOIZE of the list (index 0), POP of the list.
+      'behind a POP that drops a mark': b'\x80\x04}\x8c\x02n1](0\x940(h\x00h\x00ls.',
+      # 's' put at index 5 and popped, a list memoized at the next free index, 1, and popped.
+      'behind MEMOIZE after BINPUT 5': b'\x80\x04}\x8c\x02n1\x8c\x01sq\x050]\x940(h\x01h\x01ls.',
+    }
+    # Each is refused.
+    for name, data in hidden.items():
+      # A failure names the file.
+      with self.subTest(shape=name):
+        # A plain load shares the list: the file is a shape the loader must refuse.
+        shared = pickle.loads(data)['n1']
+        # One object in both places.
+        self.assertIs(shared[0], shared[1])
+        # Refused at the fetch of the list.
+        self._assert_refused_fast(data, 'it uses one container in two places')
 
   def test_object_is_refused_and_nothing_of_it_runs(self):
     """A file holding an object is refused with a clear error, and the call the object asks for never runs."""

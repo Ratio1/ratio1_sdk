@@ -72,6 +72,8 @@ import ipaddress
 import signal
 # At module level for _PlainDataUnpickler, the loader get_pickle uses for files that other nodes name by CID.
 import pickle
+# _check_plain_pickle walks a file's opcodes with it before get_pickle loads the file.
+import pickletools
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -268,6 +270,160 @@ class _PlainDataUnpickler(pickle.Unpickler):
     """
     # Nothing the file names is imported or called; the error reaches get_pickle's caller like any load error.
     raise pickle.UnpicklingError(f"R1FS pickle refused: it names {module}.{name}; only plain data is loaded")
+
+
+# Largest pickle get_pickle loads: about 16 times oracle sync's largest file at 2,000 nodes (a 0.5 MB median table),
+# and a bound on what one load of a crafted file costs.
+_PLAIN_PICKLE_MAX_BYTES = 8 * 1024 * 1024
+# Deepest nesting get_pickle loads (an empty list is 1 level): oracle-sync files nest 1 or 2 levels, while a tuple
+# nested 400,000 levels as a dict key crashes the interpreter when the load hashes it.
+_PLAIN_PICKLE_MAX_DEPTH = 32
+# Leaves a file fetches again from its memo (repeated strings) may add up to this many times its size in printed
+# characters: oracle-sync files re-use less than their own size and records with long repeated keys about 4 times,
+# so no file expands much when it is serialized.
+_PLAIN_PICKLE_MAX_REUSE = 16
+# Opcodes that put items into a container: name -> (items taken from the top of the stack, 0 for all items above the
+# newest mark; True when they go into the container below them, False when they form a new container).
+_PLAIN_PICKLE_CONTAINER_OPCODES = {
+  'TUPLE1': (1, False), 'TUPLE2': (2, False), 'TUPLE3': (3, False), 'TUPLE': (0, False), 'LIST': (0, False),
+  'DICT': (0, False), 'FROZENSET': (0, False), 'APPEND': (1, True), 'SETITEM': (2, True), 'APPENDS': (0, True),
+  'SETITEMS': (0, True), 'ADDITEMS': (0, True),
+}
+
+
+def _check_plain_pickle(data):
+  """
+  Refuse a pickle that would build a shared, deep or oversized tree, before anything of it is built.
+
+  The restricted loader (`_PlainDataUnpickler`) builds plain data only, but plain
+  data can still be built so that a few hundred bytes cost exponential time or
+  memory: one tuple used at every level of a dict key is hashed 2**levels times
+  while the load holds the GIL, and one list or dict used twice at every level
+  prints as 2**levels copies when the data is serialized or its signature is
+  checked. This walk follows the file's opcodes as the unpickler would, keeping
+  only the nesting depth of each stack item and the value of each leaf, and
+  refuses the file when it fetches a container from its memo or duplicates the
+  top item (DUP), so every container has exactly one place; when it nests deeper
+  than `_PLAIN_PICKLE_MAX_DEPTH`; when its memo fetches of leaves add up to more
+  than `_PLAIN_PICKLE_MAX_REUSE` times its size; and when it is larger than
+  `_PLAIN_PICKLE_MAX_BYTES`. Strings and other leaves stay shareable, as pickle
+  shares every repeated string object.
+
+  Parameters
+  ----------
+  data : bytes
+    The whole pickle file.
+
+  Returns
+  -------
+  None
+    The file may be loaded.
+
+  Raises
+  ------
+  pickle.UnpicklingError
+    "R1FS pickle refused: ..." with the reason: larger than the bound, a
+    container used in two places, nested too deep, too much re-use, or an opcode
+    that builds no plain data (DUP, REDUCE, BUILD and the like).
+  ValueError
+    From `pickletools.genops`, when the bytes are not a whole pickle.
+  IndexError, KeyError
+    When an opcode reaches past the stack, a mark or the memo; the load would
+    fail at the same opcode.
+
+  Notes
+  -----
+  An opcode that names a class or function (GLOBAL, STACK_GLOBAL, INST, EXT*)
+  ends the walk: the load stops at that opcode, where
+  `_PlainDataUnpickler.find_class` refuses it and names what the file asked for.
+  The walk is linear in the file's size. On the production interpreter it takes
+  35-100 ms per MB of an oracle-sync table on one core and 120-240 ms at 0.35
+  CPU (the load itself takes 2-4 ms), and 0.5-0.6 s per MB on one core, 3 s at
+  0.35 CPU, for one-byte opcodes, the densest a file can be.
+
+  Examples
+  --------
+  >>> _check_plain_pickle(pickle.dumps({'0xai_node': 255}))
+  >>> shared = []
+  >>> _check_plain_pickle(pickle.dumps([shared, shared]))
+  Traceback (most recent call last):
+  ...
+  _pickle.UnpicklingError: R1FS pickle refused: it uses one container in two places
+  """
+  if len(data) > _PLAIN_PICKLE_MAX_BYTES:
+    # Refused before any opcode is read.
+    raise pickle.UnpicklingError(f"R1FS pickle refused: larger than {_PLAIN_PICKLE_MAX_BYTES} bytes")
+  # The unpickler's stack and memo, kept as pickle's own unpickler keeps them, with (depth, value) per item: depth 0
+  # and the value for a leaf, depth 1 or more and None for a container. `stack` holds the items above the newest
+  # mark, `metastack` the items below each mark.
+  stack, metastack, memo = [], [], {}
+  # Printed characters of leaves the file may still fetch again from its memo.
+  budget = _PLAIN_PICKLE_MAX_REUSE * len(data)
+  # Each opcode in file order, with its argument already decoded.
+  for opcode, arg, _ in pickletools.genops(data):
+    # The opcode's name, e.g. 'BINGET'.
+    name = opcode.name
+    if name in ('GLOBAL', 'STACK_GLOBAL', 'INST', 'EXT1', 'EXT2', 'EXT4'):
+      # The load stops at this opcode: find_class refuses what the file names, and names it in the error.
+      break
+    if name == 'MARK':
+      # The current items wait below the new mark.
+      metastack.append(stack)
+      # No items above it yet.
+      stack = []
+    elif name == 'POP_MARK' or (name == 'POP' and not stack):
+      # POP_MARK, and POP with no item above the newest mark, drop that mark and its items, as the unpickler does.
+      stack = metastack.pop()
+    elif name == 'POP':
+      # Drop the top item.
+      stack.pop()
+    elif name in ('PUT', 'BINPUT', 'LONG_BINPUT', 'MEMOIZE'):
+      # Memoize the top item; MEMOIZE uses the next free index, as the unpickler does.
+      memo[len(memo) if name == 'MEMOIZE' else arg] = stack[-1]
+    elif name in ('GET', 'BINGET', 'LONG_BINGET'):
+      # The memoized item this opcode would push again.
+      depth, value = memo[arg]
+      if depth:
+        # A container in a second place: the start of a tree that grows exponentially in a few bytes.
+        raise pickle.UnpicklingError("R1FS pickle refused: it uses one container in two places")
+      # A leaf fetched again costs its printed length, which a serializer writes out again.
+      budget -= len(str(value))
+      if budget < 0:
+        # More re-use than real files have: a long string fetched many times prints far larger than the file.
+        raise pickle.UnpicklingError(
+          f"R1FS pickle refused: its re-used values add up to more than {_PLAIN_PICKLE_MAX_REUSE} times its size"
+        )
+      # The leaf, pushed again.
+      stack.append((0, value))
+    elif name in _PLAIN_PICKLE_CONTAINER_OPCODES:
+      # How many items the opcode takes, and whether they go into the container below them.
+      count, into_below = _PLAIN_PICKLE_CONTAINER_OPCODES[name]
+      if count:
+        # The top `count` items ...
+        items = stack[-count:]
+        # ... are taken off the stack.
+        del stack[-count:]
+      else:
+        # All items above the newest mark, which is dropped.
+        items, stack = stack, metastack.pop()
+      # A container is one level deeper than its deepest item.
+      depth = 1 + max([item[0] for item in items], default=0)
+      if into_below:
+        # The container below takes the items, and keeps its own depth when that is greater.
+        depth = max(depth, stack.pop()[0])
+      if depth > _PLAIN_PICKLE_MAX_DEPTH:
+        # Deeper than any real file; far deeper nesting crashes the interpreter in a recursive hash.
+        raise pickle.UnpicklingError(f"R1FS pickle refused: it nests deeper than {_PLAIN_PICKLE_MAX_DEPTH} levels")
+      # The container takes the items' place.
+      stack.append((depth, None))
+    elif not opcode.stack_before and len(opcode.stack_after) == 1:
+      # Any other opcode that pushes one item and takes none: an empty container (EMPTY_LIST, EMPTY_DICT, EMPTY_SET,
+      # EMPTY_TUPLE) or a leaf (None, a bool, int, float, str, bytes or bytearray), whose value is kept. PERSID and
+      # NEXT_BUFFER land here too; the load refuses both.
+      stack.append((1, None) if name.startswith('EMPTY_') else (0, arg))
+    elif name not in ('PROTO', 'FRAME', 'STOP'):
+      # DUP (a second place for the top item), and REDUCE, BUILD and the like, which build no plain data.
+      raise pickle.UnpicklingError(f"R1FS pickle refused: opcode {name}; only plain data is loaded")
 
 
 class R1FSEngine:
@@ -3743,7 +3899,13 @@ class R1FSEngine:
       names any class or function (a class instance, a numpy value) is refused
       before anything it names is imported or called, because the CID usually
       comes from another node's message and a full pickle load would run whatever
-      the file asks for.
+      the file asks for. Before the load, `_check_plain_pickle` refuses a file
+      larger than `_PLAIN_PICKLE_MAX_BYTES` (8 MiB), one that uses one container
+      object in two places (a few hundred bytes of such a file can take
+      exponential time to hash or serialize), one nested deeper than
+      `_PLAIN_PICKLE_MAX_DEPTH` (32) levels, and one whose re-used strings and
+      other leaves add up to more than `_PLAIN_PICKLE_MAX_REUSE` (16) times its
+      size; data with a container in two places must be stored as copies.
 
       Parameters
       ----------
@@ -3780,7 +3942,11 @@ class R1FSEngine:
         When R1FS is not started (always). With raise_on_error=True: when the
         download or decryption fails (see get_file), and when the file does not
         load; a refused file gives "Error loading pickle file <path>: R1FS pickle
-        refused: it names <module>.<name>; only plain data is loaded".
+        refused: <reason>", where the reason is "it names <module>.<name>; only
+        plain data is loaded", "larger than <n> bytes", "it uses one container in
+        two places", "it nests deeper than <n> levels", "its re-used values add up
+        to more than <n> times its size" or "opcode <name>; only plain data is
+        loaded".
 
       ValueError
         With raise_on_error=True, when ``cid`` is not a bare CID (see get_file).
@@ -3800,6 +3966,10 @@ class R1FSEngine:
       
       >>> # A file that holds a class instance: refused, nothing of it runs
       >>> print(engine.get_pickle("QmFileWithAnObject"))
+      None
+
+      >>> # A file that uses one list in two places: refused before anything is built
+      >>> print(engine.get_pickle("QmFileWithASharedList"))
       None
       """
       # Use get_file to download and decrypt the file
@@ -3825,9 +3995,13 @@ class R1FSEngine:
       # Load the pickle file
       try:
         with open(file_path, "rb") as f:
-          # Plain data only: a file that names a class or function raises here, before anything of it runs.
-          data = _PlainDataUnpickler(f).load()
-        
+          # One byte past the bound at most, so a larger file is refused without reading all of it.
+          raw = f.read(_PLAIN_PICKLE_MAX_BYTES + 1)
+        # Refused before anything is built: larger than the bound, a container in two places, too deep, too much re-use.
+        _check_plain_pickle(raw)
+        # Plain data only: a file that names a class or function raises here, before anything of it runs.
+        data = _PlainDataUnpickler(BytesIO(raw)).load()
+
         if show_logs:
           self.Pd(f"Successfully loaded pickle data from {file_path}")
         
