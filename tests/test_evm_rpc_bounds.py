@@ -3,10 +3,12 @@
 import json
 # The engine's network is chosen through an environment key.
 import os
+# Two readers at once, and the endpoint's wait for the next request.
+import threading
 # The test runner.
 import unittest
-# The engine's first-check flags are a dict with a default.
-from collections import defaultdict
+# How many requests of each method were seen; the engine's first-check flags are a dict with a default.
+from collections import Counter, defaultdict
 # The genesis date the logger stand-in returns.
 from datetime import datetime
 # Patches for the environment and for the HTTP post.
@@ -77,12 +79,15 @@ class _FakeEndpoint:
 
   It answers ``eth_chainId`` with a chain id and any other method with the 32-byte word for True, the answer of
   a license read for a licensed node. A method named in ``stalled`` gets no answer (a read timeout) and a method
-  named in ``status`` gets that HTTP status with an empty body.
+  named in ``status`` gets that HTTP status with an empty body. With ``hold_chain_id`` set, the answer to an
+  ``eth_chainId`` request is given only once one more request has arrived, so two threads' requests overlap in
+  one fixed order.
 
   Examples
   --------
   >>> endpoint = _FakeEndpoint()
   >>> endpoint.stalled.add("eth_call")  # license reads now time out
+  >>> endpoint.hold_chain_id = True  # a chain id answer now waits for the next request
   """
 
   def __init__(self):
@@ -99,6 +104,10 @@ class _FakeEndpoint:
     self.stalled = set()
     # Method -> HTTP status answered in place of a result.
     self.status = {}
+    # When True, a chain id answer waits until one more request has arrived.
+    self.hold_chain_id = False
+    # Told of every arriving request: the wait of a held chain id answer ends on it.
+    self.arrived = threading.Condition()
 
   def post(self, url, data=None, **kwargs):
     """
@@ -130,8 +139,17 @@ class _FakeEndpoint:
     """
     # The request as the client encoded it.
     request = json.loads(data)
-    # Its method, with the timeout the client asked ``requests`` to apply.
-    self.seen.append((request["method"], kwargs["timeout"]))
+    # One request at a time is recorded, and a held answer waits here without keeping the others out.
+    with self.arrived:
+      # Its method, with the timeout the client asked ``requests`` to apply.
+      self.seen.append((request["method"], kwargs["timeout"]))
+      # The answers that wait for one more request can go on.
+      self.arrived.notify_all()
+      if self.hold_chain_id and request["method"] == "eth_chainId":
+        # How many requests had arrived when this one did.
+        mine = len(self.seen)
+        # Hold this answer until another request arrives; after 5 s it is given anyway, so no test hangs.
+        self.arrived.wait_for(lambda: len(self.seen) > mine, timeout=5)
     if request["method"] in self.stalled:
       # No answer within the timeout: what ``requests`` raises for it.
       raise requests.ReadTimeout("no answer")
@@ -203,20 +221,63 @@ class RpcBoundsTests(unittest.TestCase):
     # None was left to the client library's own default of 30 s.
     self.assertEqual({timeout for _, timeout in self.endpoint.seen}, {TIMEOUT})
 
-  def test_chain_id_is_fetched_for_the_first_read_only(self):
-    """Three license reads on one thread: the chain id is fetched before the first, then each read is one request."""
+  def test_chain_id_is_fetched_once_for_the_first_read_only(self):
+    """Three license reads on one thread: one chain id fetch before the first, then each read is one request."""
     # Three reads in a row, all for a licensed node.
     self.assertEqual([self.engine.web3_is_node_licensed(NODE) for _ in range(3)], [True] * 3)
     # The methods in the order the endpoint saw them.
     methods = [method for method, _ in self.endpoint.seen]
-    # Where the first license read itself starts.
-    first = methods.index("eth_call")
-    # The chain id was asked for before it.
-    self.assertIn("eth_chainId", methods[:first])
-    # From then on there are three license reads and nothing else: before, each read fetched the chain id twice.
-    self.assertEqual(methods[first:], ["eth_call"] * 3)
+    # One chain id fetch, then three license reads and nothing else. Left to the client library each read
+    # fetched the chain id twice, and a client that kept it still asked for it a second time on first use.
+    self.assertEqual(methods, ["eth_chainId"] + ["eth_call"] * 3)
     # The chain id is the only answer the client is told it may keep.
     self.assertEqual(self.engine.web3.provider.cacheable_requests, {"eth_chainId"})
+
+  def test_two_threads_whose_first_reads_overlap_both_keep_the_chain_id(self):
+    """Two threads read for the first time while the other's chain id fetch is open: the chain id stays kept."""
+    # Build the engine's client before the threads start, as the engine does when it is created.
+    self.engine.get_evm_network()
+    # Each chain id answer now waits for the next request, so the two first fetches are open together.
+    self.endpoint.hold_chain_id = True
+    # What each thread's two reads answered.
+    answers = []
+
+    def reader():
+      """
+      Read the license of one node twice on the calling thread and keep both answers.
+
+      Returns
+      -------
+      None
+        The two answers are appended to ``answers`` as one list.
+
+      Examples
+      --------
+      >>> reader()
+      >>> answers
+      [[True, True]]
+      """
+      # A thread's first read needs the chain id; its second read must not ask for it again.
+      answers.append([self.engine.web3_is_node_licensed(NODE) for _ in range(2)])
+
+    # Two threads share the engine's one client.
+    threads = [threading.Thread(target=reader) for _ in range(2)]
+    # Both run their reads now.
+    for thread in threads:
+      # This one starts reading.
+      thread.start()
+    # Wait for both.
+    for thread in threads:
+      # A held answer is given after 5 s at the latest; the 30 s only end the test if a thread never returns.
+      thread.join(30)
+    # Both threads got both answers.
+    self.assertEqual(answers, [[True, True]] * 2)
+    # One chain id fetch per thread and one request per read. A client that looked up the library's validation
+    # threshold at this point switched the keeping off around the lookup, and of two overlapping threads the
+    # second put "off" back for good: every later read then cost 3 requests again.
+    self.assertEqual(Counter(method for method, _ in self.endpoint.seen), {"eth_chainId": 2, "eth_call": 4})
+    # The client is still told to keep the chain id.
+    self.assertTrue(self.engine.web3.provider.cache_allowed_requests)
 
   def test_an_unanswered_or_refused_license_read_ends_after_two_tries(self):
     """A read the endpoint never answers, or answers with HTTP 429, is tried twice, raises, and is not remembered."""

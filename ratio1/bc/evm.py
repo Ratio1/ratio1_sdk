@@ -80,8 +80,12 @@ def _rpc_provider(rpc_url):
   error status): only their number changes.
 
   The library keeps the chain id per provider and per thread, and keeps only a successful answer, so a failed
-  fetch is asked again by the next call. The first use of a provider asks for the chain id twice: the library
-  asks once more to set up what it may keep. No other answer is kept.
+  fetch is asked again by the next call. No other answer is kept. The provider is built with no validation
+  threshold for kept answers (``None``): a chain id answer needs none. Left unset, the library looks one up when
+  it first keeps an answer: it turns the keeping off, asks for the chain id once more and turns the keeping back
+  to what it found, with no lock. Of two threads whose first reads overlap, the second can find it off and put
+  "off" back last, and every later read on that provider is then 3 requests again. With ``None`` the lookup
+  never runs, and the first read on a provider is 2 requests (the chain id, the read), not 3.
 
   Examples
   --------
@@ -93,6 +97,11 @@ def _rpc_provider(rpc_url):
   # answers the library can keep, only eth_chainId is named, so nothing else about a call changes.
   provider = Web3.HTTPProvider(
     rpc_url, request_kwargs={"timeout": 10}, cache_allowed_requests=True, cacheable_requests={"eth_chainId"},
+    # No validation threshold, so the library never looks one up: its lookup turns the keeping off and back on
+    # around one more chain id request, with no lock, and two threads reading for the first time at once could
+    # leave it off for the life of the provider (3 requests per read again). A provider's first read is 2
+    # requests, was 3.
+    request_cache_validation_threshold=None,
   )
   # 2 tries in place of the library's 5: with the timeout, a call that gets no answer costs about 20 s.
   provider.exception_retry_configuration.retries = 2
