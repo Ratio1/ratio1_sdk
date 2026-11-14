@@ -84,7 +84,9 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   reconcile requests, binds replies to the operation, plan and action, and returns redacted configs
   and their CID, never bundles. It never retries: a timeout can follow a successful write, and
   Core's coordinator journal owns recovery.
-- dAuth clients never log request bodies, response bodies or secret values.
+- dAuth clients never log request bodies or secret values, and of a response body one value only:
+  a signed reconciliation refusal logs the answering server's `error` (the check that failed, when
+  the server names it) as its `repr` cut to 200 characters. The raised error keeps its fixed text.
 - Oracle registry reads in `ratio1/bc/evm.py` share a 600-second process-wide cache per network,
   RPC endpoint, contract and method, also used by `web3_is_dauth_oracle`. Refreshes serialize per
   entry, an expired snapshot never authorizes after a failed refresh, and registry changes can take

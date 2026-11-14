@@ -63,14 +63,19 @@ class TestDauthSecretReconciliationClient(unittest.TestCase):
     self.assertEqual(self.engine.log_messages, [])
 
   def test_rejects_malformed_http_and_unauthenticated_or_unsuccessful_responses(self):
-    """Reject invalid envelopes without retrying or exposing their body contents."""
+    """An invalid envelope is rejected in one request; a value its body carries never reaches the raised error,
+    and reaches the log only as the `error` of an answer whose signature, signer and nonce all passed."""
+    # Name, HTTP status, JSON body, whether the signature verifies, whether the signer is a registered dAuth oracle.
     cases = [
       ('http', 503, {'result': self.result}, True, True),
       ('outer shape', 200, [], True, True),
       ('result shape', 200, {'result': []}, True, True),
-      ('signature', 200, {'result': self.result}, False, True),
-      ('oracle', 200, {'result': self.result}, True, False),
-      ('nonce', 200, {'result': {**self.result, 'nonce': 'wrong'}}, True, True),
+      # A signature that does not verify: the `error` this answer carries must stay out of the log.
+      ('signature', 200, {'result': {**self.result, 'error': 'private-token'}}, False, True),
+      # A signer that is not a registered dAuth oracle: its `error` must stay out too.
+      ('oracle', 200, {'result': {**self.result, 'error': 'private-token'}}, True, False),
+      # The nonce of another request: its `error` must stay out too.
+      ('nonce', 200, {'result': {**self.result, 'nonce': 'wrong', 'error': 'private-token'}}, True, True),
       ('status', 200, {'result': {**self.result, 'status': 'fail'}}, True, True),
       ('error', 200, {'result': {**self.result, 'error': 'private-token'}}, True, True),
       ('job', 200, {'result': {**self.result, 'job_id': '8'}}, True, True),
@@ -78,31 +83,80 @@ class TestDauthSecretReconciliationClient(unittest.TestCase):
       ('nodes', 200, {'result': {**self.result, 'pipeline_configs': {'other': {}}}}, True, True),
       ('config', 200, {'result': {**self.result, 'pipeline_configs': {'worker': []}}}, True, True),
     ]
+    # Every case in turn.
     for name, status, data, valid, oracle in cases:
+      # Each case reports on its own.
       with self.subTest(case=name):
+        # Count the requests of this case only.
         self.post.reset_mock()
+        # Keep the log lines of this case only.
+        del self.engine.log_messages[:]
+        # The HTTP status of the answer.
         self.response.status_code = status
+        # Its JSON body.
         self.response.json.return_value = data
+        # Whether its signature verifies.
         self.engine.verification_valid = valid
+        # Whether its signer is a registered dAuth oracle.
         self.engine.dauth_oracle = oracle
+        # Every case is refused.
         with self.assertRaises((ValueError, RuntimeError)) as caught:
+          # The one request of the case.
           self.engine.reconcile_dauth_job_secrets(self.payload)
+        # One request, never a second try.
         self.assertEqual(self.post.call_count, 1)
-        self.assertNotIn('private-token', str(caught.exception) + str(self.engine.log_messages))
+        # The raised error never carries a value from the body.
+        self.assertNotIn('private-token', str(caught.exception))
+        # The log carries the body's `error` for the authenticated refusal only: with a bad signature, an
+        # unregistered signer or another request's nonce the same text is not logged.
+        self.assertEqual('private-token' in str(self.engine.log_messages), name == 'error')
+    # The JSON body was read at least once over the cases.
     self.response.json.assert_called()
 
-  def test_signed_refusal_still_raises_and_names_the_dauth_server_in_red(self):
-    """A refusal says which dAuth server refused which action; its error text stays out of the log."""
+  def test_signed_refusal_logs_the_servers_error_escaped_and_cut_to_200_characters(self):
+    """A signed refusal is logged in red with the server, the action and the server's `error` as its repr cut to
+    200 characters, whatever its length, characters or type; the raised error keeps its fixed text."""
+    # The red lines of the client, with their colour.
     logs = []
+    # The engine's log call, recorded.
     self.engine.P = lambda message, color=None, **kwargs: logs.append((message, color))
-    self.result.update(status='error', error='private-token')
-    with self.assertRaises(RuntimeError):
+    # The fixed start of the line for an old-style job update and for a lifecycle "revoke".
+    update, revoke = ('dAuth server dauth-a refused secret reconciliation ({}): '.format(a) for a in ('job update', 'revoke'))
+    # A server that names the check that failed.
+    self.result.update(status='error', error='Secret bundle is bound to another pipeline.')
+    # The caller still gets the fixed text, without the server's.
+    with self.assertRaisesRegex(RuntimeError, r'^dAuth rejected secret reconciliation\.$'):
+      # The refused job update.
       self.engine.reconcile_dauth_job_secrets(self.payload)
+    # The line names the check, in quotes (a repr).
+    self.assertEqual(logs.pop(), (update + "'Secret bundle is bound to another pipeline.'", 'r'))
+    # The next requests are lifecycle "revoke" requests.
     self.lifecycle('revoke')
+    # A text holding a newline and a forged log line, then 5,000 more characters.
+    self.result['error'] = 'no plan\n[forged] oracle line' + 'x' * 5000
+    # Refused again.
     with self.assertRaises(RuntimeError):
+      # The refused revoke.
       self.engine.reconcile_dauth_job_secrets(self.payload)
-    self.assertEqual(logs, [('dAuth server dauth-a refused secret reconciliation (job update).', 'r'),
-                            ('dAuth server dauth-a refused secret reconciliation (revoke).', 'r')])
+    # The line and its colour.
+    line, color = logs.pop()
+    # The part after the fixed start: the server's text as logged.
+    text = line[len(revoke):]
+    # Red, one line (the newline is escaped), and 200 characters of the text's repr however long the text is.
+    self.assertEqual((color, line.startswith(revoke), '\n' in line, len(text), text[:30]),
+                     ('r', True, False, 200, "'no plan\\n[forged] oracle line"))
+    # A server may send any JSON value: a list, and no error at all beside a status that is not "success".
+    for error, logged in ((['a', 1], "['a', 1]"), (None, 'None')):
+      # Each value reports on its own.
+      with self.subTest(error=error):
+        # The value the server signs.
+        self.result['error'] = error
+        # Refused, not a formatting failure.
+        with self.assertRaisesRegex(RuntimeError, r'^dAuth rejected secret reconciliation\.$'):
+          # The refused revoke.
+          self.engine.reconcile_dauth_job_secrets(self.payload)
+        # The value is logged as its repr.
+        self.assertEqual(logs.pop(), (revoke + logged, 'r'))
 
   def test_dependency_failures_remain_credential_safe_and_transport_is_not_retried(self):
     """Suppress credential-bearing exception chains from external dependencies."""
