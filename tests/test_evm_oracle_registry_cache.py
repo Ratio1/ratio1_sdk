@@ -77,7 +77,23 @@ def _traceback_entries(question):
 
 class OracleRegistryCacheTests(unittest.TestCase):
   def setUp(self):
-    """Start with an empty registry cache, a test clock at second 100 and two registries of one address each."""
+    """
+    Start with an empty registry cache, a test clock at second 100 and two registries of one address each.
+
+    Empties the process-wide registry cache (its content is restored after the test), replaces the cache's
+    monotonic clock by one that reads second 100 until a test moves it, and replaces the client library so that
+    no real RPC client is built. The engine under test resolves every network to one endpoint whose oracle and
+    dAuth registry reads each return one address.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.engine.web3_get_oracles()   # in a test, right after setUp: one read
+    ['0x000000000000000000000000000000000000dEaD']
+    """
     # The process-wide cache, emptied for this test.
     self.cache = patch.dict(evm._ORACLE_REGISTRY_CACHE, clear=True)
     # In force from here on.
@@ -635,6 +651,78 @@ class OracleRegistryCacheTests(unittest.TestCase):
     self.assertGreater(lengths[0], 0)
     # The fifth is as long as the first: the frames of earlier questions are not kept in the error object.
     self.assertEqual(lengths, lengths[:1] * 5)
+
+  def test_each_question_answered_from_the_memory_gets_an_error_of_its_own_with_no_other_callers_context(self):
+    """Each question answered from the memory gets an error object of its own, of the read's type and text, that
+    carries neither the error another caller was handling when it asked nor the cause of the failed read; and the
+    memory does not hold the error, or the frames, of the call whose read failed."""
+    def read():
+      """
+      Stand in for a registry read of 20 s that fails with an error caused by another one, as a timeout is.
+
+      Returns
+      -------
+      None
+        Nothing is returned: the call always raises.
+
+      Raises
+      ------
+      _Unanswered
+        Always, after 20 s of the test clock, with a ``ConnectionError`` as its cause.
+
+      Examples
+      --------
+      >>> read()
+      Traceback (most recent call last):
+      _Unanswered: no answer
+      """
+      # The read takes 20 s on the test clock, so its error is remembered for 60 s.
+      self.clock.return_value += 20
+      try:
+        # The transport's own error.
+        raise ConnectionError("connection reset")
+      except ConnectionError as cause:
+        # The read's error, caused by it.
+        raise _Unanswered("no answer") from cause
+
+    # The dAuth registry's read fails that way.
+    self.dauth.side_effect = read
+    # The question that makes the read.
+    with self.assertRaises(_Unanswered) as failed:
+      # The read that fails, at second 120.
+      self.engine.web3_get_dauth_oracles()
+    # The read's own error goes to its caller, with its cause.
+    self.assertIsInstance(failed.exception.__cause__, ConnectionError)
+    # A weak reference to it: it does not keep it.
+    held = weakref.ref(failed.exception)
+    # The test lets go of it.
+    del failed
+    # Objects that only refer to each other are removed.
+    gc.collect()
+    # Nothing holds it: the memory keeps a copy, so neither the error nor the frames of the failed call stay.
+    self.assertIsNone(held())
+    try:
+      # Caller A handles an error of its own, whose text stands for request data, when it asks.
+      raise ValueError("caller A's own error")
+    except ValueError:
+      # A's question, answered from the memory.
+      with self.assertRaises(_Unanswered) as asked_by_a:
+        # A asks.
+        self.engine.web3_get_dauth_oracles()
+    # Caller B asks with nothing being handled.
+    with self.assertRaises(_Unanswered) as asked_by_b:
+      # B asks.
+      self.engine.web3_get_dauth_oracles()
+    # B's error, as B would log it.
+    error = asked_by_b.exception
+    # Not A's object: before, every question raised one shared object.
+    self.assertIsNot(error, asked_by_a.exception)
+    # The read's type and text.
+    self.assertEqual((type(error), str(error)), (_Unanswered, "no answer"))
+    # No context and no cause: neither A's handled error (which a shared object kept) nor the read's cause.
+    self.assertEqual((error.__context__, error.__cause__), (None, None))
+    # One read for the three questions.
+    self.assertEqual(self.dauth.call_count, 1)
 
   def test_an_interrupted_read_is_not_remembered_and_the_error_of_the_next_one_is(self):
     """A read ended by an interrupt of the program (Ctrl-C in an interactive session), which is no error of the

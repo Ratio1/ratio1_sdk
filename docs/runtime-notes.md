@@ -101,12 +101,13 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   entry, an expired snapshot never authorizes after a failed refresh, and registry changes can take
   ten minutes to appear. A failed refresh is remembered per entry for three times the time its
   read took, counted from the failure on the monotonic clock: until then the registry is not read,
-  and every caller gets the error of that read at once (the same object). An endpoint that never
-  answers holds a caller about 20 s once in 80 s per registry, not on every call, and the registry
-  stays unanswered for up to 60 s after such an endpoint answers again (120 s when the connection
-  never completes to a host name of two addresses). A read that fails within milliseconds (an
-  error answer, a refused connection) is made again milliseconds later. One line is logged when a
-  registry's read first fails, and none again until it has answered
+  and every caller gets a copy of that read's error at once, made for it, with no traceback, cause
+  or context of another caller (the memory keeps a copy too, so no caller's frames). An endpoint
+  that never answers holds a caller about 20 s once in 80 s per registry, not on every call, and
+  the registry stays unanswered for up to 60 s after such an endpoint answers again (120 s when the
+  connection never completes to a host name of two addresses). A read that fails within
+  milliseconds (an error answer, a refused connection) is made again milliseconds later. One line
+  is logged when a registry's read first fails, and none again until it has answered
   (`tests/test_evm_oracle_registry_cache.py`).
 - Every RPC client the engine builds (`_rpc_provider` in `ratio1/bc/evm.py`) gives one request 10 s
   and one call 2 tries, for reads and transactions alike. A call the endpoint takes a connection for

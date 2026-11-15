@@ -2,7 +2,8 @@ import json
 import os
 
 from collections import namedtuple
-from copy import deepcopy
+# copy: each caller answered from the memory of a failed registry read gets an error object of its own.
+from copy import copy, deepcopy
 from threading import Lock
 from time import monotonic
 
@@ -1138,7 +1139,7 @@ class _EVMMixin:
       Exception
         What the registry read raised (a timeout, a connection or HTTP error of the RPC client, an RPC error),
         when no list younger than ten minutes is kept: by the read itself, and by every call made within three
-        times the read's duration after it, which gets the same error object and makes no read.
+        times the read's duration after it, which gets a copy of that error made for it and makes no read.
 
       Notes
       -----
@@ -1166,14 +1167,13 @@ class _EVMMixin:
       so 40 s and a memory of 120 s for two addresses), and the registry stays unanswered that long after such
       an endpoint answers again.
 
-      The error raised from the memory is the object the read raised, so its type, text and attributes are the
-      read's. Its traceback is reset before each such raise, so it does not grow with the calls; two threads
-      that raise it at the same time can find each other's frames in it (seen once in 400,000 calls from eight
-      threads; nothing else differed). While it is remembered, the object holds the frames, and with them the
-      local data, of the last call answered with it and, when the error carries the error that caused it (a
-      timeout does), of the call whose read failed: measured with a node's chain store, the values of one or
-      two refused writes. It is let go when the registry is read successfully again. An interrupt of the
-      program during the read (``KeyboardInterrupt``) is not an error of the read and is not remembered.
+      The call whose read failed gets the read's own error. The memory keeps a copy of it (``copy.copy``: the
+      read's type, text and attributes, with no traceback, cause or context), and each call answered from the
+      memory raises a further copy made for it. So such a call's error carries only that call's own frames and
+      the error it was handling, if any: never another call's, which with one shared object reached the next
+      caller's log, its text included. The memory holds no frame, and no local data, of any call; the copy is
+      let go when the registry is read successfully again. An interrupt of the program during the read
+      (``KeyboardInterrupt``) is not an error of the read and is not remembered.
 
       One line is logged when a registry's read fails after its last one answered (or as its first read), with
       the time the read took and the error's text cut to 400 characters. The failed reads that follow, and the
@@ -1198,9 +1198,11 @@ class _EVMMixin:
           if monotonic() < entry["failed_until"]:
             # The last read failed and less than three times its own duration has passed since: its error
             # again, at once and without a read, where each call made the failing read again (20.2 s each for
-            # an endpoint that never answers). The traceback is reset first: raised again as it is, the object
-            # would gain the frames of every call.
-            raise entry["failure"].with_traceback(None)
+            # an endpoint that never answers). Each call gets a copy made for it (the read's type, text and
+            # attributes), so Python gives it this call's own frames and handled error only. Before, every call
+            # raised one shared object, which kept the handled error of whichever call raised it before, and its
+            # text, for the next caller's log.
+            raise copy(entry["failure"])
           contract = w3vars.w3.eth.contract(address=address, abi=abi)
           started_at = monotonic()
           try:
@@ -1215,16 +1217,15 @@ class _EVMMixin:
                      f"its failed reads are not logged again until it answers: {failure!r:.400}", color='r')
             # Remember the error for three times the time the read took, from now, under the registry's lock: a
             # read that hung 20 s is not made again for 60 s, one that failed within milliseconds is made again
-            # three times as many milliseconds later (a fixed 60 s left the registry unanswered for a minute
-            # after one error answer). A caller that waited for the lock finds the error and makes no read of
-            # its own.
-            entry.update(
-              failure=failure, failed_until=failed_at + _ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at),
-            )
+            # three times as many milliseconds later. A caller that waited for the lock finds the error and makes
+            # no read of its own. What is kept is a copy, with no traceback, cause or context: the memory holds
+            # none of the frames of this call, which the read's own error did until the registry answered again.
+            entry.update(failure=copy(failure),
+                         failed_until=failed_at + _ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at))
             # The caller of the failed read gets its error, as before.
             raise
-          # The list is kept for ten minutes, and the error of an earlier failed read is let go with the frames
-          # it holds; the next failed read is logged again.
+          # The list is kept for ten minutes, and the copy of an earlier failed read's error is let go; the next
+          # failed read is logged again.
           entry.update(addresses=addresses, expires_at=started_at + _ORACLE_REGISTRY_TTL, failure=None)
         return list(entry["addresses"])
 
