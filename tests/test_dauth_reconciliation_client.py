@@ -7,6 +7,8 @@ from unittest import mock
 import requests
 
 from ratio1.bc.base import BaseBlockEngine
+# The client's error type of the one named refusal.
+from ratio1.bc.base import DauthSecretRecordTooLarge
 # The name of the reason field and its one code.
 from ratio1.const.base import dAuth
 from test_dauth_job_secret_client import _DauthClientHarness, REQUEST_TIME, REQUEST_NONCE
@@ -232,19 +234,24 @@ class TestDauthSecretReconciliationClient(unittest.TestCase):
     self.response.json.return_value = {'result': self.result}
 
   def test_a_refusal_for_the_size_of_the_secret_record_raises_a_value_error_with_the_clients_own_text(self):
-    """A signed refusal whose reason code is "record_too_large" raises a ValueError with the client's own fixed
-    text, which says what the job must change; before, it raised the RuntimeError of every refusal."""
+    """A signed refusal whose reason code is "record_too_large" raises the client's own error type, a ValueError,
+    with the client's own fixed text, which names both copies a server refuses for size (the new revision's and
+    the current one's kept for a rollback); before, it raised the RuntimeError of every refusal."""
     # The wire values are these two words.
     self.assertEqual((dAuth.DAUTH_REASON, dAuth.DAUTH_REASON_RECORD_TOO_LARGE), ('reason', 'record_too_large'))
     # The refusal of a dAuth server whose chain store refused the job's secret record for its size.
     self.refuse(reason='record_too_large')
-    # A ValueError: final for the request (a RuntimeError would not be caught here).
-    with self.assertRaises(ValueError) as caught:
+    # The type of its own, so that a caller can end the request's work at once (a RuntimeError, or a ValueError of
+    # another type, would not be caught here).
+    with self.assertRaises(DauthSecretRecordTooLarge) as caught:
       # The preparation that is refused.
       self.engine.reconcile_dauth_job_secrets(self.payload)
-    # The client's own text, whole.
-    self.assertEqual(str(caught.exception), "The deployment's secret record is larger than the store accepts: "
-                                            "the job must target fewer nodes or carry smaller configurations.")
+    # Still a ValueError, so every handler of the client's ValueError (final for the request) handles it as before.
+    self.assertIsInstance(caught.exception, ValueError)
+    # The client's own text, whole: true of either copy.
+    self.assertEqual(str(caught.exception),
+                     "The deployment's secret record is larger than the store accepts: the new revision, or the "
+                     "current one kept for a rollback, has too many nodes or too large configurations.")
     # One request, and the red line of any refusal: the server and the action, nothing else.
     self.post.assert_called_once()
     # The line as the client logged it.

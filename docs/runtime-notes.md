@@ -91,8 +91,9 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   only: the `error` of that answer stays out of the log and out of the raised error
   (`tests/test_dauth_reconciliation_client.py`).
 - `reconcile_dauth_job_secrets` names one refusal. A refusal whose `reason` field (`DAUTH_REASON`)
-  is `record_too_large` (`DAUTH_REASON_RECORD_TOO_LARGE`: the chain store refused the job's secret
-  record for its size) raises a `ValueError` with the client's own fixed text, once the answer's
+  is `record_too_large` (`DAUTH_REASON_RECORD_TOO_LARGE`: the chain store refused a secret record of
+  the job for its size, the new revision's or the current one's kept for a rollback) raises
+  `DauthSecretRecordTooLarge`, a `ValueError`, with the client's own fixed text, once the answer's
   signature, signer and nonce passed. Any other `reason`, or none, raises the `RuntimeError` of
   every other refusal. The set of codes is closed: a new one needs a change here and in dAuth.
 - Oracle registry reads in `ratio1/bc/evm.py` share a 600-second process-wide cache per network,

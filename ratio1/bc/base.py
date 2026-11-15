@@ -383,6 +383,28 @@ def ripemd160(data):
   
 # END ## RIPEMD160  
 
+
+class DauthSecretRecordTooLarge(ValueError):
+  """
+  A dAuth server refused a deployment's secret record because the chain store does not accept its size.
+
+  Raised by ``BaseBlockEngine.reconcile_dauth_job_secrets`` for an authenticated refusal whose reason code is
+  ``record_too_large`` (``dAuth.DAUTH_REASON_RECORD_TOO_LARGE``), with the client's own fixed text. The record is
+  either the requested revision's copy or the copy of the job's current revision that a failed update restores.
+
+  Notes
+  -----
+  A type of its own so that a caller can end the request's work at once: the same request fails again. It is a
+  ``ValueError``, so every caller that handles the client's ``ValueError`` (a final error of the request) handles
+  it as before.
+
+  Examples
+  --------
+  >>> issubclass(DauthSecretRecordTooLarge, ValueError)
+  True
+  """
+
+
 class BaseBlockEngine(
   _EVMMixin,
   _ChainMixin,
@@ -2062,9 +2084,11 @@ class BaseBlockEngine(
     Raises
     ------
     ValueError
-      If the payload, response or response authentication is invalid, or if an
-      authenticated dAuth server refused because the chain store does not accept the
-      job's secret record for its size (final: the same request fails again).
+      If the payload, response or response authentication is invalid.
+    DauthSecretRecordTooLarge
+      If an authenticated dAuth server refused because the chain store does not
+      accept a secret record of the job for its size (final: the same request fails
+      again). It is a ValueError too.
     RuntimeError
       If signing, transport or the reconciliation operation fails.
 
@@ -2080,9 +2104,11 @@ class BaseBlockEngine(
     without an operation) before the RuntimeError is raised.
 
     One refusal is named. When the answer's ``reason`` field (``DAUTH_REASON``) is
-    ``record_too_large`` (``DAUTH_REASON_RECORD_TOO_LARGE``), the ValueError above is
-    raised with this client's own fixed text, which a caller can pass on to the
-    job's owner. The field is read only in a refusal, and only after the answer's
+    ``record_too_large`` (``DAUTH_REASON_RECORD_TOO_LARGE``), ``DauthSecretRecordTooLarge``
+    is raised with this client's own fixed text, which a caller can pass on to the
+    job's owner. The refused record is the copy of the requested revision or the copy
+    of the job's current revision kept for a rollback, so the text names both. The
+    field is read only in a refusal, and only after the answer's
     signature, signer and nonce were checked. Any other value of it, or none, is
     the same RuntimeError as before, and the ``error`` text of an answer is never
     used. A dAuth server of an earlier release sends no ``reason``.
@@ -2154,9 +2180,12 @@ class BaseBlockEngine(
         # refused the job's secret record for its size, so the same request can never succeed. Read only
         # here, after the signature, signer and nonce checks above. The text is this client's own: of the
         # answer nothing but the code is used. Before, this refusal raised the RuntimeError below, which
-        # callers answer as "try again".
-        raise ValueError("The deployment's secret record is larger than the store accepts: "
-                         "the job must target fewer nodes or carry smaller configurations.")
+        # callers answer as "try again". A ValueError of its own type, so that a caller can end the request's
+        # work at once. The text names both copies the server refuses for size: the requested revision's and
+        # the current revision's kept for a rollback (before, it told the owner of either to target fewer nodes).
+        raise DauthSecretRecordTooLarge("The deployment's secret record is larger than the store accepts: "
+                                        "the new revision, or the current one kept for a rollback, has too many "
+                                        "nodes or too large configurations.")
       raise RuntimeError("dAuth rejected secret reconciliation.")
     if operation is not None:
       if (
