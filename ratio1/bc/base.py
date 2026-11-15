@@ -2062,7 +2062,9 @@ class BaseBlockEngine(
     Raises
     ------
     ValueError
-      If the payload, response or response authentication is invalid.
+      If the payload, response or response authentication is invalid, or if an
+      authenticated dAuth server refused because the chain store does not accept the
+      job's secret record for its size (final: the same request fails again).
     RuntimeError
       If signing, transport or the reconciliation operation fails.
 
@@ -2076,6 +2078,14 @@ class BaseBlockEngine(
     never logged by this method. A signed refusal is logged in red with only the
     refusing server's ``server_alias`` and the action ("job update" for a request
     without an operation) before the RuntimeError is raised.
+
+    One refusal is named. When the answer's ``reason`` field (``DAUTH_REASON``) is
+    ``record_too_large`` (``DAUTH_REASON_RECORD_TOO_LARGE``), the ValueError above is
+    raised with this client's own fixed text, which a caller can pass on to the
+    job's owner. The field is read only in a refusal, and only after the answer's
+    signature, signer and nonce were checked. Any other value of it, or none, is
+    the same RuntimeError as before, and the ``error`` text of an answer is never
+    used. A dAuth server of an earlier release sends no ``reason``.
 
     Examples
     --------
@@ -2139,6 +2149,14 @@ class BaseBlockEngine(
       # does not say which dAuth server answered. Only lifecycle requests have an action.
       self.P("dAuth server {} refused secret reconciliation ({}).".format(
         result["server_alias"], payload["action"] if operation is not None else "job update"), color='r')
+      if result.get(dAuth.DAUTH_REASON) == dAuth.DAUTH_REASON_RECORD_TOO_LARGE:
+        # The one refusal a dAuth server names, by a reason code from a closed set of one: the chain store
+        # refused the job's secret record for its size, so the same request can never succeed. Read only
+        # here, after the signature, signer and nonce checks above. The text is this client's own: of the
+        # answer nothing but the code is used. Before, this refusal raised the RuntimeError below, which
+        # callers answer as "try again".
+        raise ValueError("The deployment's secret record is larger than the store accepts: "
+                         "the job must target fewer nodes or carry smaller configurations.")
       raise RuntimeError("dAuth rejected secret reconciliation.")
     if operation is not None:
       if (

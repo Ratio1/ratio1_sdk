@@ -7,6 +7,8 @@ from unittest import mock
 import requests
 
 from ratio1.bc.base import BaseBlockEngine
+# The name of the reason field and its one code.
+from ratio1.const.base import dAuth
 from test_dauth_job_secret_client import _DauthClientHarness, REQUEST_TIME, REQUEST_NONCE
 
 
@@ -200,6 +202,108 @@ class TestDauthSecretReconciliationClient(unittest.TestCase):
     del self.result['pipeline_cid']
     with self.assertRaises(ValueError):
       self.engine.reconcile_dauth_job_secrets(self.payload)
+
+  def refuse(self, **fields):
+    """
+    Make the next answer a signed refusal of a "prepare", as a dAuth server sends it.
+
+    Parameters
+    ----------
+    **fields
+      Fields the refusal carries beside the request's nonce, the fixed error text and the server's own
+      fields; for example ``reason``. A field given here replaces the one of that name.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.refuse(reason='record_too_large')
+    >>> self.result['error'], self.result['reason']
+    ('dAuth secret reconciliation failed', 'record_too_large')
+    """
+    # A lifecycle request for the action "prepare".
+    self.lifecycle('prepare')
+    # A refusal has no result fields: the nonce, the one error text of every refusal, the server's alias and signature.
+    self.result = {'nonce': REQUEST_NONCE, 'error': 'dAuth secret reconciliation failed',
+                   'server_alias': 'dauth-a', 'EE_SIGN': 'server-signature', 'EE_SENDER': 'server', **fields}
+    # The answer the mocked HTTP call returns.
+    self.response.json.return_value = {'result': self.result}
+
+  def test_a_refusal_for_the_size_of_the_secret_record_raises_a_value_error_with_the_clients_own_text(self):
+    """A signed refusal whose reason code is "record_too_large" raises a ValueError with the client's own fixed
+    text, which says what the job must change; before, it raised the RuntimeError of every refusal."""
+    # The wire values are these two words.
+    self.assertEqual((dAuth.DAUTH_REASON, dAuth.DAUTH_REASON_RECORD_TOO_LARGE), ('reason', 'record_too_large'))
+    # The refusal of a dAuth server whose chain store refused the job's secret record for its size.
+    self.refuse(reason='record_too_large')
+    # A ValueError: final for the request (a RuntimeError would not be caught here).
+    with self.assertRaises(ValueError) as caught:
+      # The preparation that is refused.
+      self.engine.reconcile_dauth_job_secrets(self.payload)
+    # The client's own text, whole.
+    self.assertEqual(str(caught.exception), "The deployment's secret record is larger than the store accepts: "
+                                            "the job must target fewer nodes or carry smaller configurations.")
+    # One request, and the red line of any refusal: the server and the action, nothing else.
+    self.post.assert_called_once()
+    # The line as the client logged it.
+    self.assertEqual(self.engine.log_messages, ['dAuth server dauth-a refused secret reconciliation (prepare).'])
+
+  def test_the_size_reason_counts_only_in_an_answer_that_passed_signature_signer_and_nonce(self):
+    """An answer that carries the size reason but fails the signature, the signer or the nonce check is refused
+    by that check, with that check's text: the reason of an answer that is not authenticated is never read."""
+    # Per check: what makes it fail (engine state or a field of the answer) and the text it raises.
+    cases = [('signature', {'verification_valid': False}, {}, 'Invalid dAuth reconciliation response signature.'),
+             ('signer', {'dauth_oracle': False}, {}, 'Unauthorized dAuth reconciliation response signer.'),
+             ('nonce', {}, {'nonce': 'wrong'}, 'dAuth reconciliation response nonce mismatch.')]
+    # Each check in turn.
+    for name, state, fields, text in cases:
+      # Each reports on its own.
+      with self.subTest(check=name):
+        # A fresh engine whose checks pass.
+        self.engine = _UpdateClientHarness()
+        # What makes this check fail, when it is a state of the engine.
+        vars(self.engine).update(state)
+        # The refusal with the size reason, and the failing field when it is one of the answer.
+        self.refuse(reason='record_too_large', **fields)
+        # Every one of these checks raises a ValueError too, so the text tells them apart.
+        with self.assertRaises(ValueError) as caught:
+          # The preparation whose answer is not authenticated.
+          self.engine.reconcile_dauth_job_secrets(self.payload)
+        # The failing check's own text, not the size text.
+        self.assertEqual(str(caught.exception), text)
+
+  def test_any_other_reason_or_none_is_the_refusal_of_before(self):
+    """A refusal with no reason, an unknown one, the code in another case or type, or the code in the error text
+    raises the same RuntimeError as before: the set of reasons is closed, and nothing is read from the text."""
+    # A refusal without the field, as a dAuth server of an earlier release sends it, then other values of it.
+    refusals = [{}, {'reason': None}, {'reason': ''}, {'reason': 'record_too_deep'}, {'reason': 'RECORD_TOO_LARGE'},
+                {'reason': 'record_too_large '}, {'reason': ['record_too_large']}, {'reason': True},
+                {'reason': {'code': 'record_too_large'}}, {'error': 'record_too_large'}]
+    # Each refusal in turn.
+    for fields in refusals:
+      # Each reports on its own.
+      with self.subTest(fields=fields):
+        # The refusal.
+        self.refuse(**fields)
+        # Count the requests of this case only.
+        self.post.reset_mock()
+        # A RuntimeError, as every refusal raised before (a ValueError would not be caught here).
+        with self.assertRaises(RuntimeError) as caught:
+          # The preparation that is refused.
+          self.engine.reconcile_dauth_job_secrets(self.payload)
+        # The fixed text of a refusal, and one request.
+        self.assertEqual((str(caught.exception), self.post.call_count), ('dAuth rejected secret reconciliation.', 1))
+
+  def test_a_success_that_carries_the_reason_is_still_a_success(self):
+    """The reason is read only in a refusal: a successful answer that happens to carry it is returned as it is."""
+    # A successful "prepare".
+    self.lifecycle('prepare')
+    # With the field of a refusal in it.
+    self.result['reason'] = 'record_too_large'
+    # Returned, not raised.
+    self.assertEqual(self.engine.reconcile_dauth_job_secrets(self.payload), self.result)
 
   def test_lifecycle_rejects_invalid_action_and_pointer_before_http(self):
     """Malformed mutation requests must not reach the external service."""

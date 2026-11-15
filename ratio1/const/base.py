@@ -83,6 +83,11 @@ class dAuth:
   DAUTH_KEY_ROTATION = 'node_key_rotation'
   DAUTH_KEY_ROTATION_PURPOSE = 'ratio1-node-key-rotation'
 
+  # field of a dAuth answer that refuses a secret reconciliation: a reason code from the closed set below
+  DAUTH_REASON = 'reason'
+  # the only reason code: the chain store refused the job's secret record for its size
+  DAUTH_REASON_RECORD_TOO_LARGE = 'record_too_large'
+
 # end class dAuth
 
 ETH_ENABLED_ENV_KEY = 'EE_ETH_ENABLED'
