@@ -102,7 +102,9 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   ten minutes to appear. A failed refresh is remembered per entry for three times the time its
   read took, counted from the failure on the monotonic clock: until then the registry is not read,
   and every caller gets a copy of that read's error at once, made for it, with no traceback, cause
-  or context of another caller (the memory keeps a copy too, so no caller's frames). An endpoint
+  or context of another caller. The memory keeps a copy too, but a copy keeps the error's arguments:
+  for a timeout or a refused connection they hold the caught transport error, whose traceback still
+  reaches the failed read's frames and local data until the registry answers again. An endpoint
   that never answers holds a caller about 20 s once in 80 s per registry, not on every call, and
   the registry stays unanswered for up to 60 s after such an endpoint answers again (120 s when the
   connection never completes to a host name of two addresses). A read that fails within

@@ -655,10 +655,11 @@ class OracleRegistryCacheTests(unittest.TestCase):
   def test_each_question_answered_from_the_memory_gets_an_error_of_its_own_with_no_other_callers_context(self):
     """Each question answered from the memory gets an error object of its own, of the read's type and text, that
     carries neither the error another caller was handling when it asked nor the cause of the failed read; and the
-    memory does not hold the error, or the frames, of the call whose read failed."""
+    memory does not hold the error of the call whose read failed, nor its cause. (A transport error that the read's
+    error holds in its arguments, as a real timeout's does, is kept with its frames: this stand-in has none.)"""
     def read():
       """
-      Stand in for a registry read of 20 s that fails with an error caused by another one, as a timeout is.
+      Stand in for a registry read of 20 s that fails with an error raised from another one.
 
       Returns
       -------
@@ -699,7 +700,7 @@ class OracleRegistryCacheTests(unittest.TestCase):
     del failed
     # Objects that only refer to each other are removed.
     gc.collect()
-    # Nothing holds it: the memory keeps a copy, so neither the error nor the frames of the failed call stay.
+    # Nothing holds it: the memory keeps a copy, without cause or context, so neither the error nor its cause stays.
     self.assertIsNone(held())
     try:
       # Caller A handles an error of its own, whose text stands for request data, when it asks.

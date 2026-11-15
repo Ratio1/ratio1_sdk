@@ -1169,10 +1169,13 @@ class _EVMMixin:
 
       The call whose read failed gets the read's own error. The memory keeps a copy of it (``copy.copy``: the
       read's type, text and attributes, with no traceback, cause or context), and each call answered from the
-      memory raises a further copy made for it. So such a call's error carries only that call's own frames and
-      the error it was handling, if any: never another call's, which with one shared object reached the next
-      caller's log, its text included. The memory holds no frame, and no local data, of any call; the copy is
-      let go when the registry is read successfully again. An interrupt of the program during the read
+      memory raises a further copy made for it. So the traceback such a call logs shows only that call's own
+      frames and the error it was handling, if any: never another call's, which with one shared object reached
+      the next caller's log, its text included. The copy keeps the read error's arguments as they are, though:
+      for a timeout or a refused connection, the RPC client's error wraps the transport error it caught, and
+      that error keeps its traceback, so the memory and every copy still reach the frames of the failed read, up
+      to its caller, and their local data, as before; an HTTP error answer wraps none. The copy is let go when
+      the registry is read successfully again. An interrupt of the program during the read
       (``KeyboardInterrupt``) is not an error of the read and is not remembered.
 
       One line is logged when a registry's read fails after its last one answered (or as its first read), with
@@ -1199,7 +1202,7 @@ class _EVMMixin:
             # The last read failed and less than three times its own duration has passed since: its error
             # again, at once and without a read, where each call made the failing read again (20.2 s each for
             # an endpoint that never answers). Each call gets a copy made for it (the read's type, text and
-            # attributes), so Python gives it this call's own frames and handled error only. Before, every call
+            # attributes), so the traceback and handled error Python gives it are this call's own. Before, every call
             # raised one shared object, which kept the handled error of whichever call raised it before, and its
             # text, for the next caller's log.
             raise copy(entry["failure"])
@@ -1218,8 +1221,9 @@ class _EVMMixin:
             # Remember the error for three times the time the read took, from now, under the registry's lock: a
             # read that hung 20 s is not made again for 60 s, one that failed within milliseconds is made again
             # three times as many milliseconds later. A caller that waited for the lock finds the error and makes
-            # no read of its own. What is kept is a copy, with no traceback, cause or context: the memory holds
-            # none of the frames of this call, which the read's own error did until the registry answered again.
+            # no read of its own. What is kept is a copy, with no traceback, cause or context of its own; a transport
+            # error it wraps in its arguments (a timeout, a refused connection) keeps the frames of this call and
+            # their local data until the registry answers again, as the read's own error did.
             entry.update(failure=copy(failure),
                          failed_until=failed_at + _ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at))
             # The caller of the failed read gets its error, as before.
