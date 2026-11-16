@@ -100,7 +100,8 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   RPC endpoint, contract and method, also used by `web3_is_dauth_oracle`. Refreshes serialize per
   entry, an expired snapshot never authorizes after a failed refresh, and registry changes can take
   ten minutes to appear. A failed refresh is remembered per entry for three times the time its
-  read took, counted from the failure on the monotonic clock: until then the registry is not read,
+  read took (`ORACLE_REGISTRY_FAILURE_FACTOR`, public: the edge node's dAuth server imports it),
+  counted from the failure on the monotonic clock: until then the registry is not read,
   and every caller gets a copy of that read's error at once, made for it, with no traceback, cause
   or context of another caller. The memory keeps a copy too, but a copy keeps the error's arguments:
   for a timeout or a refused connection they hold the caught transport error, whose traceback still

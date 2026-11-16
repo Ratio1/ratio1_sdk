@@ -25,7 +25,9 @@ _ORACLE_REGISTRY_TTL = 10 * 60
 # not read again and its callers get the error of that read at once. A read the endpoint never answers takes
 # about 20 s and is remembered 60 s, so a thread that asks all the time is held a quarter of the time, where
 # every call held it; a read that fails in milliseconds is made again milliseconds later, as before.
-_ORACLE_REGISTRY_FAILURE_FACTOR = 3
+# Public: the dAuth server of the edge node imports it to wait as long before its own next read, which would
+# otherwise fail from this memory without a read.
+ORACLE_REGISTRY_FAILURE_FACTOR = 3
 _ORACLE_REGISTRY_CACHE = {}
 _ORACLE_REGISTRY_CACHE_LOCK = Lock()
 
@@ -1115,7 +1117,7 @@ class _EVMMixin:
       The addresses a registry method returns are kept for ten minutes per network, RPC endpoint, contract and
       method, for every engine of the process. When no list is kept, or the kept one is older than that, the
       registry is read again. A read that fails is remembered for three times the time it took
-      (``_ORACLE_REGISTRY_FAILURE_FACTOR``): until then the registry is not read, and every call for it raises
+      (``ORACLE_REGISTRY_FAILURE_FACTOR``): until then the registry is not read, and every call for it raises
       the error of that read at once. The expired list is never returned in its place.
 
       Parameters
@@ -1225,7 +1227,8 @@ class _EVMMixin:
             # error it wraps in its arguments (a timeout, a refused connection) keeps the frames of this call and
             # their local data until the registry answers again, as the read's own error did.
             entry.update(failure=copy(failure),
-                         failed_until=failed_at + _ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at))
+                         # The end of the memory, by the public factor the edge node's dAuth server waits by too.
+                         failed_until=failed_at + ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at))
             # The caller of the failed read gets its error, as before.
             raise
           # The list is kept for ten minutes, and the copy of an earlier failed read's error is let go; the next
