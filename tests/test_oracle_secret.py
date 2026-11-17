@@ -30,6 +30,8 @@ from test_dauth_autocomplete_logging import DAUTH_URL, _AutocompleteHarness
 
 # An obvious fake: no real secret is ever used in a test.
 FAKE_SECRET = "fake-oracle-secret-for-tests-only"
+# What the answer carries in its place: the server encrypts the secret to the requesting node's key.
+CIPHERTEXT = "fake-ciphertext-of-the-oracle-secret"
 
 
 def _isolate(test):
@@ -221,10 +223,11 @@ class DauthClientTests(unittest.TestCase):
 
   def setUp(self):
     """
-    Isolate the environment and the holder, and answer every dAuth request with the secret.
+    Isolate the environment and the holder, and answer every dAuth request with the encrypted secret.
 
     The client is the SDK's own ``dauth_autocomplete`` on a stand-in engine; every HTTP request
-    gets an oracle's answer with one env key and the secret.
+    gets an oracle's answer with one env key and the secret encrypted to the requester. The
+    stand-in's decrypt turns ``CIPHERTEXT`` into the fake secret and anything else into None.
 
     Returns
     -------
@@ -234,12 +237,16 @@ class DauthClientTests(unittest.TestCase):
     _isolate(self)
     # The SDK's own dauth_autocomplete on a stand-in engine that records its log lines and signed requests.
     self.engine = _AutocompleteHarness()
+    # Its decryption: the fake secret from CIPHERTEXT only, None for anything else; the calls are recorded.
+    self.engine.decrypt = mock.Mock(side_effect=lambda encrypted_data_b64, sender_address: {
+      CIPHERTEXT: FAKE_SECRET}.get(encrypted_data_b64))
     # A served HTTP answer.
     self.response = mock.Mock(status_code=200)
-    # An oracle's answer: one env key and the secret.
+    # An oracle's answer: one env key and the encrypted secret.
     self.response.json.return_value = {
       "result": {
-        "auth": {"EE_TEST_KEY": "plain-value", dAuth.DAUTH_ORACLE_SECRET: FAKE_SECRET},
+        # The secret's field carries only its encrypted form, as a server sends it.
+        "auth": {"EE_TEST_KEY": "plain-value", dAuth.DAUTH_ORACLE_SECRET: CIPHERTEXT},
         "server_alias": "oracle",
         "EE_SENDER": "0xai_oracle",
       },
@@ -283,21 +290,24 @@ class DauthClientTests(unittest.TestCase):
     self.assertIs(self.engine.signed_payloads[-1][dAuth.DAUTH_SENDER_MEMORY_SECRETS], True)
 
   def test_the_secret_is_held_and_reaches_no_environment_answer_or_log(self):
-    """On a debug network, with and without the full answer returned, the value is only in the holder."""
+    """On a debug network, with and without the full answer returned, the value is decrypted with the signer's
+    address and is then only in the holder."""
     # Both kinds of result: the env keys, and the full answer.
     for full in (False, True):
       # Each kind reports on its own.
       with self.subTest(return_full_data=full):
         # Each pass starts from the original answer (the client pops the field out of it).
-        self.response.json.return_value["result"]["auth"][dAuth.DAUTH_ORACLE_SECRET] = FAKE_SECRET
+        self.response.json.return_value["result"]["auth"][dAuth.DAUTH_ORACLE_SECRET] = CIPHERTEXT
         # Each pass starts from an empty holder, restored when the pass ends.
         with mock.patch.object(BaseBlockEngine, "_BaseBlockEngine__oracle_secret", None):
           # A start-up dAuth on devnet, where debug logging is forced on.
           result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="devnet", return_full_data=full)
           # The value is held in process memory.
           self.assertEqual(BaseBlockEngine.oracle_secret(), FAKE_SECRET)
-        # It is not in the result.
-        self.assertNotIn(FAKE_SECRET, json.dumps(result))
+        # It was decrypted with the key shared with the answer's signer.
+        self.engine.decrypt.assert_called_with(encrypted_data_b64=CIPHERTEXT, sender_address="0xai_oracle")
+        # Neither it nor its encrypted form is in the result.
+        self.assertEqual([text in json.dumps(result) for text in (FAKE_SECRET, CIPHERTEXT)], [False, False])
         # It is in no environment variable.
         self.assertNotIn(FAKE_SECRET, os.environ.values())
         # Its field name is not a variable either.
@@ -321,6 +331,39 @@ class DauthClientTests(unittest.TestCase):
       self.assertEqual(BaseBlockEngine.oracle_secret(), "held-before")
     # No line about the secret.
     self.assertNotIn("Oracle secret", self._logs())
+
+  def test_a_value_that_does_not_decrypt_is_not_kept(self):
+    """A field that does not decrypt with this node's key (encrypted to another node, or not encrypted) leaves the
+    holder as it was and says so in one red line that carries no part of the field."""
+    # A field encrypted for another node: the stand-in's decrypt gives None for it.
+    self.response.json.return_value["result"]["auth"][dAuth.DAUTH_ORACLE_SECRET] = "encrypted-for-another-node"
+    # A value already held before this answer.
+    with mock.patch.object(BaseBlockEngine, "_BaseBlockEngine__oracle_secret", "held-before"):
+      # One start-up dAuth round.
+      self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=1)
+      # The held value is unchanged.
+      self.assertEqual(BaseBlockEngine.oracle_secret(), "held-before")
+    # One line says why, and no line carries the field.
+    self.assertEqual(
+      (self._logs().count("Oracle secret from oracle <0xai_oracle> does not decrypt: not kept."),
+       "encrypted-for-another-node" in self._logs()),
+      (1, False),
+    )
+
+  def test_the_debug_request_line_names_the_fields_without_their_values(self):
+    """On a debug network the request line lists the signed request's field names, flag included, but not the
+    signature or any other value, so the logged line cannot be sent again as a request."""
+    # A start-up dAuth on devnet, where debug logging is forced on.
+    self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="devnet", max_tries=1)
+    # The one request line.
+    [line] = [text for text in self.engine.log_messages if text.startswith("Requesting dAuth")]
+    # It names the flag and the signature field.
+    self.assertEqual([name in line for name in (dAuth.DAUTH_SENDER_MEMORY_SECRETS, "EE_SIGN")], [True, True])
+    # The stand-in's signature value and the request's nonce are in no log line.
+    self.assertEqual(
+      [value in self._logs() for value in ("request-signature", self.engine.signed_payloads[-1]["nonce"])],
+      [False, False],
+    )
 
 
 if __name__ == "__main__":

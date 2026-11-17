@@ -2509,9 +2509,12 @@ class BaseBlockEngine(
     nobody serves. The result follows the last answer only.
 
     Every request declares that this client keeps memory-only secrets out of its environment and logs
-    (``sender_memory_secrets``). An oracle's answer can then carry the oracle-only secret. Whatever
-    `add_env` says, that secret goes into process memory (``BaseBlockEngine.oracle_secret``) and never
-    into `os.environ`, the returned keys, the `return_full_data` answer or a log line.
+    (``sender_memory_secrets``). An oracle's answer can then carry the oracle-only secret, encrypted
+    to this node's key. Whatever `add_env` says, that secret is decrypted into process memory
+    (``BaseBlockEngine.oracle_secret``) and never goes into `os.environ`, the returned keys, the
+    `return_full_data` answer or a log line. A value that does not decrypt is dropped, with one red
+    line. The request log of debug mode names the request's fields, not their values: the signed
+    request could be sent again by anyone who reads it.
 
     Parameters
     ----------
@@ -2521,7 +2524,8 @@ class BaseBlockEngine(
     add_env : bool, optional
       When True (the default), the env keys received from dAuth are written into `os.environ`.
     debug : bool, optional
-      When True, log the request body and the answer status. Forced on for test/dev networks.
+      When True, log the names of the request's fields and the answer status. Forced on for test/dev
+      networks.
     max_tries : int, optional
       Maximum number of requests to send (default 5); at least one is always sent.
     network : str, optional
@@ -2635,7 +2639,8 @@ class BaseBlockEngine(
           self.sign(to_send)    
           json_to_send = {'body' : to_send}
           if debug:
-            self.P(f"Requesting dAuth (timeout={request_timeout}): {url}\n{json.dumps(json_to_send, indent=2)}")   
+            # The field names only: the signed body is a request anyone who reads this log could send again.
+            self.P(f"Requesting dAuth (timeout={request_timeout}): {url} with fields {sorted(to_send)}")
           response = requests.post(url, json=json_to_send, timeout=request_timeout)
           if debug:
             self.P(f"Received response (status {response.status_code}).")
@@ -2663,9 +2668,15 @@ class BaseBlockEngine(
             # answer before anything else reads it, so it reaches neither os.environ, the returned answer nor a log.
             oracle_secret = dct_dauth.pop(dAuth.DAUTH_ORACLE_SECRET, None)
             if oracle_secret is not None:
-              # Held by the class in process memory, where this node's dAuth server reads it.
-              BaseBlockEngine.__oracle_secret = oracle_secret
-              self.P(f"Oracle secret from {server_alias} <{server_addr}> kept in process memory.", color='g')
+              # The server encrypted it to this node's key, so a replayed request or a copy of the answer is of no use
+              # to anyone else. Decrypted with the key shared with the signer checked above; None when that fails.
+              oracle_secret = self.decrypt(encrypted_data_b64=oracle_secret, sender_address=server_addr)
+              if oracle_secret is None:
+                self.P(f"Oracle secret from {server_alias} <{server_addr}> does not decrypt: not kept.", color='r')
+              else:
+                # Held by the class in process memory, where this node's dAuth server reads it.
+                BaseBlockEngine.__oracle_secret = oracle_secret
+                self.P(f"Oracle secret from {server_alias} <{server_addr}> kept in process memory.", color='g')
 
             # Revoked-key verdict: trusted only from a registered dAuth oracle, since
             # the node replaces its key on it. One registry read, only in this case.
