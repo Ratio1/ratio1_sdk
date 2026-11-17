@@ -84,11 +84,45 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   reconcile requests, binds replies to the operation, plan and action, and returns redacted configs
   and their CID, never bundles. It never retries: a timeout can follow a successful write, and
   Core's coordinator journal owns recovery.
-- dAuth clients never log request bodies, response bodies or secret values.
+- dAuth clients log no request or answer body that carries secrets. Of an answer they log the
+  server's alias and address and the names of the keys it sets. `dauth_autocomplete` also logs the
+  `error` of a refusal as the server sent it, and the text of an answer whose HTTP status is not
+  200. `reconcile_dauth_job_secrets` logs a signed refusal with the server's alias and the action
+  only: the `error` of that answer stays out of the log and out of the raised error
+  (`tests/test_dauth_reconciliation_client.py`).
+- `reconcile_dauth_job_secrets` names one refusal. A refusal whose `reason` field (`DAUTH_REASON`)
+  is `record_too_large` (`DAUTH_REASON_RECORD_TOO_LARGE`: the chain store refused a secret record of
+  the job for its size, the new revision's or the current one's kept for a rollback) raises
+  `DauthSecretRecordTooLarge`, a `ValueError`, with the client's own fixed text, once the answer's
+  signature, signer and nonce passed. Any other `reason`, or none, raises the `RuntimeError` of
+  every other refusal. The set of codes is closed: a new one needs a change here and in dAuth.
 - Oracle registry reads in `ratio1/bc/evm.py` share a 600-second process-wide cache per network,
   RPC endpoint, contract and method, also used by `web3_is_dauth_oracle`. Refreshes serialize per
   entry, an expired snapshot never authorizes after a failed refresh, and registry changes can take
-  ten minutes to appear (`tests/test_evm_oracle_registry_cache.py`).
+  ten minutes to appear. A failed refresh is remembered per entry for three times the time its
+  read took (`ORACLE_REGISTRY_FAILURE_FACTOR`, public: the edge node's dAuth server imports it),
+  counted from the failure on the monotonic clock: until then the registry is not read,
+  and every caller gets a copy of that read's error at once, made for it, with no traceback, cause
+  or context of another caller. The memory keeps a copy too, but a copy keeps the error's arguments:
+  for a timeout or a refused connection they hold the caught transport error, whose traceback still
+  reaches the failed read's frames and local data until the registry answers again. An endpoint
+  that never answers holds a caller about 20 s once in 80 s per registry, not on every call, and
+  the registry stays unanswered for up to 60 s after such an endpoint answers again (120 s when the
+  connection never completes to a host name of two addresses). A read that fails within
+  milliseconds (an error answer, a refused connection) is made again milliseconds later. One line
+  is logged when a registry's read first fails, and none again until it has answered
+  (`tests/test_evm_oracle_registry_cache.py`).
+- Every RPC client the engine builds (`_rpc_provider` in `ratio1/bc/evm.py`) gives one request 10 s
+  and one call 2 tries, for reads and transactions alike. A call the endpoint takes a connection for
+  and never answers raises after about 20 s; a connection that never completes costs 10 s per
+  address of the host name in each try (about 40 s for two addresses). A transaction the endpoint
+  takes in but answers after more than 10 s is sent a second time, and the answer to that (for
+  example "already known") is raised as an error while the transaction is pending, so that error
+  does not mean "not sent"; left to the client library this happened above 30 s. The chain id is
+  kept per client and thread after its first fetch, and the client is built without the library's
+  cache threshold lookup, which could switch the keeping off for good when two threads read for the
+  first time at once. The client built for a `network=` argument is not kept
+  (`tests/test_evm_rpc_bounds.py`).
 
 ## Deeploy and webapps
 
@@ -109,10 +143,26 @@ for the area you change. Keep each entry current: edit or delete it when the cod
   never carries a block request for as long as it lives (pings and circuits still work on it). A
   relay within about a millisecond loses that race on most starts. `R1FSEngine` holds the configured
   peers back, and once the daemon API answers it runs `swarm connect` for each and puts it back in
-  the list, so later re-dials behave as before. Proof of block transfer is a want that reaches the
+  the list, so later re-dials behave as before. Right before each such dial it runs
+  `swarm disconnect /p2p/<peer id>`, so a connection the peer opened while the daemon was being
+  built is not kept as "already connected" (in the lab 7 of 40 starts were blind without it, 0 of
+  40 with it, for about 40 ms more per start). Proof of block transfer is a want that reaches the
   relay (`ipfs bitswap wantlist --peer=<node>` on the relay), not a peer line or a ping.
+- When the relay is not connected after the daemon is up, the `maybe_start_ipfs` call that launched
+  the daemon dials it up to 6 times, 10 s apart (each try but the last bounded at 10 s), before
+  R1FS is left off for the run. The last try is the single dial of before (90 s bound) and ends
+  with the same red line; each failed try before it also prints the command runner's red line and
+  a yellow next-try line. A call that finds the daemon already running (a serving process) dials
+  once, as before. With the relay down, the bounds the launching call waits for the relay add up to
+  285 s (5 s disconnect and 90 s held-back dial at the launch, five 10 s tries and five 10 s pauses,
+  a 90 s last try); in the lab, with each dial failing after 4 to 5 s, such a start ended about
+  84 s later than a normal one, and a relay back about 25 s into the start was connected on the
+  second try, about 19 s later.
 - A failed read of a CID the relay had already accepted prints one boxed red `RELAY DATA PATH` line
-  (at most one per 600 s) with the direct-link state and the Bitswap ledger for the relay.
+  (at most one per 600 s) with the direct-link state and the Bitswap ledger for the relay. The
+  background relay pass then closes the relay link by peer id and dials it once (at most one
+  reconnect per printed line), and says the outcome in a second boxed red line; in the lab this
+  repaired 10 of 10 blind links, and the next read succeeded in 0.2 to 0.3 s.
 - CIDs are accepted only as bare CIDs (ASCII letters and digits, at most 255; `is_pinned`,
   `is_cid_available` and `cleanup_downloads` still handle None and "" as before), and any other
   value is refused before any file is deleted or any `ipfs` command or relay request runs. A

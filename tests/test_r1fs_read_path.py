@@ -40,12 +40,34 @@ class R1FSReadPathTests(unittest.TestCase):
   """get_json against fake `ipfs` commands and a fake relay API."""
 
   def _engine(self, reachable=True, pin_fails=False, get_seconds=0):
-    """``reachable``: whether `ipfs get` / `ipfs pin add` find the CID (else they time out); a CID that is not
-    reachable was never pinned here, so `ipfs pin rm` answers it with Kubo's "not pinned" error.
-    ``pin_fails``: `ipfs pin` commands time out, as when the daemon does not answer.
-    ``get_seconds``: how far a get moves ``engine.now``, the clock a test can put in place of time.time.
-    ``engine.answers``: the output of other `ipfs` commands, by subcommand (``swarm``, ``bitswap``).
-    ``engine.ciphertext``: the object a good get stores, which a test can replace with a crafted one."""
+    """
+    Build an engine whose `ipfs` commands and relay API are fakes, with the state _build would give it.
+
+    The fake commands record ``(subcommand, timeout)`` in ``engine.commands``. ``engine.answers`` gives the
+    output of other `ipfs` commands by subcommand (``swarm``, ``bitswap``); ``engine.ciphertext`` is the object
+    a good get stores, which a test can replace with a crafted one. The fake relay pin/add records
+    ``(cid, thread name)`` in ``engine.relay_calls``, waits while ``engine.relay_gate`` is cleared, and answers
+    ``engine.relay_accepts``.
+
+    Parameters
+    ----------
+    reachable : bool, optional
+      Whether `ipfs get` / `ipfs pin add` find the CID (else they time out); a CID that is not reachable was
+      never pinned here, so `ipfs pin rm` answers it with Kubo's "not pinned" error. Default True.
+    pin_fails : bool, optional
+      Whether `ipfs pin` commands time out, as when the daemon does not answer. Default False.
+    get_seconds : float, optional
+      How far a get moves ``engine.now``, the clock a test can put in place of time.time. Default 0.
+
+    Returns
+    -------
+    R1FSEngine
+      The engine, built without _build, so nothing real is started.
+
+    Examples
+    --------
+    >>> engine = self._engine(reachable=False, get_seconds=10)
+    """
     engine = object.__new__(R1FSEngine)
     engine.commands = []
     engine.answers = {}
@@ -57,11 +79,41 @@ class R1FSReadPathTests(unittest.TestCase):
     engine.relay_entered = threading.Semaphore(0)  # released each time the fake relay API is called
     engine.now = 1000.0
 
-    def run_command(cmd_list, raise_on_error=True, timeout=IPFSCt.TIMEOUT, **kwargs):
+    def run_command(cmd_list, raise_on_error=True, timeout=IPFSCt.TIMEOUT, return_errors=False, **kwargs):
+      """
+      Answer an `ipfs` command as the real __run_command would, from the settings of _engine.
+
+      Parameters
+      ----------
+      cmd_list : list
+        The command, ``["ipfs", <subcommand>, ...]``.
+      raise_on_error : bool, optional
+        Whether a failed command raises (True) or returns empty text (False). Default True.
+      timeout : float, optional
+        The command's timeout, recorded with its subcommand. Default IPFSCt.TIMEOUT.
+      return_errors : bool, optional
+        Whether stdout and stderr come back as a pair, as `swarm disconnect` and `swarm connect` ask. Default False.
+
+      Returns
+      -------
+      str or tuple
+        The command's output, or ``(output, "")`` when ``return_errors`` is True.
+
+      Raises
+      ------
+      Exception
+        When the command fails and ``raise_on_error`` is True.
+
+      Examples
+      --------
+      >>> run_command(["ipfs", "bitswap", "ledger", "RelayId"], raise_on_error=False, timeout=5)
+      """
       engine.commands.append((cmd_list[1], timeout))
       if cmd_list[1] in engine.answers:
         # `ipfs bitswap ledger <peer>` names the peer it was asked about.
-        return engine.answers[cmd_list[1]].format(peer=cmd_list[-1])
+        output = engine.answers[cmd_list[1]].format(peer=cmd_list[-1])
+        # The swarm wrappers ask for (stdout, stderr), as the real runner gives them.
+        return (output, "") if return_errors else output
       if cmd_list[1] == "get":
         engine.now += get_seconds  # a get that finds nothing takes its time too
       if cmd_list[1] == "get" and reachable:
@@ -72,7 +124,8 @@ class R1FSReadPathTests(unittest.TestCase):
       if cmd_list[1] == "pin" and reachable and not pin_fails:
         return "pinned"
       if not raise_on_error:
-        return ""  # like the real __run_command: a failed command returns "" when raise_on_error is False
+        # Like the real __run_command: a failed command returns "" (and "" for stderr when both are asked for).
+        return ("", "") if return_errors else ""
       if cmd_list[1:3] == ["pin", "rm"] and not reachable:
         # Kubo exits 1 with this on stderr, which the real __run_command puts in its exception.
         raise Exception(f"Error while running '{' '.join(cmd_list)}': Error: {NOT_PINNED}")
@@ -94,6 +147,8 @@ class R1FSReadPathTests(unittest.TestCase):
     engine._R1FSEngine__relay_publication_status = {}
     engine._R1FSEngine__relay_data_failures = 0
     engine._R1FSEngine__relay_data_logged_at = 0
+    # No reconnect of the relay is due, as _build leaves it; a RELAY DATA PATH line sets it.
+    engine._R1FSEngine__relay_reconnect_peer = None
     engine._R1FSEngine__rate_limited_reports = {}
     engine._R1FSEngine__relay_in_flight = None
     engine._R1FSEngine__ipfs_relay = RELAY
@@ -437,36 +492,73 @@ class R1FSReadPathTests(unittest.TestCase):
     return lines
 
   def test_failed_read_of_a_cid_the_relay_accepted_before_it_prints_one_boxed_red_line(self):
-    """Even with show_logs=False, as dAuth reads: the relay held the CID before the read, the read got nothing."""
+    """
+    Even with show_logs=False, as dAuth reads: the relay held the CID before the read, the read got nothing.
+
+    The read prints its one RELAY DATA PATH line after its two checks; the reconnect that line asks for runs
+    on the background pass, which adds its two commands and a boxed line of its own.
+    """
+    # A read whose get takes all of its 10 s and finds nothing.
     engine = self._engine(reachable=False, get_seconds=10)
+    # The relay accepted the CID 60 s before the read.
     self._confirmed(engine, "QmGone", at=engine.now - 60)
     # A direct connection to the relay, and a connection to another peer through the relay's circuit.
     engine.answers = {"swarm": RELAY + "\n" + RELAY + "/p2p-circuit/p2p/OtherPeer", "bitswap": LEDGER}
+    # Every boxed line, in order.
     lines = self._boxed_lines(engine)
+    # The engine's clock is the test's, so the seconds in the line are known.
     with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      # The read returns nothing.
       self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
-    self.assertEqual(lines, [(
+    # The read's background pass, with its reconnect, is over before anything is checked.
+    self._release_relay(engine)
+    # The read's own line comes first: what the relay accepted and when, the seconds waited, the link, the ledger.
+    self.assertEqual(lines[0], (
       f"RELAY DATA PATH: relay {RELAY} accepted QmGone at 1970-01-01T00:15:40Z, but this node got nothing in 10 s. "
       "Direct link: True. Ledger for RelayId Debt ratio: 0.000000 Exchanges: 0 Bytes sent: 0 Bytes received: 0. "
-      "1 such read(s) since start.", "r")])
-    self.assertEqual(engine.commands, [("get", 10), ("swarm", 5), ("bitswap", 5)])
+      # The count of such reads, and the line's color, red.
+      "1 such read(s) since start.", "r"))
+    # Then only the reconnect's line.
+    self.assertEqual(len(lines), 2)
+    # The get and the two checks (5 s each) on the reader's thread, then the pass's disconnect (5 s) and dial (15 s).
+    self.assertEqual(engine.commands, [("get", 10), ("swarm", 5), ("bitswap", 5), ("swarm", 5), ("swarm", 15)])
 
   def test_repeat_within_600s_prints_nothing_and_the_next_line_has_the_count(self):
+    """A failed read within 600 s of a line is only counted; the next line, with its reconnect, comes at 600 s."""
+    # Reads that find nothing.
     engine = self._engine(reachable=False)
+    # The relay accepted the CID 60 s before the first read.
     self._confirmed(engine, "QmGone", at=engine.now - 60)
+    # A direct link to the relay and an empty ledger.
     engine.answers = {"swarm": RELAY, "bitswap": LEDGER}
+    # Every boxed line, in order.
     lines = self._boxed_lines(engine)
+    # The engine's clock is the test's, so each read happens at a chosen time.
     with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      # A read at the start, one 1 s before the 600 s are over, and one when they are.
       for now in (1000.0, 1599.0, 1600.0):
+        # The clock of this read.
         engine.now = now
+        # The read returns nothing.
         self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
-    self.assertEqual(len(lines), 2)
-    self.assertTrue(lines[1][0].endswith(" 3 such read(s) since start."))
-    # The read at +599 s ran only its get.
-    self.assertEqual([command for command, _ in engine.commands], ["get", "swarm", "bitswap", "get", "get", "swarm", "bitswap"])
+        # This read's background pass ends before the next read, so the commands come in a fixed order.
+        self._release_relay(engine)
+    # Two data-path lines, each followed by its reconnect's line.
+    self.assertEqual(len(lines), 4)
+    # The second data-path line counts all three reads.
+    self.assertTrue(lines[2][0].endswith(" 3 such read(s) since start."))
+    # The read at +599 s ran only its get, and its pass reconnected nothing.
+    self.assertEqual([command for command, _ in engine.commands],
+                     ["get", "swarm", "bitswap", "swarm", "swarm", "get", "get", "swarm", "bitswap", "swarm", "swarm"])
 
   def test_unconfirmed_late_or_healing_cids_and_good_reads_run_no_extra_command(self):
-    """Only a 200 recorded before the read began counts, and a good read is left alone."""
+    """
+    Only a 200 recorded before the read began counts, and a good read is left alone.
+
+    Neither runs a command after its get, on the reader's thread or on the background pass: no check of the
+    link and no reconnect of the relay.
+    """
+    # Relay statuses that do not show the relay held the CID before the read, by name.
     statuses = {
       "never seen": None,
       "queued": {"relay_status": "queued", "relay_published": False},
@@ -476,45 +568,174 @@ class R1FSReadPathTests(unittest.TestCase):
       "accepted during the read": {"relay_status": "published", "relay_published": True,
                                    "relay_last_success_at": _iso(1000.5)},
     }
+    # Each status in its own sub-test.
     for name, status in statuses.items():
       with self.subTest(status=name):
+        # A read that finds nothing.
         engine = self._engine(reachable=False, get_seconds=10)
         if status is not None:
+          # The CID's relay status before the read.
           engine._R1FSEngine__relay_publication_status["QmGone"] = status
+        # The answers a check or a reconnect would get, so any such command would show.
         engine.answers = {"swarm": RELAY, "bitswap": LEDGER}
+        # Every boxed line, in order.
         lines = self._boxed_lines(engine)
+        # The engine's clock is the test's, so the read starts at 1000.0.
         with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+          # The read returns nothing.
           self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
+        # The read's background pass is over, so a reconnect it ran would be in the commands below.
+        self._release_relay(engine)
+        # Only the get, and no line.
         self.assertEqual((engine.commands, lines), ([("get", 10)], []))
+    # A good read.
     engine = self._engine()
+    # The relay accepted the CID 60 s before the read.
     self._confirmed(engine, "QmLive", at=engine.now - 60)
+    # The answers a check or a reconnect would get, so any such command would show.
     engine.answers = {"swarm": RELAY, "bitswap": LEDGER}
+    # Every boxed line, in order.
     lines = self._boxed_lines(engine)
+    # The engine's clock is the test's.
     with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      # The read returns the document.
       self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
+    # A pass, if one started, is over before the check.
+    self._release_relay(engine)
+    # Only the get and its pin, and no line.
     self.assertEqual((engine.commands, lines), ([("get", 10), ("pin", 10)], []))
 
   def test_empty_ledger_answer_is_reported_as_unreadable_and_the_read_still_returns_none(self):
+    """A ledger command that answers nothing is said as unreadable, and a link only through a circuit as not direct."""
+    # A read that finds nothing.
     engine = self._engine(reachable=False)
+    # The relay accepted the CID 60 s before the read.
     self._confirmed(engine, "QmGone", at=engine.now - 60)
     # The only connection to the relay goes through another relay's circuit, so it is not a direct link.
     engine.answers = {"swarm": "/dns4/other.invalid/tcp/4001/p2p/OtherRelay/p2p-circuit/p2p/RelayId", "bitswap": ""}
+    # Every boxed line, in order.
     lines = self._boxed_lines(engine)
+    # The engine's clock is the test's.
     with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      # The read still returns nothing.
       self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
-    self.assertEqual(len(lines), 1)
+    # The read's background pass, which adds the reconnect's line, is over before anything is checked.
+    self._release_relay(engine)
+    # The read's line and the reconnect's line.
+    self.assertEqual(len(lines), 2)
+    # The read's line says the link is not direct and the ledger unreadable.
     self.assertIn(" Direct link: False. Ledger unreadable. 1 such read(s) since start.", lines[0][0])
 
   def test_relay_multiaddr_without_tcp_port_is_reported_without_the_two_commands(self):
-    """R1FS can start with such a relay through ipfs swarm connect; there is no peer id to look up then."""
+    """
+    R1FS can start with such a relay through ipfs swarm connect; there is no peer id to look up then.
+
+    The line says the two checks were not run, and no reconnect is asked for: once the read's background pass is
+    over, the get is still the only command.
+    """
+    # A read that finds nothing.
     engine = self._engine(reachable=False)
+    # A relay multiaddr with no tcp port, for which __parse_multiaddr returns None.
     engine._R1FSEngine__ipfs_relay = "/dns4/relay.invalid/udp/4001/quic-v1/p2p/RelayId"
+    # The relay accepted the CID 60 s before the read.
     self._confirmed(engine, "QmGone", at=engine.now - 60)
+    # Every boxed line, in order.
     lines = self._boxed_lines(engine)
+    # The engine's clock is the test's.
     with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+      # The read returns nothing.
       self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
+    # The read's background pass is over, so a reconnect it ran would be in the commands below.
+    self._release_relay(engine)
+    # Only the get: no check of the link and no reconnect.
     self.assertEqual(engine.commands, [("get", 10)])
+    # The line says why the link and ledger were not checked.
     self.assertIn("so the link and ledger were not checked. 1 such read(s)", lines[0][0])
+
+  def test_reported_read_reconnects_the_relay_once_per_printed_line_on_the_background_pass(self):
+    """
+    After a RELAY DATA PATH line, the background pass closes the relay link by peer id and dials it once.
+
+    The two commands run on the "r1fs-relay" pass, not on the reader's thread, with 5 s and 15 s bounds, once per
+    printed line (here lines 600 s apart, each read's pass over before the next read); the outcome is said in a
+    boxed red line: "connected" with Kubo's answer when the dial got through, "dial failed" with Kubo's error when
+    it did not.
+    """
+    # Kubo's answer to the dial as (stdout, stderr), as the real runner gives it, and the outcome the line says.
+    for answer, said in ((("connect RelayId success", ""), "connected (connect RelayId success)"),
+                         (("", "Error: connect RelayId failure: refused"),
+                          "dial failed (Error: connect RelayId failure: refused)")):
+      # Each answer in its own sub-test, on an engine of its own.
+      with self.subTest(said=said):
+        # Reads that find nothing.
+        engine = self._engine(reachable=False)
+        # The relay accepted the CID 60 s before the first read.
+        self._confirmed(engine, "QmGone", at=engine.now - 60)
+        # A direct link to the relay and an empty ledger, as on a blind link.
+        engine.answers = {"swarm": RELAY, "bitswap": LEDGER}
+        # The fake `ipfs` of _engine, kept for every command other than the reconnect's two.
+        run_command = engine._R1FSEngine__run_command
+        # Each reconnect command as (command line, timeout, thread name), in order.
+        reconnects = []
+
+        def kubo_reconnect(cmd_list, **kwargs):
+          """
+          Note `swarm disconnect` and `swarm connect` with their thread, and answer them as Kubo does.
+
+          Parameters
+          ----------
+          cmd_list : list
+            The command, ``["ipfs", <subcommand>, ...]``.
+          **kwargs
+            The runner's keyword arguments; the reconnect's two commands always pass ``timeout``.
+
+          Returns
+          -------
+          str or tuple
+            ``(stdout, stderr)`` for the two reconnect commands: the disconnect succeeds, the dial gets ``answer``.
+            Any other command gets the answer of the fake runner of _engine.
+
+          Examples
+          --------
+          >>> kubo_reconnect(["ipfs", "swarm", "disconnect", "/p2p/RelayId"], timeout=5)
+          ('disconnect RelayId success', '')
+          """
+          if cmd_list[1:3] not in (["swarm", "disconnect"], ["swarm", "connect"]):
+            # Any other command gets the fake answer of _engine.
+            return run_command(cmd_list, **kwargs)
+          # Which command, naming what, with which bound, on which thread.
+          reconnects.append((" ".join(cmd_list[1:]), kwargs["timeout"], threading.current_thread().name))
+          if cmd_list[2] == "disconnect":
+            # Kubo's answer when it closed the link, as (stdout, stderr): both wrappers ask for the two.
+            return "disconnect RelayId success", ""
+          # The dial gets this sub-test's answer: accepted, or refused with Kubo's error on stderr.
+          return answer
+
+        # Put the Kubo answers in place of the fake ones for the reconnect.
+        engine._R1FSEngine__run_command = kubo_reconnect
+        # Every boxed line, in order.
+        lines = self._boxed_lines(engine)
+        # The engine's clock is the test's, so each read happens at a chosen time.
+        with mock.patch.object(r1fs.time, "time", lambda: engine.now):
+          # A line at 1000 s, none at 1599 s, the next at 1600 s.
+          for now in (1000.0, 1599.0, 1600.0):
+            # The clock of this read.
+            engine.now = now
+            # The read returns nothing.
+            self.assertIsNone(engine.get_json("QmGone", timeout=10, show_logs=False))
+            # This read's background pass ends before the next read.
+            self._release_relay(engine)
+        # One disconnect by peer id alone, then one dial of the relay, both on the pass.
+        reconnect = [("swarm disconnect /p2p/RelayId", 5, "r1fs-relay"), (f"swarm connect {RELAY}", 15, "r1fs-relay")]
+        # Once per line, so twice.
+        self.assertEqual(reconnects, reconnect * 2)
+        # The outcome line of the reconnect, with Kubo's answer to the dial.
+        outcome = (f"RELAY DATA PATH: link to relay {RELAY} closed and dialed again: {said}.", "r")
+        # Each one right after the line that asked for it.
+        self.assertEqual(lines[1::2], [outcome, outcome])
+        # The two data-path lines, before them.
+        self.assertEqual([message.startswith(f"RELAY DATA PATH: relay {RELAY} accepted") for message, _ in lines[0::2]],
+                         [True, True])
 
   def _files(self, root):
     """Every file under ``root``, as {path: content}."""
@@ -1048,11 +1269,31 @@ class R1FSReadPathTests(unittest.TestCase):
     return started, events, red
 
   def test_daemon_is_launched_with_no_bootstrap_peer_and_the_relay_is_dialed_once_its_api_answers(self):
-    started, events, red = self._daemon_start(self._engine())
+    """
+    The relay is dialed only once the API answers, right after every connection to it is closed by its peer id.
+
+    A connection the relay opened while the daemon was being built is as blind as one the daemon dialed then,
+    and `swarm connect` would keep it as already connected. The disconnect names the peer id alone, so it
+    closes such a connection whatever address or port it came from.
+    """
+    # An engine whose Bootstrap list holds the relay (see _daemon_start).
+    engine = self._engine()
+    # The real disconnect, watched for what it names; it still runs through the fake commands of _daemon_start.
+    real_disconnect = engine._R1FSEngine__swarm_disconnect
+    # The watch is on for the start only.
+    with mock.patch.object(engine, "_R1FSEngine__swarm_disconnect", wraps=real_disconnect) as disconnect:
+      # One daemon start, in order of what happened.
+      started, events, red = self._daemon_start(engine)
+    # The API answered, so the start succeeded.
     self.assertTrue(started)
-    # The list is read and emptied before the launch; the relay is dialed and put back only after the API answers.
+    # The list is read and emptied before the launch; only after the API answers is the relay disconnected, dialed
+    # and put back.
     self.assertEqual(events, ["bootstrap list", "bootstrap rm", "daemon launched", "api answers",
-                              "swarm connect", "bootstrap add"])
+                              # After the API answers: the disconnect, then the dial, then the relay back in the list.
+                              "swarm disconnect", "swarm connect", "bootstrap add"])
+    # Named by the relay's peer id alone, bounded at 5 s.
+    disconnect.assert_called_once_with("/p2p/RelayId", timeout=5)
+    # Nothing in red: the disconnect's answer is not read.
     self.assertEqual(red, [])
 
   def test_relay_that_cannot_be_dialed_after_the_start_is_said_in_red_and_still_put_back(self):
@@ -1062,6 +1303,140 @@ class R1FSReadPathTests(unittest.TestCase):
     self.assertEqual(len(red), 1)
     self.assertIn(RELAY, red[0])
 
+  def test_relay_not_dialable_at_start_is_dialed_again_only_by_the_call_that_launched_the_daemon(self):
+    """
+    The call that launched the daemon dials the relay up to 6 times, 10 s apart, before R1FS is left off for the run.
+
+    A relay that accepts the third dial starts R1FS. One that refuses all six leaves R1FS off and ends with the red
+    line the single dial gave (the runner is a fake here; the real one also says each failed try in red). Each try
+    but the last is bounded at 10 s and returns instead of raising; the last one is the dial of before. A call that
+    finds the daemon already running, as a serving process does, dials once as before: a relay that refuses that
+    dial leaves R1FS off with no pause and no further try, even one that would accept the third dial.
+    """
+    # A private IPFS home under a "_local_cache" folder, as maybe_start_ipfs accepts from IPFS_PATH.
+    home = os.path.join(tempfile.mkdtemp(prefix="r1fs_start_"), "_local_cache", ".ipfs")
+    # The whole private root is removed after the test.
+    self.addCleanup(shutil.rmtree, os.path.dirname(os.path.dirname(home)), ignore_errors=True)
+    # The home folder itself.
+    os.makedirs(home)
+    # An initialized repository, so no `ipfs init` runs.
+    open(os.path.join(home, "config"), "w").close()
+    # The dial of the relay, as each try sends it.
+    dial = f"swarm connect {RELAY}"
+    # The red line of a relay that cannot be dialed, as the single dial said it.
+    failure = f"Error connecting to relay: Error while running 'ipfs {dial}': Error: connect RelayId failure: refused"
+    # Whether this call launches the daemon, the dials the relay refuses, whether R1FS starts, the quiet tries
+    # (10 s each) and the 10 s pauses that follow: a launching call whose relay accepts the third dial, one whose
+    # relay refuses all six, and a call that finds the daemon running, whose relay refuses its one dial.
+    for launch, refused, started, quiet, pauses in (
+        (True, 2, True, 3, 2), (True, IPFSCt.RELAY_START_TRIES, False, 5, 5), (False, 2, False, 0, 0)):
+      # Each case in its own sub-test, on an engine of its own.
+      with self.subTest(launch=launch, refused=refused):
+        # An engine with nothing started yet.
+        engine = self._engine()
+        # R1FS is not started, so maybe_start_ipfs runs.
+        engine._R1FSEngine__ipfs_started = False
+        # The settings _build gives it, used by the start-up message.
+        engine._R1FSEngine__name, engine._R1FSEngine__debug = "default", False
+        # The uploads folder, also in that message.
+        engine._R1FSEngine__uploads_dir = engine._R1FSEngine__downloads_dir
+        # Nothing known about this node's address and agent yet.
+        engine._R1FSEngine__ipfs_address = engine._R1FSEngine__ipfs_agent = None
+        # No daemon answers, so this call launches one; or the daemon already runs, as a serving process finds it.
+        engine.is_ipfs_daemon_running = lambda: not launch
+        # The daemon start, which answers at once; its own dial of the relay is tested with _daemon_start.
+        engine._R1FSEngine__start_daemon = start_daemon = mock.Mock(return_value=True)
+        # No swarm peer yet: the relay is not connected, so it is dialed.
+        engine._get_swarm_peers = lambda: []
+        # The same-host workaround is off ...
+        engine._R1FSEngine__samehost_fix_enabled = lambda: False
+        # ... has nothing to clean up ...
+        engine._R1FSEngine__cleanup_samehost_relay_workaround = lambda: False
+        # ... and nothing to apply after a start.
+        engine._R1FSEngine__maybe_apply_samehost_relay_workaround = lambda: False
+        # This node's peer id.
+        engine._R1FSEngine__get_id = lambda: "SelfId"
+        # A relay check that finds the relay once it is dialed.
+        engine._check_and_record_relay_connection = lambda debug=False: True
+        # Each dial as (command line, raises on failure, timeout), in order.
+        dials = []
+
+        def relay(cmd_list, raise_on_error=True, timeout=IPFSCt.TIMEOUT, **kwargs):
+          """
+          Answer `ipfs swarm connect` as Kubo and the real runner do: refused ``refused`` times, then accepted.
+
+          Parameters
+          ----------
+          cmd_list : list
+            The command, ``["ipfs", <subcommand>, ...]``.
+          raise_on_error : bool, optional
+            Whether a failed command raises (True) or returns "" (False). Default True.
+          timeout : float, optional
+            The command's bound, recorded with each dial. Default IPFSCt.TIMEOUT.
+          **kwargs
+            Any other keyword argument of the runner; not used.
+
+          Returns
+          -------
+          str
+            "" for the set-up commands of a launch (bootstrap and config) and for a refused quiet try; Kubo's
+            success answer for a dial the relay accepts.
+
+          Raises
+          ------
+          Exception
+            The real runner's error, for a refused dial that raises on failure.
+
+          Examples
+          --------
+          >>> relay(["ipfs", "swarm", "connect", RELAY], raise_on_error=False, timeout=10)
+          ''
+          """
+          if cmd_list[1:3] != ["swarm", "connect"]:
+            # The set-up commands before a launch (bootstrap and config) succeed with no output.
+            return ""
+          # Which dial, whether it raises on failure, and its bound.
+          dials.append((" ".join(cmd_list[1:]), raise_on_error, timeout))
+          if len(dials) > refused:
+            # Kubo's answer to a dial it made.
+            return "connect RelayId success"
+          if not raise_on_error:
+            # The real runner returns "" for a failed command it does not raise for.
+            return ""
+          # The real runner's error for a command that exits with an error.
+          raise Exception(f"Error while running 'ipfs {dial}': Error: connect RelayId failure: refused")
+
+        # Only the dials and the set-up commands of a launch reach the commands; everything else above is answered
+        # in place.
+        engine._R1FSEngine__run_command = relay
+        # Every logged line as (message, color).
+        logs = self._logs(engine)
+        # The home in IPFS_PATH, and every wait recorded instead of waited for.
+        with mock.patch.dict(os.environ, {"IPFS_PATH": home}), mock.patch.object(r1fs.time, "sleep") as sleep:
+          # The relay settings as the node passes them; the key only has to decode.
+          result = engine.maybe_start_ipfs(
+            base64_swarm_key="a2V5a2V5a2V5", ipfs_relay=RELAY, ipfs_relay_api="https://relay.invalid",
+            ipfs_api_key_username="x", ipfs_api_key_password="x", ipfs_certificate_path="/certs/relay.crt",
+          )
+        # R1FS starts only when the relay answered.
+        self.assertIs(result, started)
+        # The daemon is launched only when none answered.
+        self.assertEqual(start_daemon.call_count, int(launch))
+        # Quiet tries of 10 s until the relay answers; when it never does, those of a launching call and then the
+        # dial of before, which is the only dial of a call that found the daemon running.
+        self.assertEqual(dials, [(dial, False, IPFSCt.RELAY_START_TRY_TIMEOUT_SECONDS)] * quiet + (
+          [] if started else [(dial, True, IPFSCt.TIMEOUT)]))
+        # Before a launch the three 2 s checks for a running daemon; then a 10 s pause after each refused quiet try,
+        # and no other wait.
+        self.assertEqual(sleep.call_args_list,
+                         [mock.call(2)] * 3 * launch + [mock.call(IPFSCt.RELAY_START_PAUSE_SECONDS)] * pauses)
+        # Each refused quiet try is said in yellow with the next step.
+        self.assertEqual([message for message, color in logs if color == "y"], [
+          f"Relay {RELAY} could not be dialed (try {i} of 6), next try in 10 s." for i in range(1, pauses + 1)])
+        # The start-up code's own red lines (the command runner is a fake here and says nothing): the line a launch
+        # always gave, none when the relay answered, and otherwise exactly the failure line of before.
+        self.assertEqual([message for message, color in logs if color == "r"],
+                         ["IPFS daemon not running. Trying to start..."] * launch + ([] if started else [failure]))
 
 if __name__ == "__main__":
   unittest.main()
