@@ -88,6 +88,16 @@ class dAuth:
   # the only reason code: the chain store refused the job's secret record for its size
   DAUTH_REASON_RECORD_TOO_LARGE = 'record_too_large'
 
+  # environment variable that holds the oracle-only secret on the seed oracles; a node reads it once, keeps it
+  # in process memory (BaseBlockEngine.oracle_secret) and deletes it from its environment
+  DAUTH_ORACLE_SECRET_ENV_KEY = 'EE_ORACLE_R1FS_SECRET'
+  # field of a dAuth answer that carries the oracle-only secret to an oracle; it has no EE_ prefix, so no
+  # client writes it to its environment
+  DAUTH_ORACLE_SECRET = 'oracle_r1fs_secret'
+  # request field set to true by a client that keeps memory-only secrets out of its environment and logs;
+  # dAuth sends such secrets only to a client that sets it
+  DAUTH_SENDER_MEMORY_SECRETS = 'sender_memory_secrets'
+
 # end class dAuth
 
 ETH_ENABLED_ENV_KEY = 'EE_ETH_ENABLED'

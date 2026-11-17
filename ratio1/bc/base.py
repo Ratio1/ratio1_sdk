@@ -439,6 +439,39 @@ class BaseBlockEngine(
   _lock: Lock = Lock()
   _whitelist_lock : Lock = Lock()
   __instances = {}
+  # The oracle-only secret of this process, held in memory only and never in os.environ: one per process,
+  # shared by every engine. Read through oracle_secret(); written by _build and dauth_autocomplete only.
+  __oracle_secret = None
+
+  @staticmethod
+  def oracle_secret():
+    """
+    Oracle secret: the oracle-only secret this process holds in memory.
+
+    The value is set in one of two ways. On a seed oracle it is set in the node's environment, and the
+    engine build moves it into process memory. Any other oracle receives it in its start-up dAuth
+    answer. It is never kept in ``os.environ``, written to a file or logged. It is meant as the key of
+    oracle-only R1FS files. So far its only reader is the dAuth server, which hands it to the oracles
+    that ask for it.
+
+    Returns
+    -------
+    str or None
+      The secret, or None when this process holds none: a worker, or an oracle whose start-up dAuth
+      answer did not carry it.
+
+    Notes
+    -----
+    Any code in the process can call this method, just as it could read the environment. The gain is
+    that environment copies, child processes and heartbeats never see the value.
+
+    Examples
+    --------
+    >>> BaseBlockEngine.oracle_secret() is None   # a worker
+    True
+    """
+    # The class-wide value: the same for every engine of this process.
+    return BaseBlockEngine.__oracle_secret
   
   def __new__(
     cls, 
@@ -475,6 +508,56 @@ class BaseBlockEngine(
       user_config=False,
       eth_enabled=True,
     ):
+    """
+    Build: set up a new engine once, when the multiton creates it for a new name.
+
+    Stores the name, the logger and the key-file settings, moves the oracle-only secret from the
+    environment into process memory (see ``oracle_secret``), and prepares the counters of signature
+    versions. Then it loads or creates the private key (``_init``).
+
+    Parameters
+    ----------
+    name : str
+      The engine name; it also names the key file.
+    config : dict
+      The key-file settings: ``PEM_FILE``, ``PASSWORD`` and ``PEM_LOCATION``.
+    log : Logger
+      The logger. It is required.
+    ensure_ascii_payloads : bool, optional
+      Whether payloads are encoded as ASCII. Default False, for JS compatibility.
+    verbosity : int, optional
+      The highest verbosity of the lines the engine logs. Default 1.
+    user_config : bool, optional
+      True keeps the key in the user's private folder, False in the data folder of the local cache.
+    eth_enabled : bool, optional
+      Whether the Ethereum features are on. Default True.
+
+    Returns
+    -------
+    None
+      The engine is set up in place.
+
+    Raises
+    ------
+    AssertionError
+      When no logger is given.
+
+    Notes
+    -----
+    A seed oracle gets the oracle-only secret in ``EE_ORACLE_R1FS_SECRET``. A node builds its
+    first engine before its start-up dAuth, before its managers and plugins, and before any child
+    process except the start-up package install. Deleting the variable here therefore keeps it out of
+    every later environment copy and child process. ``os.environ.pop`` also unsets it in the C
+    environment. The process's original environment block (``/proc/<pid>/environ``) keeps it, and
+    writing a filler value first would not change that block, because ``setenv`` stores the filler
+    elsewhere. An empty value is deleted and not held.
+
+    Examples
+    --------
+    >>> engine = DefaultBlockEngine(name="node", log=log)   # the multiton calls _build once per name
+    >>> "EE_ORACLE_R1FS_SECRET" in os.environ
+    False
+    """
 
     self.__name = name
     assert log is not None, "Logger object was not provided!"      
@@ -491,6 +574,13 @@ class BaseBlockEngine(
     self.__password = config.get(BCct.K_PASSWORD)    
     self.__config = config
     self.__ensure_ascii_payloads = ensure_ascii_payloads
+    # Move the oracle-only secret, set only on seed oracles, out of the environment and into
+    # process memory: later environment copies and child processes no longer see it.
+    env_oracle_secret = os.environ.pop(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY, None)
+    if env_oracle_secret:
+      # Held by the class, so every engine of this process and the dAuth server read the same value.
+      BaseBlockEngine.__oracle_secret = env_oracle_secret
+      self.P("Oracle secret moved from the environment into process memory.", color='g')
 
     self._verify_canon_stats_lock = Lock()
     self._verify_canon_stats = {
@@ -2399,6 +2489,11 @@ class BaseBlockEngine(
     a pause and, on the last try, return None, so a node start-up does not keep waiting for a dAuth that
     nobody serves. The result follows the last answer only.
 
+    Every request declares that this client keeps memory-only secrets out of its environment and logs
+    (``sender_memory_secrets``). An oracle's answer can then carry the oracle-only secret. Whatever
+    `add_env` says, that secret goes into process memory (``BaseBlockEngine.oracle_secret``) and never
+    into `os.environ`, the returned keys, the `return_full_data` answer or a log line.
+
     Parameters
     ----------
     dauth_endp : str, optional
@@ -2515,6 +2610,9 @@ class BaseBlockEngine(
           if len(kwargs) == 0:
             to_send[dAuth.DAUTH_SENDER_ALIAS] = dAuth.DAUTH_SENDER_ALIAS_DEFAULT
           ######
+          # Declare that this client keeps memory-only secrets out of its environment and logs, so dAuth may
+          # send it the oracle-only secret. Set after the caller's fields, so `kwargs` cannot drop it.
+          to_send[dAuth.DAUTH_SENDER_MEMORY_SECRETS] = True
           self.sign(to_send)    
           json_to_send = {'body' : to_send}
           if debug:
@@ -2541,6 +2639,14 @@ class BaseBlockEngine(
               self.P(f"Signature from {server_alias} <{server_addr}> is INVALID: {ver_result}", color='r')
               # Invalid response signature, thus return {}
               return {}
+
+            # The oracle-only secret, sent only to an oracle that set the flag above. It is popped out of the
+            # answer before anything else reads it, so it reaches neither os.environ, the returned answer nor a log.
+            oracle_secret = dct_dauth.pop(dAuth.DAUTH_ORACLE_SECRET, None)
+            if oracle_secret is not None:
+              # Held by the class in process memory, where this node's dAuth server reads it.
+              BaseBlockEngine.__oracle_secret = oracle_secret
+              self.P(f"Oracle secret from {server_alias} <{server_addr}> kept in process memory.", color='g')
 
             # Revoked-key verdict: trusted only from a registered dAuth oracle, since
             # the node replaces its key on it. One registry read, only in this case.
