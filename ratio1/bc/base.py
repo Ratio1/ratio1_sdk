@@ -2,6 +2,8 @@ import os
 # sys.modules tells whether naeural_core is already loaded (only on a node): see core_version below.
 import sys
 import base64
+# Overwrites the oracle-only secret's bytes in the C environment of a seed (see BaseBlockEngine._build).
+import ctypes
 import json
 import binascii
 import numpy as np
@@ -463,7 +465,9 @@ class BaseBlockEngine(
     Notes
     -----
     Any code in the process can call this method, just as it could read the environment. The gain is
-    that environment copies, child processes and heartbeats never see the value.
+    that environment copies, child processes, heartbeats and the process's environment block
+    (``/proc/<pid>/environ``, overwritten on a seed) do not show the value. A process started with
+    a copy of the environment before the engine build keeps that copy.
 
     Examples
     --------
@@ -547,10 +551,14 @@ class BaseBlockEngine(
     A seed oracle gets the oracle-only secret in ``EE_ORACLE_R1FS_SECRET``. A node builds its
     first engine before its start-up dAuth, before its managers and plugins, and before any child
     process except the start-up package install. Deleting the variable here therefore keeps it out of
-    every later environment copy and child process. ``os.environ.pop`` also unsets it in the C
-    environment. The process's original environment block (``/proc/<pid>/environ``) keeps it, and
-    writing a filler value first would not change that block, because ``setenv`` stores the filler
-    elsewhere. An empty value is deleted and not held.
+    every later environment copy and child process. A seed's container hands the variable to the node
+    in the process's original environment block, which ``/proc/<pid>/environ`` shows to every process
+    of the container and which ``unsetenv`` does not change. So the bytes of the value that the C
+    library's ``getenv`` finds are first overwritten with zeros in place; only the variable's name
+    stays in that block. Then ``os.environ.pop`` deletes the variable from ``os.environ`` and, through
+    ``unsetenv``, from the C environment. The overwrite calls the C library through ``ctypes``, so it
+    needs a POSIX system: the variable is meant for Linux seed nodes only. An empty value is deleted
+    and not held.
 
     Examples
     --------
@@ -576,11 +584,22 @@ class BaseBlockEngine(
     self.__ensure_ascii_payloads = ensure_ascii_payloads
     # Move the oracle-only secret, set only on seed oracles, out of the environment and into
     # process memory: later environment copies and child processes no longer see it.
-    env_oracle_secret = os.environ.pop(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY, None)
+    env_oracle_secret = os.environ.get(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY)
     if env_oracle_secret:
+      # The C library's getenv, which gives the address of the value's bytes in the C environment.
+      libc_getenv = ctypes.CDLL(None).getenv
+      # An address result: the default int result would cut a 64-bit address.
+      libc_getenv.restype = ctypes.c_void_p
+      # Taken before the pop below, after which getenv no longer finds it. On a seed these bytes lie in the
+      # original environment block, which unsetenv leaves as it is and /proc/<pid>/environ shows.
+      value_address = libc_getenv(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY.encode())
+      # Overwrite them with zeros in place, so that block no longer holds the value (probe: 1 match before, 0 after).
+      ctypes.memset(value_address, 0, len(ctypes.string_at(value_address)))
       # Held by the class, so every engine of this process and the dAuth server read the same value.
       BaseBlockEngine.__oracle_secret = env_oracle_secret
       self.P("Oracle secret moved from the environment into process memory.", color='g')
+    # Delete it from os.environ and, through unsetenv, from the C environment; an empty value too.
+    os.environ.pop(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY, None)
 
     self._verify_canon_stats_lock = Lock()
     self._verify_canon_stats = {

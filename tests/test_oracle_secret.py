@@ -3,6 +3,10 @@
 import json
 # The process environment under test.
 import os
+# A child interpreter started with the variable in its environment, as a seed's node is.
+import subprocess
+# That interpreter is this one.
+import sys
 # A folder of its own for each engine's key file.
 import tempfile
 # The test framework.
@@ -63,6 +67,43 @@ def _isolate(test):
   # Stopped by the test's cleanups.
   test.addCleanup(holder.stop)
   return
+
+
+def _report_after_a_build():
+  """
+  Report: build an engine in this process and print what its environment block shows before and after.
+
+  Meant as the only work of a child interpreter started with the variable in its environment, as a
+  seed's node is started: the value then lies in the process's original environment block, which
+  ``/proc/<pid>/environ`` shows to every other process of the container.
+
+  Returns
+  -------
+  None
+    Prints one JSON line, ``{"before": bool, "after": bool, "held": bool}``: whether the block shows
+    the value before and after the build, and whether the build holds it in memory.
+
+  Examples
+  --------
+  >>> _report_after_a_build()   # in a child started with the variable set to the fake value
+  {"before": true, "after": false, "held": true}
+  """
+  # The block as the process got it at start, as another process reads it.
+  with open("/proc/self/environ", "rb") as block:
+    # Whether the value is in it.
+    before = FAKE_SECRET.encode() in block.read()
+  # A folder for the engine's key file, removed afterwards.
+  with tempfile.TemporaryDirectory() as folder:
+    # A silent logger there.
+    log = Logger(lib_name="secret", base_folder=folder, app_folder="secret", silent=True)
+    # The engine build, as at a node's start.
+    DefaultBlockEngine(name="secret", log=log, config={"PEM_FILE": "secret.pem"})
+  # The same block after the build.
+  with open("/proc/self/environ", "rb") as block:
+    # Whether the value is still in it.
+    after = FAKE_SECRET.encode() in block.read()
+  # One JSON line, the last the child prints, for the test that started it.
+  print(json.dumps({"before": before, "after": after, "held": BaseBlockEngine.oracle_secret() == FAKE_SECRET}))
 
 
 class EngineBuildTests(unittest.TestCase):
@@ -157,6 +198,22 @@ class EngineBuildTests(unittest.TestCase):
     self._engine()
     # Still nothing held.
     self.assertIsNone(BaseBlockEngine.oracle_secret())
+
+  @unittest.skipUnless(os.path.exists("/proc/self/environ"), "the environment block is read through /proc")
+  def test_a_seed_process_environment_block_no_longer_shows_the_value(self):
+    """A process started with the variable, as a seed's node is, holds the value after the build, and its original
+    environment block, which /proc/<pid>/environ shows to other processes, no longer has it."""
+    # A child of this interpreter with the variable in its environment from the start; it imports this file.
+    done = subprocess.run(
+      [sys.executable, "-c", "import test_oracle_secret; test_oracle_secret._report_after_a_build()"],
+      cwd=os.path.dirname(os.path.abspath(__file__)),
+      env={**os.environ, dAuth.DAUTH_ORACLE_SECRET_ENV_KEY: FAKE_SECRET},
+      capture_output=True, text=True, timeout=120,
+    )
+    # The child ended well; otherwise its errors are shown.
+    self.assertEqual(done.returncode, 0, done.stderr)
+    # The block had the value at start, does not have it after the build, and the value is held.
+    self.assertEqual(json.loads(done.stdout.splitlines()[-1]), {"before": True, "after": False, "held": True})
 
 
 class DauthClientTests(unittest.TestCase):
