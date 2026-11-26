@@ -4139,7 +4139,7 @@ class R1FSEngine:
         If True, logs steps via self.P / self.Pd. Default True.
 
       max_seconds : float, optional
-        Time budget for foreground IPFS commands, passed to ``get_file``.
+        Time budget for foreground IPFS commands, passed to ``get_file`` when supplied.
         Local file decryption and JSON parsing may add to the elapsed time.
 
       Returns
@@ -4168,7 +4168,9 @@ class R1FSEngine:
       {'key': 'value', 'list': [1, 2, 3]}
       
       """
-      # Use get_file to download and decrypt the file
+      # Preserve existing get_file overrides when no deadline was requested.
+      read_options = {} if max_seconds is None else {"max_seconds": max_seconds}
+      # Use get_file to download and decrypt the file.
       file_path = self.get_file(
         cid=cid,
         local_folder=local_folder,
@@ -4178,8 +4180,8 @@ class R1FSEngine:
         raise_on_error=raise_on_error,
         show_logs=show_logs,
         return_absolute_path=True,
-        # The file read starts and enforces the shared IPFS deadline.
-        max_seconds=max_seconds,
+        # Forward an explicit deadline, including zero, to the command runner.
+        **read_options,
       )
       
       if file_path is None:

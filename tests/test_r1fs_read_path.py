@@ -466,6 +466,70 @@ class R1FSReadPathTests(unittest.TestCase):
     # No invalid budget reached the command runner.
     self.assertEqual(engine.commands, [])
 
+  def test_get_json_accepts_a_file_reader_with_the_original_signature(self):
+    """Read JSON through an existing get_file override when no budget is supplied.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_get_json_accepts_a_file_reader_with_the_original_signature()
+    """
+    # Reuse the real method to deliver a local synthetic document through the fake transport.
+    engine = self._engine()
+    # Keep the bound method available after substituting an original-signature adapter.
+    current_reader = engine.get_file
+
+    def old_reader(cid, local_folder, secret, timeout, pin, raise_on_error, show_logs, return_absolute_path):
+      """Model a get_file override written before read deadlines were added.
+
+      Parameters
+      ----------
+      cid, local_folder, secret, timeout, pin, raise_on_error, show_logs, return_absolute_path : object
+        Original positional get_file parameters, passed through to the read.
+
+      Returns
+      -------
+      str
+        Path of the locally restored file.
+
+      Examples
+      --------
+      >>> old_reader("QmLive", None, None, 1, False, True, False, True)
+      """
+      # Exercise the old signature without accepting extra keywords.
+      return current_reader(cid, local_folder, secret, timeout, pin, raise_on_error, show_logs, return_absolute_path)
+
+    # Adapters and inherited overrides use the same bound-method call from get_json.
+    engine.get_file = old_reader
+    # Preserve the default call and an explicitly omitted deadline.
+    self.assertEqual(engine.get_json("QmLive", show_logs=False), DOC)
+    # An explicit None has the same meaning as the default.
+    self.assertEqual(engine.get_json("QmLive", max_seconds=None, show_logs=False), DOC)
+
+  def test_get_json_forwards_explicit_deadlines_to_the_file_reader(self):
+    """Forward positive and zero deadlines as explicit keyword arguments.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_get_json_forwards_explicit_deadlines_to_the_file_reader()
+    """
+    # Observe delegation without performing the file read.
+    engine = self._engine()
+    # None simulates an unavailable file after the call is recorded.
+    engine.get_file = mock.Mock(return_value=None)
+    for budget in (0, 2.5):
+      # Use floats and zero directly through the public JSON entry point.
+      self.assertIsNone(engine.get_json("QmLive", max_seconds=budget, show_logs=False))
+      # Zero remains a real deadline and is forwarded just like a positive budget.
+      self.assertEqual(engine.get_file.call_args.kwargs["max_seconds"], budget)
+
   def test_reads_leave_the_relay_queue_to_one_background_pass(self):
     engine = self._engine()
     engine._R1FSEngine__relay_retry_queue["QmQueued"] = {"cid": "QmQueued", "queued_at": "t0"}
