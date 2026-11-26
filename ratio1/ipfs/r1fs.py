@@ -3831,7 +3831,7 @@ class R1FSEngine:
           return None
         # Use a single clock independent of wall time across download setup, fetch and pin.
         deadline = time.monotonic() + max_seconds
-      
+
       if local_folder is None:
         local_folder = self.__downloads_dir # default downloads directory
       
