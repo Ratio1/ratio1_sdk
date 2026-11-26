@@ -56,6 +56,9 @@ INVALID_COMMENT = " # INVALID: "
 def _oracle_startup_fingerprint(secret):
   """Derive the check value operators compare before enabling protected writes.
 
+  Hash the UTF-8 passphrase with a fixed startup-specific domain prefix so
+  seed and receiving oracles can compare provisioning across processes.
+
   Parameters
   ----------
   secret : str
@@ -65,6 +68,11 @@ def _oracle_startup_fingerprint(secret):
   -------
   str
     The first 16 hexadecimal digits of a domain-separated SHA-256 digest.
+
+  Notes
+  -----
+  The 16 digits represent 64 bits. Matching values are an operational check
+  and grant no identity, membership or decryption authority.
 
   Examples
   --------
@@ -580,7 +588,9 @@ class BaseBlockEngine(
     stays in that block. Then ``os.environ.pop`` deletes the variable from ``os.environ`` and, through
     ``unsetenv``, from the C environment. The overwrite calls the C library through ``ctypes``, so it
     needs a POSIX system: the variable is meant for Linux seed nodes only. An empty value is deleted
-    and not held.
+    and not held. A nonempty value produces a 16-digit domain-separated
+    startup fingerprint so operators can compare it with the value reported
+    after a verified dAuth receipt. The log omits the passphrase.
 
     Examples
     --------
@@ -620,7 +630,7 @@ class BaseBlockEngine(
       # Held by the class, so every engine of this process and the dAuth server read the same value.
       BaseBlockEngine.__oracle_secret = env_oracle_secret
       self.P("Oracle secret moved from the environment into process memory.", color='g')
-      # Compare seed and receiving oracle startup checks without logging the original value.
+      # Emit the 16-digit check that receiving oracles also log after verified custody.
       self.P(f"Oracle R1FS startup fingerprint: {_oracle_startup_fingerprint(env_oracle_secret)}", color='g')
     # Delete it from os.environ and, through unsetenv, from the C environment; an empty value too.
     os.environ.pop(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY, None)
@@ -2532,13 +2542,10 @@ class BaseBlockEngine(
     a pause and, on the last try, return None, so a node start-up does not keep waiting for a dAuth that
     nobody serves. The result follows the last answer only.
 
-    Every request declares that this client keeps memory-only secrets out of its environment and logs
-    (``sender_memory_secrets``). An oracle's answer can then carry the oracle-only secret, encrypted
-    to this node's key. Whatever `add_env` says, that secret is decrypted into process memory
-    (``BaseBlockEngine.oracle_secret``) and never goes into `os.environ`, the returned keys, the
-    `return_full_data` answer or a log line. A value that does not decrypt is dropped, with one red
-    line. The request log of debug mode names the request's fields, not their values: the signed
-    request could be sent again by anyone who reads it.
+    Every request declares support for memory-only secrets (``sender_memory_secrets``).
+    A response can include the oracle-only secret encrypted to the requesting node. This
+    method verifies the signature, then independently checks the verified signer's dAuth
+    registry membership on the selected EVM network before attempting decryption.
 
     Parameters
     ----------
@@ -2567,16 +2574,23 @@ class BaseBlockEngine(
 
     Returns
     -------
-    None if the URL is invalid or the request failed.
-    {} if the last try met a busy oracle (429/503/504/524 or a read timeout): the caller may try again later.
-    dict with the dAuth information if the request got status 200(if errors occured, but
-    the status is still 200, an empty dictionary will be returned).
-    With `return_full_data`, the JSON answer described above instead. When the EE_VPN_IMPL flag
-    is set, always None.
+    dict or None
+      The dAuth environment keys on success. Returns an empty dictionary if the
+      last request encountered a busy oracle or if a response signature was
+      invalid. Returns None on ordinary request failure or an invalid URL.
+      With ``return_full_data=True``, returns the parsed response as described
+      above. When the EE_VPN_IMPL flag is set, always returns None.
 
     Notes
     -----
     An answer with an invalid signature returns {} at once, without further tries.
+    An absent registry membership or a registry error leaves the existing
+    memory holder unchanged while ordinary dAuth fields can still be applied.
+    An eligible signer's field replaces the holder only if it decrypts to a
+    nonempty string. The field is removed from any returned full answer and
+    stays out of environment variables regardless of ``add_env``. Receipt logs
+    the same 16-digit startup fingerprint as a seed's environment provisioning.
+    Debug logs list request field names because a full signed request can be replayed.
 
     Examples
     --------
@@ -2693,7 +2707,7 @@ class BaseBlockEngine(
             # answer before anything else reads it, so it reaches neither os.environ, the returned answer nor a log.
             oracle_secret = dct_dauth.pop(dAuth.DAUTH_ORACLE_SECRET, None)
             if oracle_secret is not None:
-              # Check the verified identity on the network requested by this client.
+              # Fail closed until the supplied network's registry confirms the verified signer.
               authorized = False
               try:
                 # Registry failure or an invalid identity leaves authorization false.
@@ -2706,6 +2720,7 @@ class BaseBlockEngine(
                 # Decrypt with the same identity whose signature and eligibility were checked.
                 oracle_secret = self.decrypt(encrypted_data_b64=oracle_secret, sender_address=ver_result.sender)
                 if not isinstance(oracle_secret, str) or not oracle_secret:
+                  # Preserve the holder if decryption returns no usable passphrase.
                   self.P(f"Oracle secret from {server_alias} <{server_addr}> does not decrypt: not kept.", color='r')
                 else:
                   # Keep the shared value in memory, where this node's dAuth server reads it.

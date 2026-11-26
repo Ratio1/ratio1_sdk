@@ -462,6 +462,46 @@ def _check_plain_pickle(data):
 
 
 class R1FSEngine:
+  """Manage encrypted file transfers through the local IPFS daemon.
+
+  Named engines keep their transfer state in the process. The file API stores
+  ciphertext in IPFS and restores authenticated plaintext to the downloads directory.
+
+  Parameters
+  ----------
+  name : str, optional
+    Key used to retrieve the engine instance within this process.
+  logger : object, optional
+    Logger supplied to the engine when it is constructed.
+  downloads_dir, uploads_dir : str, optional
+    Local transfer directories.
+  base64_swarm_key : str, optional
+    Base64-encoded private swarm key.
+  ipfs_relay_api, ipfs_relay : str, optional
+    Relay API endpoint and relay multiaddress.
+  ipfs_api_key_username, ipfs_api_key_password : str, optional
+    Credentials for the relay API.
+  ipfs_certificate_path : str, optional
+    Certificate path used for relay API TLS verification.
+  debug : bool, optional
+    Enable debug logging.
+  min_connection_age : int, optional
+    Legacy connection warm-up setting.
+
+  Returns
+  -------
+  R1FSEngine
+    The engine instance for ``name``.
+
+  Notes
+  -----
+  A new name constructs an engine and can start a local IPFS daemon. Reusing a
+  name returns the existing engine and preserves its configuration and state.
+
+  Examples
+  --------
+  >>> data = engine.get_json(cid, max_seconds=2, pin=False)  # doctest: +SKIP
+  """
   
   # __new__ holds this lock while constructing and starting the singleton instance.
   # Startup may re-enter code paths that need the same class-level guard, so this
@@ -3600,6 +3640,10 @@ class R1FSEngine:
     def __restore_download(self, cipher_path, key):
       """Restore a downloaded file after its ciphertext authenticates.
 
+      Stream the body into a private temporary directory beside the encrypted
+      file. Verify the GCM tag before interpreting its metadata or publishing
+      the plaintext under the authenticated filename.
+
       Parameters
       ----------
       cipher_path : str
@@ -3617,7 +3661,20 @@ class R1FSEngine:
       InvalidTag
         The key did not authenticate the ciphertext.
       ValueError
-        The ciphertext layout or authenticated metadata is invalid.
+        The ciphertext is incomplete, or authenticated metadata cannot be
+        decoded or supplies an invalid filename.
+      AttributeError
+        The authenticated JSON metadata is a value other than an object.
+      OSError
+        A local file or directory operation failed.
+
+      Notes
+      -----
+      The layout begins with a 12-byte nonce and a 4-byte metadata length and
+      ends with a 16-byte tag. Plaintext is written in chunks of up to 1 MiB.
+      The temporary output is removed after every attempt. The caller checks
+      that the input is a regular file and removes the original ciphertext
+      if restoring it did not replace that path.
 
       Examples
       --------
@@ -3625,6 +3682,7 @@ class R1FSEngine:
       """
       # The private staging directory is on the same filesystem as the final file.
       folder = os.path.dirname(cipher_path)
+      # Remove candidate plaintext automatically when opening, restoring or authenticating fails.
       with tempfile.TemporaryDirectory(prefix=".r1fs-", dir=folder) as staging:
         # The caller has already checked that this path is a regular file.
         with open(cipher_path, "rb") as fin:
@@ -3635,6 +3693,7 @@ class R1FSEngine:
           # Reserve the final sixteen bytes for the tag and bound the metadata by the file size.
           remaining = os.fstat(fin.fileno()).st_size - 12 - 4 - meta_len - 16
           if len(nonce) != 12 or remaining < 0:
+            # Refuse an incomplete header or a body shorter than the declared metadata and tag.
             raise ValueError("Invalid R1FS ciphertext size")
           # Authenticate the metadata and body as one AES-GCM stream.
           decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).decryptor()
@@ -3642,11 +3701,14 @@ class R1FSEngine:
           metadata = decryptor.update(fin.read(meta_len))
           # Use a private path independent of that filename.
           staging_path = os.path.join(staging, "payload")
+          # Write candidate plaintext inside the private directory until authentication succeeds.
           with open(staging_path, "wb") as output:
+            # The metadata length and file size determine precisely how much body remains before the tag.
             while remaining > 0:
-              # Keep memory bounded for large files, stopping before the tag.
+              # Read up to 1 MiB at a time and leave the final 16-byte tag for authentication.
               chunk = fin.read(min(remaining, 1024 * 1024))
               if not chunk:
+                # A truncated read must not be interpreted as a complete body.
                 raise ValueError("Incomplete R1FS ciphertext")
               # The temporary directory is removed if the tag fails.
               output.write(decryptor.update(chunk))
@@ -3680,12 +3742,11 @@ class R1FSEngine:
       # Extra passphrases are tried locally against the same downloaded bytes.
       fallback_secrets: tuple = (),
     ) -> str:
-      """
-      Retrieve an encrypted file from R1FS by CID, decrypt with AES-GCM in streaming mode.
-      The secret parameter is mandatory (default 'ratio1'). The original filename is
-      restored from JSON metadata.
+      """Fetch and decrypt an R1FS file by CID.
 
-      R1FS get can time out if it stalls. If the timeout is None, we use IPFSCt.TIMEOUT.
+      Download the ciphertext once, optionally pin it, and restore the filename
+      recorded in its authenticated metadata. Optional fallback passphrases
+      are attempted locally against the same download.
 
       Parameters
       ----------
@@ -3696,19 +3757,21 @@ class R1FSEngine:
         ``/ipfs/<cid>`` or ``<cid>/sub/path`` are refused.
 
       local_folder : str, optional
-        Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
+        Parent folder for the CID directory. Defaults to the engine's downloads folder.
 
       secret : str, optional
-        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+        Primary AES-GCM passphrase. ``None`` or an empty string selects the default, ``ratio1``.
 
-      timeout : int, optional
-        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+      timeout : float, optional
+        Maximum seconds for the fetch. ``None`` or zero selects 90 seconds.
 
       pin : bool, optional
-        If True, we optionally pin the folder. Default True.
+        Attempt to pin after fetching. Defaults to True. A failed pin is logged
+        and the file can still be restored.
 
       raise_on_error : bool, optional
-        If True, raise an Exception on command errors/timeouts. Otherwise logs them. Default False.
+        Raise for an invalid CID or a failed fetch or restore. Defaults to False.
+        Startup, budget validation and some filesystem failures can still raise.
 
       show_logs : bool, optional
         If True, logs steps via self.P / self.Pd. Default True.
@@ -3718,18 +3781,20 @@ class R1FSEngine:
 
       max_seconds : float, optional
         Finite, nonnegative time budget for the foreground IPFS commands. The
-        get and optional pin share a monotonic deadline. A zero budget returns
-        a download timeout without starting a command. Defaults to None.
+        get and optional pin share a monotonic deadline. A zero budget fails
+        the read before starting a command. Defaults to None.
 
       fallback_secrets : iterable of str or None, optional
-        Passphrases tried locally after authentication failure, with None for
-        the default passphrase. All candidates share one download.
+        Additional passphrases in attempt order. ``None`` or an empty string
+        selects the default. The next passphrase is tried only if AES-GCM
+        authentication fails.
 
       Returns
       -------
-      str
-        The full path to the restored plaintext file, or None when the read
-        fails and raise_on_error=False (an invalid ``cid`` included).
+      str or None
+        The restored plaintext path, absolute by default. Returns None for a
+        refused CID or an unsuccessful fetch or restore when ``raise_on_error``
+        is False.
 
       Raises
       ------
@@ -3738,14 +3803,11 @@ class R1FSEngine:
         bare CID (see ``cid``) and raise_on_error=True.
 
       RuntimeError
-        If multiple or zero files are found in the downloaded folder,
-        or if we fail to parse the JSON metadata, or if the file name stored in
-        the metadata is not a plain file name, or if the download or its single
-        entry is a link or not a regular folder / file, and raise_on_error=True.
-
-      Exception
-        If the GCM tag is invalid or the IPFS command times out
-        and raise_on_error=True.
+        If IPFS has not started. With ``raise_on_error=True``, also raised for
+        a zero or exhausted budget, fetch failure, invalid download layout, or
+        a file that cannot be authenticated or restored.
+      OSError
+        If local setup, directory inspection, or removal of a failed download fails.
 
       Notes
       -----
@@ -3761,8 +3823,10 @@ class R1FSEngine:
       file name (no path part, not '', '.' or '..'), so the plaintext is written only
       inside ``local_folder/<cid>``; any other name is refused through the decryption
       error path. The candidate file stays in a private directory until the GCM
-      tag passes. Failed candidate files are removed before retrying. A failed
-      read removes the whole download directory.
+      tag passes. Failed candidate files are removed before trying another key.
+      Errors during decryption or restoration remove the whole download directory.
+      A failed fetch or a refused root directory may leave an entry for the next
+      attempt to remove.
 
       ``ipfs get`` writes a UnixFS symlink as a link that can point anywhere on this
       node, while an R1FS object is one regular file by construction. So when
@@ -3778,7 +3842,7 @@ class R1FSEngine:
       (at least 1 s), so the get and the pin together take about ``timeout`` at most,
       about 1 s more when the get used nearly all of it. Starting the ``ipfs``
       commands and decryption are not counted in that time. A failed pin is logged in red and not retried; the read
-      still returns the file. Relay work never runs on the caller's thread: after a failed
+      still returns the file if decryption succeeds. Relay maintenance runs in the background. After a failed
       get the CID is remembered for the background relay pass (see
       ``__relay_in_background``), which asks the relay to fetch it so a later read
       can find it and also retries the queued relay publications. The failed read
@@ -3801,6 +3865,8 @@ class R1FSEngine:
 
       >>> engine.get_file("QmEncFolderXYZ", max_seconds=2, pin=False)
       '/app/downloads/QmEncFolderXYZ/original_filename.bin'
+
+      >>> path = engine.get_file(cid, secret=shared_secret, fallback_secrets=(None,))  # doctest: +SKIP
       
       >>> # Not a bare CID: refused, nothing is deleted
       >>> print(engine.get_file("../.."))
@@ -3883,6 +3949,7 @@ class R1FSEngine:
       except Exception as e:
         download_error = str(e)
         self.P(f"Initial ipfs get failed for {cid}: {download_error}", color='y')
+        # The legacy diagnostic can invoke extra IPFS commands and is skipped for deadline-bound reads.
         if deadline is None:
           # With no budget, check the relay before background healing marks this CID unpublished.
           self.__report_relay_data_path(cid, start_time)
@@ -3902,11 +3969,13 @@ class R1FSEngine:
         try:
           # Keep the original one-second minimum unless the deadline leaves less time.
           pin_timeout = max(1, ipfs_timeout - download_elapsed_time)
+          # Only an explicit budget can reduce the legacy pin allowance below one second.
           if deadline is not None:
             # Include time spent starting background maintenance before the pin.
             pin_timeout = min(pin_timeout, deadline - time.monotonic())
+          # The data is already on disk, so skip the optional pin when the budget has expired.
           if pin_timeout > 0:
-            # The data is already on disk, so skip the optional pin when the budget has expired.
+            # Pass the remaining allowance through to the IPFS command.
             self.__pin_add(cid, timeout=pin_timeout)
         except Exception as e:
           # Red, not yellow: the read returns the file, but the pin failed and nothing retries it.
@@ -3953,9 +4022,12 @@ class R1FSEngine:
             # Every candidate uses the single local download.
             out_path = self.__restore_download(cipher_path, key)
           except InvalidTag:
+            # Only authentication failure advances to another candidate.
             continue
+          # An authenticated result finishes the local search.
           break
         else:
+          # Report exhaustion through the restore error path after all candidates fail authentication.
           raise InvalidTag("No candidate secret authenticated the R1FS file")
         if cipher_path != out_path:
           # Leave the restored file in place when its name replaced the ciphertext's name.
@@ -3963,6 +4035,7 @@ class R1FSEngine:
         if return_absolute_path:
           # Keep the return-path policy independent of which key worked.
           out_path = os.path.abspath(out_path)
+        # The reported decryption time includes all local key attempts.
         decrypt_elapsed_time = time.time() - start_time
       except Exception as e:
         out_path = None
@@ -4146,29 +4219,31 @@ class R1FSEngine:
       # Existing file reader overrides receive this keyword only for an explicit fallback.
       fallback_secrets: tuple = (),
     ):
-      """
-      Retrieve and deserialize a JSON file from R1FS by CID.
-      Uses get_file under the hood to download and decrypt the file, then loads it with json.
+      """Read a JSON document from R1FS by CID.
+
+      Delegate the ciphertext fetch and authentication to ``get_file``. Decode
+      the restored UTF-8 document and remove its local file after parsing.
 
       Parameters
       ----------
       cid : str
-        The folder CID (wrapped single file).
+        Bare CID of the folder wrapping the single encrypted JSON file.
 
       local_folder : str, optional
-        Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
+        Parent folder for the CID directory. Defaults to the engine's downloads folder.
 
       secret : str, optional
-        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+        Primary AES-GCM passphrase. ``None`` or an empty string selects the default, ``ratio1``.
 
-      timeout : int, optional
-        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+      timeout : float, optional
+        Maximum seconds for the fetch. ``None`` or zero selects 90 seconds.
 
       pin : bool, optional
-        If True, we optionally pin the folder. Default True.
+        Attempt to pin after fetching. Defaults to True.
 
       raise_on_error : bool, optional
-        If True, raise an Exception on command errors/timeouts. Otherwise logs them. Default False.
+        Raise for an invalid CID, failed fetch or restore, or failure to read,
+        parse or remove the restored JSON file. Defaults to False.
 
       show_logs : bool, optional
         If True, logs steps via self.P / self.Pd. Default True.
@@ -4178,25 +4253,36 @@ class R1FSEngine:
         Local file decryption and JSON parsing may add to the elapsed time.
 
       fallback_secrets : iterable of str or None, optional
-        Additional passphrases tried locally against the same download (see ``get_file``).
+        Additional passphrases tried locally, in order, after authentication
+        failure using the primary secret or a previous candidate. ``None`` or
+        an empty string as a candidate selects the default passphrase.
 
       Returns
       -------
-      any
-        The deserialized JSON object from the file.
+      object or None
+        The decoded JSON value. None represents JSON null or an unsuccessful
+        read or parse when ``raise_on_error`` is False.
 
       Raises
       ------
       ValueError
-        If ``max_seconds`` is negative or nonfinite.
+        If ``max_seconds`` is negative or nonfinite, or if the CID is refused
+        and ``raise_on_error`` is True.
 
       RuntimeError
-        If multiple or zero files are found in the downloaded folder,
-        or if we fail to parse the JSON metadata.
+        If IPFS has not started. When ``raise_on_error`` is True, also raised
+        if the read fails or the restored JSON file cannot be read, parsed or removed.
+      OSError
+        If an unhandled local filesystem error from ``get_file`` propagates.
 
-      Exception
-        If the GCM tag is invalid or the IPFS command times out
-        and raise_on_error=True.
+      Notes
+      -----
+      All passphrase attempts share one fetch. A supplied ``max_seconds``
+      bounds the foreground fetch and optional pin; local file work and JSON
+      parsing can add to the elapsed time. Zero is forwarded and fails before
+      any IPFS command starts. Calls with neither a deadline nor fallback
+      candidates still work with overrides using the original ``get_file`` signature.
+      A JSON decoding failure leaves the restored file in its downloads directory.
 
       Examples
       --------
@@ -4204,6 +4290,8 @@ class R1FSEngine:
       >>> data = engine.get_json("QmEncFolderXYZ")
       >>> print(data)
       {'key': 'value', 'list': [1, 2, 3]}
+
+      >>> data = engine.get_json(cid, secret=shared_secret, max_seconds=2, fallback_secrets=(None,))  # doctest: +SKIP
       
       """
       # Preserve existing get_file overrides when no deadline was requested.
@@ -4221,7 +4309,7 @@ class R1FSEngine:
         raise_on_error=raise_on_error,
         show_logs=show_logs,
         return_absolute_path=True,
-        # Forward an explicit deadline, including zero, to the command runner.
+        # Forward only supplied read options, including an explicit zero deadline.
         **read_options,
       )
       

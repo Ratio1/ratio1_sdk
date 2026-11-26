@@ -128,6 +128,30 @@ def _rpc_provider(rpc_url):
 
 
 class _EVMMixin:
+  """Provide EVM-backed operations to the block engine.
+
+  Resolve network settings, query contracts and verify EVM identities, including
+  oracle membership used by dAuth.
+
+  Parameters
+  ----------
+  None
+
+  Returns
+  -------
+  _EVMMixin
+    An instance providing the EVM methods. The block engine supplies its
+    network configuration and logging.
+
+  Notes
+  -----
+  Registry methods share a process-wide cache. Membership decisions cannot use
+  a roster after expiry when refreshing it fails.
+
+  Examples
+  --------
+  >>> addresses = engine.web3_get_oracles(network="devnet")  # doctest: +SKIP
+  """
   _SAFE_SIGNATURE_MAGIC_VALUE = b"\x16\x26\xba\x7e"
   _SAFE_SIGNATURE_ABI = [
     {
@@ -1183,7 +1207,8 @@ class _EVMMixin:
       One line is logged when a registry's read fails after its last one answered (or as its first read), with
       the time the read took and the error's text cut to 400 characters. Further failures and cached errors
       are quiet. The first successful read after the outage logs recovery once, even if the roster is empty.
-      A cached roster and later healthy refreshes are quiet.
+      The recovery log identifies the registry method and the network. A cached
+      roster and later healthy refreshes are quiet.
 
       Examples
       --------
@@ -1231,6 +1256,7 @@ class _EVMMixin:
                          failed_until=failed_at + ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at))
             # The caller of the failed read gets its error, as before.
             raise
+          # A retained failure distinguishes the first successful refresh from ordinary cache fills.
           if entry["failure"] is not None:
             # The registry lock and the failure cleared below make recovery a one-time transition.
             self.P(f"Registry read {method} on {w3vars.network} recovered", color='g')
