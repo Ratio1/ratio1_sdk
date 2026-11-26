@@ -1181,9 +1181,9 @@ class _EVMMixin:
       (``KeyboardInterrupt``) is not an error of the read and is not remembered.
 
       One line is logged when a registry's read fails after its last one answered (or as its first read), with
-      the time the read took and the error's text cut to 400 characters. The failed reads that follow, and the
-      calls answered from the memory, log nothing until the registry has answered again: a line per failed
-      read would be a line per call for a read that fails in milliseconds.
+      the time the read took and the error's text cut to 400 characters. Further failures and cached errors
+      are quiet. The first successful read after the outage logs recovery once, even if the roster is empty.
+      A cached roster and later healthy refreshes are quiet.
 
       Examples
       --------
@@ -1231,6 +1231,9 @@ class _EVMMixin:
                          failed_until=failed_at + ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at))
             # The caller of the failed read gets its error, as before.
             raise
+          if entry["failure"] is not None:
+            # The registry lock and the failure cleared below make recovery a one-time transition.
+            self.P(f"Registry read {method} on {w3vars.network} recovered", color='g')
           # The list is kept for ten minutes, and the copy of an earlier failed read's error is let go; the next
           # failed read is logged again.
           entry.update(addresses=addresses, expires_at=started_at + _ORACLE_REGISTRY_TTL, failure=None)

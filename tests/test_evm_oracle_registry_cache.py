@@ -588,10 +588,21 @@ class OracleRegistryCacheTests(unittest.TestCase):
     # of the oracle registry.
     self.assertEqual((self.dauth.call_count, self.oracles.call_count), (1, 2))
 
-  def test_one_line_is_logged_when_a_registry_stops_answering_and_none_until_it_answered_again(self):
-    """The first failed read of a registry writes one log line that names the registry method, the network, the
-    time the read took and the error, cut to 400 characters; the questions answered from its memory and the
-    failed reads that follow write none, until the registry has answered and fails again."""
+  def test_registry_logs_once_when_it_fails_and_once_when_it_recovers(self):
+    """Log once at each transition into and out of a registry outage.
+
+    The failure log identifies the registry, network, read duration and error.
+    The recovery log identifies the registry and network. Repeated failures,
+    cached answers and fresh reads during normal operation stay quiet.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_registry_logs_once_when_it_fails_and_once_when_it_recovers()
+    """
     # The dAuth registry's read takes 20 s and fails.
     self.dauth.side_effect = self.failing_read(20, _Unanswered("no answer"))
     # Three questions: one read (asked at second 100, failed at second 120), two answers from its memory.
@@ -621,18 +632,93 @@ class OracleRegistryCacheTests(unittest.TestCase):
     self.clock.return_value, self.dauth.side_effect = 200 + FAILURE_FACTOR * 20, None
     # The registry is read and answers, at second 260.
     self.assertEqual(self.engine.web3_get_dauth_oracles(), [ORACLE])
-    # Ten minutes later that list has expired, and the read fails with a text of 1000 characters.
-    self.clock.return_value, self.dauth.side_effect = 260 + 600, self.failing_read(20, _Unanswered("x" * 1000))
+    # The first successful refresh logs recovery, identifying which registry is usable again.
+    self.assertEqual(self.engine.P.call_count, 2)
+    # The message identifies the recovered network and registry.
+    self.assertIn("Registry read getDAuthOracles on devnet recovered", self.engine.P.call_args.args[0])
+    # The fresh roster is served from cache without logging.
+    self.assertEqual(self.engine.web3_get_dauth_oracles(), [ORACLE])
+    # At the next expiry, the healthy registry is read again.
+    self.clock.return_value = 260 + 600
+    # Refreshing a healthy registry does not log a recovery.
+    self.assertEqual(self.engine.web3_get_dauth_oracles(), [ORACLE])
+    # Neither the cached reply nor the healthy refresh added a line.
+    self.assertEqual(self.engine.P.call_count, 2)
+    # At the following expiry, the read fails with an error text longer than the logging limit.
+    self.clock.return_value, self.dauth.side_effect = 260 + 1200, self.failing_read(20, _Unanswered("x" * 1000))
     # The question that makes that read.
     with self.assertRaises(_Unanswered):
       # The first failed read since the registry answered.
       self.engine.web3_get_dauth_oracles()
-    # One more line: two in all, none for the read that answered.
-    self.assertEqual(self.engine.P.call_count, 2)
+    # This is the next outage, so there is a third line.
+    self.assertEqual(self.engine.P.call_count, 3)
     # The error's text is what follows the line's last ": ".
     shown = self.engine.P.call_args.args[0].rpartition(": ")[2]
     # Cut to 400 characters: the class name, the opening bracket and quote, and the start of the text.
     self.assertEqual(shown, ("_Unanswered('" + "x" * 1000)[:400])
+    # The outage ends after its retry window, with an empty roster as a valid response.
+    self.clock.return_value += FAILURE_FACTOR * 20
+    # Clear the simulated failure and remove the previously cached member.
+    self.dauth.side_effect, self.dauth.return_value = None, []
+    # A successful empty roster removes the old member's authorization.
+    self.assertFalse(self.engine.web3_is_dauth_oracle(ORACLE))
+    # The second outage produces its own recovery line.
+    self.assertEqual(self.engine.P.call_count, 4)
+    # The empty response identifies the same registry as recovered.
+    self.assertIn("Registry read getDAuthOracles on devnet recovered", self.engine.P.call_args.args[0])
+
+  def test_registry_recovery_is_independent_for_each_affected_registry(self):
+    """Recover the two expired registries separately without serving old membership.
+
+    A controller registry refresh must not log or clear a dAuth registry outage.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_registry_recovery_is_independent_for_each_affected_registry()
+    """
+    # Populate both independent caches before the outage.
+    self.assertEqual(self.engine.web3_get_oracles(), [ORACLE])
+    # The other registry initially authorizes the same member.
+    self.assertTrue(self.engine.web3_is_dauth_oracle(ORACLE))
+    # Both rosters expire at ten minutes.
+    self.clock.return_value = 700
+    # Both reads fail until explicitly restored, with separate retry windows.
+    self.oracles.side_effect = self.failing_read(1, _Unanswered("controller unavailable"))
+    # The dAuth outage begins at the end of the controller read.
+    self.dauth.side_effect = self.failing_read(2, _Unanswered("dAuth unavailable"))
+    with self.assertRaises(_Unanswered):
+      # The controller registry cannot return its expired roster.
+      self.engine.web3_get_oracles()
+    with self.assertRaises(_Unanswered):
+      # An expired dAuth roster grants no membership during the outage.
+      self.engine.web3_is_dauth_oracle(ORACLE)
+    # Both reads have failed, but neither has recovered.
+    self.assertEqual(self.engine.P.call_count, 2)
+    # Only the controller retry window has elapsed by second 704.
+    self.clock.return_value, self.oracles.side_effect = 704, None
+    # The controller registry recovers independently.
+    self.assertEqual(self.engine.web3_get_oracles(), [ORACLE])
+    # Only its recovery was logged.
+    self.assertEqual(self.engine.P.call_count, 3)
+    # Identify the controller log by the contract method name.
+    self.assertIn("Registry read getOracles on devnet recovered", self.engine.P.call_args.args[0])
+    with self.assertRaises(_Unanswered):
+      # The other registry still raises its failure instead of granting stale authorization.
+      self.engine.web3_is_dauth_oracle(ORACLE)
+    # Answering from the dAuth error cache emits no line.
+    self.assertEqual(self.engine.P.call_count, 3)
+    # The dAuth retry window expires after six seconds. Its current roster excludes the old member.
+    self.clock.return_value, self.dauth.side_effect, self.dauth.return_value = 709, None, [OTHER]
+    # The refreshed roster denies membership to the expired member.
+    self.assertFalse(self.engine.web3_is_dauth_oracle(ORACLE))
+    # Only now does the dAuth registry log its own recovery.
+    self.assertEqual(self.engine.P.call_count, 4)
+    # Identify the separate recovery by its contract method name.
+    self.assertIn("Registry read getDAuthOracles on devnet recovered", self.engine.P.call_args.args[0])
 
   def test_the_error_answered_from_the_memory_does_not_grow_with_the_questions(self):
     """The error a question gets from the memory of a failed read arrives with a traceback of the same length
