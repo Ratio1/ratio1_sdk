@@ -1,6 +1,8 @@
 """The oracle-only secret is kept in process memory: moved out of the environment, never written to it, never logged."""
 # Serializes the results so a single search finds the value anywhere in them.
 import json
+# Check the startup fingerprint against its specified SHA-256 input.
+from hashlib import sha256
 # The process environment under test.
 import os
 # A child interpreter started with the variable in its environment, as a seed's node is.
@@ -186,6 +188,36 @@ class EngineBuildTests(unittest.TestCase):
     # The value is still held.
     self.assertEqual(BaseBlockEngine.oracle_secret(), FAKE_SECRET)
 
+  def test_provisioned_secret_fingerprints_are_stable_and_domain_separated(self):
+    """Log only one short domain-separated check value for each provisioned secret.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_provisioned_secret_fingerprints_are_stable_and_domain_separated()
+    """
+    # Provision the same synthetic value twice, then a different value.
+    secrets = (FAKE_SECRET, FAKE_SECRET, FAKE_SECRET + "-changed")
+    for secret in secrets:
+      # A separate engine startup reads and scrubs each explicitly provisioned value.
+      os.environ[dAuth.DAUTH_ORACLE_SECRET_ENV_KEY] = secret
+      # Capture its startup log.
+      self._engine()
+    # Extract only the startup check values in initialization order.
+    checks = [line.rsplit(" ", 1)[-1] for line in self.lines if "Oracle R1FS startup fingerprint:" in line]
+    # Derive the expected domain-separated check values directly.
+    expected = [sha256(b"ratio1/oracle-r1fs/startup-fingerprint/v1\0" + secret.encode()).hexdigest()[:16]
+                for secret in secrets]
+    # Matching values agree, while the changed secret produces a different check value.
+    self.assertEqual(checks, expected)
+    # Neither the value itself nor its ordinary digest is logged.
+    self.assertNotIn(FAKE_SECRET, "\n".join(self.lines))
+    # The ordinary full hash is not the startup fingerprint.
+    self.assertNotIn(sha256(FAKE_SECRET.encode()).hexdigest(), "\n".join(self.lines))
+
   def test_an_empty_or_missing_variable_holds_nothing(self):
     """An empty value is deleted and not held; without the variable nothing changes."""
     # An empty value under the variable name.
@@ -237,6 +269,8 @@ class DauthClientTests(unittest.TestCase):
     _isolate(self)
     # The SDK's own dauth_autocomplete on a stand-in engine that records its log lines and signed requests.
     self.engine = _AutocompleteHarness()
+    # In these responses the verified signer is the advertised oracle.
+    self.engine.verification_sender = "0xai_oracle"
     # Its decryption: the fake secret from CIPHERTEXT only, None for anything else; the calls are recorded.
     self.engine.decrypt = mock.Mock(side_effect=lambda encrypted_data_b64, sender_address: {
       CIPHERTEXT: FAKE_SECRET}.get(encrypted_data_b64))
@@ -349,6 +383,56 @@ class DauthClientTests(unittest.TestCase):
        "encrypted-for-another-node" in self._logs()),
       (1, False),
     )
+
+  def test_unregistered_signer_does_not_provide_the_shared_secret(self):
+    """Skip decryption and preserve a held value when registry membership fails.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_unregistered_signer_does_not_provide_the_shared_secret()
+    """
+    # A signed dAuth answer is insufficient without membership for its verified sender.
+    self.engine.dauth_oracle = False
+    # Preserve a value read from a seed's environment.
+    with mock.patch.object(BaseBlockEngine, "_BaseBlockEngine__oracle_secret", "held-before"):
+      # Handle the ordinary dAuth fields without granting access to the shared holder.
+      data = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", return_full_data=True)
+      # The response did not change the memory-only value.
+      self.assertEqual(BaseBlockEngine.oracle_secret(), "held-before")
+    # Only the verified signer is looked up, on the selected network.
+    self.assertEqual(self.engine.oracle_checks, [("0x0xai_oracle", "mainnet")])
+    # No decryption was attempted.
+    self.engine.decrypt.assert_not_called()
+    # Normal env keys still reach the ordinary bootstrap path.
+    self.assertEqual(os.environ["EE_TEST_KEY"], "plain-value")
+    # The rejected field stays out of the returned response and logs.
+    self.assertNotIn(CIPHERTEXT, json.dumps(data) + self._logs())
+
+  def test_registry_outage_does_not_provide_the_shared_secret(self):
+    """Keep the secret absent while registry membership cannot be verified.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_registry_outage_does_not_provide_the_shared_secret()
+    """
+    # A failed registry read blocks only use of the protected field.
+    self.engine.web3_is_dauth_oracle = mock.Mock(side_effect=RuntimeError("registry unavailable"))
+    # Verify that normal bootstrap still returns its ordinary settings.
+    result = self.engine.dauth_autocomplete(dauth_endp=DAUTH_URL, network="mainnet", max_tries=1)
+    # The bootstrap finishes without the shared secret.
+    self.assertEqual(result, {"EE_TEST_KEY": "plain-value"})
+    # Missing registry evidence grants no access to the holder.
+    self.assertIsNone(BaseBlockEngine.oracle_secret())
+    # The ciphertext never reaches the decryptor.
+    self.engine.decrypt.assert_not_called()
 
   def test_the_debug_request_line_names_the_fields_without_their_values(self):
     """On a debug network the request line lists the signed request's field names, flag included, but not the

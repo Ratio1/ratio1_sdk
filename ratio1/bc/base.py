@@ -51,6 +51,28 @@ from .chain import _ChainMixin
 
 EVM_COMMENT = " # "
 INVALID_COMMENT = " # INVALID: "
+
+
+def _oracle_startup_fingerprint(secret):
+  """Derive the check value operators compare before enabling protected writes.
+
+  Parameters
+  ----------
+  secret : str
+    Shared oracle secret held in process memory.
+
+  Returns
+  -------
+  str
+    The first 16 hexadecimal digits of a domain-separated SHA-256 digest.
+
+  Examples
+  --------
+  >>> len(_oracle_startup_fingerprint("synthetic-example"))
+  16
+  """
+  # A dedicated domain keeps this public check distinct from other hashes of the value.
+  return sha256(b"ratio1/oracle-r1fs/startup-fingerprint/v1\0" + secret.encode("utf-8")).hexdigest()[:16]
   
   
 class _DotDict(dict):
@@ -598,6 +620,8 @@ class BaseBlockEngine(
       # Held by the class, so every engine of this process and the dAuth server read the same value.
       BaseBlockEngine.__oracle_secret = env_oracle_secret
       self.P("Oracle secret moved from the environment into process memory.", color='g')
+      # Compare seed and receiving oracle startup checks without logging the original value.
+      self.P(f"Oracle R1FS startup fingerprint: {_oracle_startup_fingerprint(env_oracle_secret)}", color='g')
     # Delete it from os.environ and, through unsetenv, from the C environment; an empty value too.
     os.environ.pop(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY, None)
 
@@ -2656,11 +2680,12 @@ class BaseBlockEngine(
             )
             # never log the response body: it carries the node's env secrets
             self.P(f"Response received from {server_alias} <{server_addr}>.")
-            ver_result = self.verify(dct_result)
+            # Verification diagnostics must not print any part of a secret-bearing response.
+            ver_result = self.verify(dct_result, log_hash_sign_fails=False)
             if ver_result.valid:
               self.P(f"Signature from {server_alias} <{server_addr}> is valid.", color='g')
             else:
-              self.P(f"Signature from {server_alias} <{server_addr}> is INVALID: {ver_result}", color='r')
+              self.P(f"Signature from {server_alias} <{server_addr}> is INVALID.", color='r')
               # Invalid response signature, thus return {}
               return {}
 
@@ -2668,15 +2693,28 @@ class BaseBlockEngine(
             # answer before anything else reads it, so it reaches neither os.environ, the returned answer nor a log.
             oracle_secret = dct_dauth.pop(dAuth.DAUTH_ORACLE_SECRET, None)
             if oracle_secret is not None:
-              # The server encrypted it to this node's key, so a replayed request or a copy of the answer is of no use
-              # to anyone else. Decrypted with the key shared with the signer checked above; None when that fails.
-              oracle_secret = self.decrypt(encrypted_data_b64=oracle_secret, sender_address=server_addr)
-              if oracle_secret is None:
-                self.P(f"Oracle secret from {server_alias} <{server_addr}> does not decrypt: not kept.", color='r')
+              # Check the verified identity on the network requested by this client.
+              authorized = False
+              try:
+                # Registry failure or an invalid identity leaves authorization false.
+                authorized = self.web3_is_dauth_oracle(
+                  self.node_address_to_eth_address(ver_result.sender), network=network,
+                )
+              except Exception:
+                self.P("Could not verify the oracle secret response signer against the dAuth registry.", color='r')
+              if authorized:
+                # Decrypt with the same identity whose signature and eligibility were checked.
+                oracle_secret = self.decrypt(encrypted_data_b64=oracle_secret, sender_address=ver_result.sender)
+                if not isinstance(oracle_secret, str) or not oracle_secret:
+                  self.P(f"Oracle secret from {server_alias} <{server_addr}> does not decrypt: not kept.", color='r')
+                else:
+                  # Keep the shared value in memory, where this node's dAuth server reads it.
+                  BaseBlockEngine.__oracle_secret = oracle_secret
+                  self.P(f"Oracle secret from {server_alias} <{server_addr}> kept in process memory.", color='g')
+                  # Record the same startup check value as the seeds without exposing the secret.
+                  self.P(f"Oracle R1FS startup fingerprint: {_oracle_startup_fingerprint(oracle_secret)}", color='g')
               else:
-                # Held by the class in process memory, where this node's dAuth server reads it.
-                BaseBlockEngine.__oracle_secret = oracle_secret
-                self.P(f"Oracle secret from {server_alias} <{server_addr}> kept in process memory.", color='g')
+                self.P("Oracle secret was ignored because the response signer is not a verified dAuth oracle.", color='r')
 
             # Revoked-key verdict: trusted only from a registered dAuth oracle, since
             # the node replaces its key on it. One registry read, only in this case.
