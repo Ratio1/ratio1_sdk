@@ -27,12 +27,36 @@ def _iso(seconds: float) -> str:
   return datetime.fromtimestamp(seconds, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _ciphertext(content: bytes, filename: str = "data.json") -> bytes:
-  """The single file add_file stores under a CID: nonce, meta length, meta, content, GCM tag."""
+def _ciphertext(content: bytes, filename: str = "data.json", key: bytes = KEY) -> bytes:
+  """Build the encrypted file stored under a synthetic R1FS CID.
+
+  Parameters
+  ----------
+  content : bytes
+    Body to encrypt.
+  filename : str, optional
+    Filename stored in encrypted metadata.
+  key : bytes, optional
+    Test AES key used for the GCM encryption.
+
+  Returns
+  -------
+  bytes
+    Nonce, metadata length, encrypted metadata and body, then the GCM tag.
+
+  Examples
+  --------
+  >>> encrypted = _ciphertext(b"{}")
+  """
+  # Generate a new GCM nonce for each encrypted object.
   nonce = os.urandom(12)
-  encryptor = Cipher(algorithms.AES(KEY), modes.GCM(nonce)).encryptor()
+  # Both legacy and protected copies use the same on-disk format.
+  encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
+  # The filename is encrypted in the same GCM stream as the payload.
   meta = encryptor.update(json.dumps({"filename": filename}).encode())
+  # Protect the payload and complete the authentication tag.
   body = encryptor.update(content) + encryptor.finalize()
+  # Match the layout written by add_file.
   return nonce + len(meta).to_bytes(4, "big") + meta + body + encryptor.tag
 
 
@@ -529,6 +553,55 @@ class R1FSReadPathTests(unittest.TestCase):
       self.assertIsNone(engine.get_json("QmLive", max_seconds=budget, show_logs=False))
       # Zero remains a real deadline and is forwarded just like a positive budget.
       self.assertEqual(engine.get_file.call_args.kwargs["max_seconds"], budget)
+
+  def test_secret_fallback_authenticates_a_single_download(self):
+    """Try the oracle and legacy keys against the same downloaded object.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_secret_fallback_authenticates_a_single_download()
+    """
+    # Use distinct AES keys so the tests exercise actual GCM authentication.
+    shared_key = b"s" * 32
+    # Check a protected copy and a copy encrypted with the original default.
+    for key in (shared_key, KEY):
+      # Use a fresh download folder for each ciphertext.
+      engine = self._engine()
+      # Derive different fixed test keys for the shared and default secrets.
+      engine._hash_secret = lambda secret: {"synthetic-shared": shared_key, "ratio1": KEY}[secret]
+      # Encrypt the same JSON using the selected writer key.
+      engine.ciphertext = _ciphertext(json.dumps(DOC).encode(), key=key)
+      # Authorized readers try the shared key and may fall back to the old default locally.
+      self.assertEqual(engine.get_json("QmLive", secret="synthetic-shared", fallback_secrets=(None,),
+                                       max_seconds=2, pin=False, show_logs=False), DOC)
+      # Local attempts must never issue a second IPFS get.
+      self.assertEqual([verb for verb, _ in engine.commands], ["get"])
+
+  def test_wrong_candidate_keys_leave_no_downloaded_files(self):
+    """Reject a protected ciphertext without a matching key and remove its files.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_wrong_candidate_keys_leave_no_downloaded_files()
+    """
+    # Make every candidate differ from the key that encrypted the object.
+    engine = self._engine()
+    # A failed attempt may not leave plaintext, ciphertext or a temporary file behind.
+    engine.ciphertext = _ciphertext(json.dumps(DOC).encode(), key=b"s" * 32)
+    # Neither the default reader nor its additional test key is authorized to restore the file.
+    self.assertIsNone(engine.get_file("QmLive", fallback_secrets=("wrong",), pin=False, show_logs=False))
+    # The download folder is clean after all local attempts fail.
+    self.assertEqual(os.listdir(engine.download_folder), [])
+    # Both candidates looked at the same ciphertext.
+    self.assertEqual([verb for verb, _ in engine.commands], ["get"])
 
   def test_reads_leave_the_relay_queue_to_one_background_pass(self):
     engine = self._engine()

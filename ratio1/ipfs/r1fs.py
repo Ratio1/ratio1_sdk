@@ -77,6 +77,8 @@ import pickle
 # _check_plain_pickle walks a file's opcodes with it before get_pickle loads the file.
 import pickletools
 
+# Only failed authentication should try the next passphrase.
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 DEFAULT_SECRET = "ratio1"
@@ -3595,6 +3597,73 @@ class R1FSEngine:
       return folder_cid
 
 
+    def __restore_download(self, cipher_path, key):
+      """Restore a downloaded file after its ciphertext authenticates.
+
+      Parameters
+      ----------
+      cipher_path : str
+        Path of the downloaded encrypted file.
+      key : bytes
+        Candidate AES key.
+
+      Returns
+      -------
+      str
+        Restored file path in the original download directory.
+
+      Raises
+      ------
+      InvalidTag
+        The key did not authenticate the ciphertext.
+      ValueError
+        The ciphertext layout or authenticated metadata is invalid.
+
+      Examples
+      --------
+      >>> engine._R1FSEngine__restore_download(cipher_path, key)  # doctest: +SKIP
+      """
+      # The private staging directory is on the same filesystem as the final file.
+      folder = os.path.dirname(cipher_path)
+      with tempfile.TemporaryDirectory(prefix=".r1fs-", dir=folder) as staging:
+        # The caller has already checked that this path is a regular file.
+        with open(cipher_path, "rb") as fin:
+          # Read the GCM nonce and encrypted metadata length from the fixed header.
+          nonce = fin.read(12)
+          # The metadata length occupies the following four bytes.
+          meta_len = int.from_bytes(fin.read(4), "big")
+          # Reserve the final sixteen bytes for the tag and bound the metadata by the file size.
+          remaining = os.fstat(fin.fileno()).st_size - 12 - 4 - meta_len - 16
+          if len(nonce) != 12 or remaining < 0:
+            raise ValueError("Invalid R1FS ciphertext size")
+          # Authenticate the metadata and body as one AES-GCM stream.
+          decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).decryptor()
+          # The proposed filename is unavailable to the filesystem before the tag passes.
+          metadata = decryptor.update(fin.read(meta_len))
+          # Use a private path independent of that filename.
+          staging_path = os.path.join(staging, "payload")
+          with open(staging_path, "wb") as output:
+            while remaining > 0:
+              # Keep memory bounded for large files, stopping before the tag.
+              chunk = fin.read(min(remaining, 1024 * 1024))
+              if not chunk:
+                raise ValueError("Incomplete R1FS ciphertext")
+              # The temporary directory is removed if the tag fails.
+              output.write(decryptor.update(chunk))
+              # Advance to the end of the encrypted body.
+              remaining -= len(chunk)
+            # Finalize before making the output visible at its requested name.
+            output.write(decryptor.finalize_with_tag(fin.read(16)))
+        # Decode only authenticated metadata.
+        filename = json.loads(metadata.decode("utf-8")).get("filename", "restored_file.bin")
+        # Refuse any path that could escape the download directory.
+        self.__refuse_unplain_name(filename, raise_on_error=True)
+        # The output can replace the ciphertext if both names match.
+        out_path = os.path.join(folder, filename)
+        # Publish only authenticated plaintext under its final filename.
+        os.replace(staging_path, out_path)
+      return out_path
+
     @require_ipfs_started
     def get_file(
       self,
@@ -3608,6 +3677,8 @@ class R1FSEngine:
       return_absolute_path: bool = True,
       # Keep existing positional arguments in their original order.
       max_seconds: float = None,
+      # Extra passphrases are tried locally against the same downloaded bytes.
+      fallback_secrets: tuple = (),
     ) -> str:
       """
       Retrieve an encrypted file from R1FS by CID, decrypt with AES-GCM in streaming mode.
@@ -3650,6 +3721,10 @@ class R1FSEngine:
         get and optional pin share a monotonic deadline. A zero budget returns
         a download timeout without starting a command. Defaults to None.
 
+      fallback_secrets : iterable of str or None, optional
+        Passphrases tried locally after authentication failure, with None for
+        the default passphrase. All candidates share one download.
+
       Returns
       -------
       str
@@ -3685,10 +3760,9 @@ class R1FSEngine:
       object's own metadata, which whoever added the object chose. It must be a plain
       file name (no path part, not '', '.' or '..'), so the plaintext is written only
       inside ``local_folder/<cid>``; any other name is refused through the decryption
-      error path. The GCM tag is checked only after all plaintext was written, so when
-      decryption fails (refused name and bad tag included) ``local_folder/<cid>``, which
-      this call made and which holds only the ciphertext and that plaintext, is removed
-      before the error is raised or logged: no unauthenticated plaintext stays on disk.
+      error path. The candidate file stays in a private directory until the GCM
+      tag passes. Failed candidate files are removed before retrying. A failed
+      read removes the whole download directory.
 
       ``ipfs get`` writes a UnixFS symlink as a link that can point anywhere on this
       node, while an R1FS object is one regular file by construction. So when
@@ -3758,11 +3832,6 @@ class R1FSEngine:
         # Use a single clock independent of wall time across download setup, fetch and pin.
         deadline = time.monotonic() + max_seconds
       
-      if secret in ["", None]:
-        secret = self.__DEFAULT_SECRET
-        
-      key = self._hash_secret(secret)
-
       if local_folder is None:
         local_folder = self.__downloads_dir # default downloads directory
       
@@ -3876,61 +3945,28 @@ class R1FSEngine:
         if os.path.islink(cipher_path) or not os.path.isfile(cipher_path):
           # Into the except below, before anything is opened.
           raise ValueError(f"{contents[0]!r} is not a regular file")
-        with open(cipher_path, "rb") as fin:
-          nonce = fin.read(12)
-          meta_len_bytes = fin.read(4)
-          meta_len = int.from_bytes(meta_len_bytes, "big")
-
-          decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).decryptor()
-          
-          # Read the metadata and decrypt it
-          enc_meta_data = fin.read(meta_len)
-          meta_data = decryptor.update(enc_meta_data) # TODO: verify if this is correct
-          meta_dict = json.loads(meta_data.decode("utf-8"))
-
-          original_filename = meta_dict.get("filename", "restored_file.bin")
-          # Whoever added the object chose this name, and the plaintext is written under it: only a plain file
-          # name keeps it inside local_folder. A refused name raises into the error path below.
-          self.__refuse_unplain_name(original_filename, raise_on_error=True)
-
-          # File size + chunk logic to isolate last 16 bytes as GCM tag
-          fin.seek(0, os.SEEK_END)
-          total_size = fin.tell()
-          data_start = 12 + 4 + meta_len
-          tag_size = 16
-          content_size = total_size - data_start - tag_size
-          fin.seek(data_start, os.SEEK_SET)
-
-          out_path = os.path.join(local_folder, original_filename)
-          if return_absolute_path:
-            out_path = os.path.abspath(out_path)
-          chunk_size = 1024 * 1024
-
-          with open(out_path, "wb") as fout:
-            remaining = content_size
-            while remaining > 0:
-              read_len = min(chunk_size, remaining)
-              chunk = fin.read(read_len)
-              if not chunk:
-                break
-              fout.write(decryptor.update(chunk))
-              remaining -= read_len
-            #end while there are still bytes to read
-            # Final 16 bytes => GCM tag
-            tag = fin.read(16)
-            # decryptor.authenticate_tag(tag)
-            # final_pt = decryptor.finalize()
-            final_pt = decryptor.finalize_with_tag(tag)
-            if final_pt:
-              fout.write(final_pt)
-          #end with fout 
-        #end with fin
+        # Try the caller's primary passphrase before local compatibility candidates.
+        for candidate in (secret, *fallback_secrets):
+          # Preserve the default for both None and the empty passphrase.
+          key = self._hash_secret(self.__DEFAULT_SECRET if candidate in (None, "") else candidate)
+          try:
+            # Every candidate uses the single local download.
+            out_path = self.__restore_download(cipher_path, key)
+          except InvalidTag:
+            continue
+          break
+        else:
+          raise InvalidTag("No candidate secret authenticated the R1FS file")
+        if cipher_path != out_path:
+          # Leave the restored file in place when its name replaced the ciphertext's name.
+          os.remove(cipher_path)
+        if return_absolute_path:
+          # Keep the return-path policy independent of which key worked.
+          out_path = os.path.abspath(out_path)
         decrypt_elapsed_time = time.time() - start_time
       except Exception as e:
         out_path = None
-        # The tag is checked only after all plaintext was written, so a failed read can leave unauthenticated
-        # plaintext next to the ciphertext. This call made local_folder and only those two are in it: remove it,
-        # so nothing unverified stays on disk (the ciphertext removal below is then skipped).
+        # Remove the failed download after the candidate's private directory has been cleaned up.
         shutil.rmtree(local_folder)
         msg = f"Error decrypting file {cipher_path}: {e}"
         if raise_on_error:
@@ -3939,9 +3975,6 @@ class R1FSEngine:
           self.P(msg, color='r')
           return
       #end try
-
-      # Optionally remove the ciphertext
-      os.remove(cipher_path)      
 
       if out_path:
         if show_logs:
@@ -4110,6 +4143,8 @@ class R1FSEngine:
       show_logs: bool = True,
       # Expose the file read's deadline without shifting existing positional arguments.
       max_seconds: float = None,
+      # Existing file reader overrides receive this keyword only for an explicit fallback.
+      fallback_secrets: tuple = (),
     ):
       """
       Retrieve and deserialize a JSON file from R1FS by CID.
@@ -4142,6 +4177,9 @@ class R1FSEngine:
         Time budget for foreground IPFS commands, passed to ``get_file`` when supplied.
         Local file decryption and JSON parsing may add to the elapsed time.
 
+      fallback_secrets : iterable of str or None, optional
+        Additional passphrases tried locally against the same download (see ``get_file``).
+
       Returns
       -------
       any
@@ -4170,6 +4208,9 @@ class R1FSEngine:
       """
       # Preserve existing get_file overrides when no deadline was requested.
       read_options = {} if max_seconds is None else {"max_seconds": max_seconds}
+      if fallback_secrets:
+        # Forward local candidates only when supplied, preserving the delegation contract.
+        read_options["fallback_secrets"] = fallback_secrets
       # Use get_file to download and decrypt the file.
       file_path = self.get_file(
         cid=cid,
