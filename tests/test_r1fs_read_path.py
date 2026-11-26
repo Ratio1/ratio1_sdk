@@ -39,7 +39,7 @@ def _ciphertext(content: bytes, filename: str = "data.json") -> bytes:
 class R1FSReadPathTests(unittest.TestCase):
   """get_json against fake `ipfs` commands and a fake relay API."""
 
-  def _engine(self, reachable=True, pin_fails=False, get_seconds=0):
+  def _engine(self, reachable=True, pin_fails=False, get_seconds=0, pin_seconds=0):
     """
     Build an engine whose `ipfs` commands and relay API are fakes, with the state _build would give it.
 
@@ -58,6 +58,8 @@ class R1FSReadPathTests(unittest.TestCase):
       Whether `ipfs pin` commands time out, as when the daemon does not answer. Default False.
     get_seconds : float, optional
       How far a get moves ``engine.now``, the clock a test can put in place of time.time. Default 0.
+    pin_seconds : float, optional
+      How far a pin moves ``engine.now``, even when it times out. Default 0.
 
     Returns
     -------
@@ -121,6 +123,9 @@ class R1FSReadPathTests(unittest.TestCase):
         with open(os.path.join(cmd_list[-1], cmd_list[2]), "wb") as fhandle:
           fhandle.write(engine.ciphertext)
         return ""
+      if cmd_list[1:3] == ["pin", "add"]:
+        # A stalled optional pin can consume the rest of the foreground budget.
+        engine.now += pin_seconds
       if cmd_list[1] == "pin" and reachable and not pin_fails:
         return "pinned"
       if not raise_on_error:
@@ -310,6 +315,156 @@ class R1FSReadPathTests(unittest.TestCase):
     self.assertEqual(engine.get_json("QmLive", timeout=10, show_logs=False), DOC)
     self.assertEqual([command for command, _ in engine.commands], ["get", "pin"])
     self.assertEqual([color for message, color in logs if message.startswith("Pin after download failed")], ["r"])
+
+  def test_budgeted_get_skips_retries_and_relay_probes_after_a_stall(self):
+    """Stop waiting at the deadline when a previously published CID stalls.
+
+    A failed get consumes the whole budget. Neither pinning nor checking the
+    relay may issue another command on this read.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_budgeted_get_skips_retries_and_relay_probes_after_a_stall()
+    """
+    # Start with a known relay publication, which ordinarily triggers synchronous probes on failure.
+    engine = self._engine(reachable=False, get_seconds=2)
+    # Publication predates the download, so the failure qualifies for the probes.
+    self._confirmed(engine, "QmMissing", at=engine.now - 1)
+    # Let both clocks see the simulated command duration.
+    with (
+      mock.patch.object(r1fs.time, "monotonic", lambda: engine.now),
+      mock.patch.object(r1fs.time, "time", lambda: engine.now),
+    ):
+      # Forward the deadline through the JSON read and exercise its normal failure result.
+      self.assertIsNone(engine.get_json("QmMissing", timeout=10, max_seconds=2, show_logs=False))
+    # The caller waited two seconds for one get and ran no follow-up commands.
+    self.assertEqual(engine.now, 1002)
+    # There was no synchronous retry, relay probe or pin.
+    self.assertEqual(engine.commands, [("get", 2)])
+
+  def test_budgeted_get_pins_only_while_time_remains(self):
+    """Give an optional pin the remaining fraction of a second after fetching.
+
+    If fetching consumed the entire budget, return the downloaded data without
+    starting a pin. A pin timeout still leaves the downloaded file usable.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_budgeted_get_pins_only_while_time_remains()
+    """
+    # Check both a partially consumed deadline and a download that used all of it.
+    for get_seconds, pin_commands in [(1.75, [("pin", 0.25)]), (2, [])]:
+      with self.subTest(get_seconds=get_seconds):
+        # Time out the pin if called, so the result also verifies best-effort pinning.
+        engine = self._engine(get_seconds=get_seconds, pin_fails=True, pin_seconds=0.25)
+        # Advance the budget's clock with the get while making elapsed wall time irrelevant.
+        with (
+          mock.patch.object(r1fs.time, "monotonic", lambda: engine.now),
+          mock.patch.object(r1fs.time, "time", return_value=1000),
+        ):
+          # A fetch that completed successfully still returns the object.
+          self.assertEqual(engine.get_json("QmLive", timeout=10, max_seconds=2, show_logs=False), DOC)
+        # The commands ran fetch first and each received only the remaining budget.
+        self.assertEqual(engine.commands, [("get", 2)] + pin_commands)
+        # The stalled pin and completed fetch together took two seconds.
+        self.assertEqual(engine.now, 1002)
+
+  def test_budgeted_get_respects_shorter_fetch_timeout(self):
+    """Keep an explicit fetch timeout when the overall budget is longer.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_budgeted_get_respects_shorter_fetch_timeout()
+    """
+    # Model an unreachable CID with a subsecond fetch timeout and no pin.
+    engine = self._engine(reachable=False, get_seconds=0.25)
+    # Hold the deadline clock to the modeled time.
+    with mock.patch.object(r1fs.time, "monotonic", lambda: engine.now):
+      # Preserve the download error when the caller asks to receive it.
+      with self.assertRaisesRegex(RuntimeError, "Failed to download CID"):
+        # The explicit get timeout expires before the enclosing budget does.
+        engine.get_file("QmMissing", timeout=0.25, max_seconds=2, pin=False, raise_on_error=True)
+    # Unused budget does not turn into a retry after a failed get.
+    self.assertEqual(engine.commands, [("get", 0.25)])
+
+  def test_zero_budget_skips_the_fetch(self):
+    """A zero budget fails before an IPFS command or download directory change.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_zero_budget_skips_the_fetch()
+    """
+    # Put the destination under a directory that the read would normally create.
+    engine = self._engine()
+    # Use a path unique to this test's temporary engine.
+    target = os.path.join(engine.download_folder, "new")
+    # No time remains to retrieve the file.
+    self.assertIsNone(engine.get_file("QmLive", local_folder=target, max_seconds=0, show_logs=False))
+    # The read did not start a command or touch the destination.
+    self.assertEqual(engine.commands, [])
+    # The destination remains absent.
+    self.assertFalse(os.path.exists(target))
+    with self.assertRaisesRegex(RuntimeError, "IPFS read deadline expired"):
+      # The caller can request an exception for the same timeout.
+      engine.get_file("QmLive", max_seconds=0, raise_on_error=True, show_logs=False)
+
+  def test_expired_budget_after_read_setup_skips_the_fetch(self):
+    """Decline to start a fetch if read setup consumed the remaining time.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_expired_budget_after_read_setup_skips_the_fetch()
+    """
+    # Simulate one second of local setup between the initial deadline and fetching.
+    engine = self._engine()
+    # Hold the deadline clock at expiry after read setup.
+    with mock.patch.object(r1fs.time, "monotonic", side_effect=[1000, 1001]):
+      # An exhausted allowance fails before starting the command.
+      self.assertIsNone(engine.get_file("QmLive", max_seconds=1, show_logs=False))
+    # Neither fetch nor pin ever started.
+    self.assertEqual(engine.commands, [])
+
+  def test_negative_and_nonfinite_budgets_are_rejected(self):
+    """Reject timeout values that cannot represent a finite wait.
+
+    Returns
+    -------
+    None
+
+    Examples
+    --------
+    >>> self.test_negative_and_nonfinite_budgets_are_rejected()
+    """
+    # Reuse the same idle engine across inputs because none can start a read.
+    engine = self._engine()
+    # Exercise both negative and nonfinite budgets.
+    for budget in (-1, float("inf"), float("nan")):
+      with self.subTest(budget=budget):
+        with self.assertRaisesRegex(ValueError, "finite and nonnegative"):
+          # JSON reads propagate a bad argument before doing any IPFS work.
+          engine.get_json("QmLive", max_seconds=budget, show_logs=False)
+    # No invalid budget reached the command runner.
+    self.assertEqual(engine.commands, [])
 
   def test_reads_leave_the_relay_queue_to_one_background_pass(self):
     engine = self._engine()

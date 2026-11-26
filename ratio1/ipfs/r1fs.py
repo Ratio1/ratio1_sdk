@@ -56,6 +56,8 @@ import json
 from datetime import datetime, timezone
 import base64
 import time
+# Check deadlines before doing any work with a caller-provided budget.
+from math import isfinite
 import os
 import tempfile
 import uuid
@@ -3604,6 +3606,8 @@ class R1FSEngine:
       raise_on_error: bool = False,
       show_logs: bool = True,
       return_absolute_path: bool = True,
+      # Keep existing positional arguments in their original order.
+      max_seconds: float = None,
     ) -> str:
       """
       Retrieve an encrypted file from R1FS by CID, decrypt with AES-GCM in streaming mode.
@@ -3641,6 +3645,11 @@ class R1FSEngine:
       return_absolute_path : bool, optional
         If True, return the absolute path to the restored plaintext file.
 
+      max_seconds : float, optional
+        Finite, nonnegative time budget for the foreground IPFS commands. The
+        get and optional pin share a monotonic deadline. A zero budget returns
+        a download timeout without starting a command. Defaults to None.
+
       Returns
       -------
       str
@@ -3650,7 +3659,8 @@ class R1FSEngine:
       Raises
       ------
       ValueError
-        If ``cid`` is not a bare CID (see ``cid``) and raise_on_error=True.
+        If ``max_seconds`` is negative or nonfinite, or if ``cid`` is not a
+        bare CID (see ``cid``) and raise_on_error=True.
 
       RuntimeError
         If multiple or zero files are found in the downloaded folder,
@@ -3689,7 +3699,7 @@ class R1FSEngine:
       that is a link or not a regular file is refused before it is opened, through
       the decryption error path, which removes the folder with the link.
 
-      ``ipfs get`` runs first and is bounded by ``timeout``; when ``pin`` is True the
+      Without ``max_seconds``, ``ipfs get`` runs first and is bounded by ``timeout``; when ``pin`` is True the
       CID is pinned only after a successful get, with only the time the get left
       (at least 1 s), so the get and the pin together take about ``timeout`` at most,
       about 1 s more when the get used nearly all of it. Starting the ``ipfs``
@@ -3702,12 +3712,21 @@ class R1FSEngine:
       read began also prints a boxed red "RELAY DATA PATH" line, whatever
       ``show_logs`` is, at most once per 600 s (see ``__report_relay_data_path``).
 
+      With ``max_seconds``, the get also respects the remaining time, the pin
+      uses only what remains even below 1 s, and relay diagnostics that run IPFS
+      commands on the caller's thread are skipped. Relay maintenance stays in
+      the background. Local filesystem work, process startup and decryption
+      are synchronous and may add to the elapsed time.
+
       Examples
       --------
       >>> # Simple usage with default passphrase
       >>> local_file = engine.get_file("QmEncFolderXYZ")
       >>> print(local_file)
       /app/downloads/QmEncFolderXYZ/original_filename.bin
+
+      >>> engine.get_file("QmEncFolderXYZ", max_seconds=2, pin=False)
+      '/app/downloads/QmEncFolderXYZ/original_filename.bin'
       
       >>> # Not a bare CID: refused, nothing is deleted
       >>> print(engine.get_file("../.."))
@@ -3721,6 +3740,23 @@ class R1FSEngine:
       if self.__refuse_invalid_cid(cid, raise_on_error=raise_on_error, show_logs=show_logs):
         # Refused and logged before anything was deleted: the read fails.
         return None
+
+      # Leave the existing fetch and pin timeouts in control when no budget is provided.
+      deadline = None
+      if max_seconds is not None:
+        if not isfinite(max_seconds) or max_seconds < 0:
+          # Reject values that cannot describe a finite interval.
+          raise ValueError("max_seconds must be finite and nonnegative")
+        if max_seconds == 0:
+          # Avoid removing or creating any paths when the caller allowed no time.
+          message = f"Failed to download CID {cid}: IPFS read deadline expired"
+          if raise_on_error:
+            # Report expiry the same way as a timed-out download.
+            raise RuntimeError(message)
+          self.P(message, color='r')
+          return None
+        # Use a single clock independent of wall time across download setup, fetch and pin.
+        deadline = time.monotonic() + max_seconds
       
       if secret in ["", None]:
         secret = self.__DEFAULT_SECRET
@@ -3763,17 +3799,24 @@ class R1FSEngine:
       start_time = time.time()
       download_error = None
       try:
+        # Cap the requested fetch timeout by the budget remaining after local setup.
+        fetch_timeout = min(ipfs_timeout, deadline - time.monotonic()) if deadline is not None else ipfs_timeout
+        if deadline is not None and fetch_timeout <= 0:
+          # Do not start a subprocess with an exhausted deadline.
+          raise TimeoutError("IPFS read deadline expired")
+        # Use the remaining budget for the single fetch attempt.
         self.__run_command(
           ["ipfs", "get", cid, "-o", local_folder],
-          timeout=ipfs_timeout,
+          timeout=fetch_timeout,
           raise_on_error=True,
           show_logs=show_logs
         )
       except Exception as e:
         download_error = str(e)
         self.P(f"Initial ipfs get failed for {cid}: {download_error}", color='y')
-        # Read the CID's relay status now: the background heal started below marks it unpublished while it runs.
-        self.__report_relay_data_path(cid, start_time)
+        if deadline is None:
+          # With no budget, check the relay before background healing marks this CID unpublished.
+          self.__report_relay_data_path(cid, start_time)
       # Relay work never runs on the reader's thread. A CID this get missed is remembered for the background
       # pass, which asks the relay to fetch it so a later read can find it.
       self.__relay_in_background(heal_cid=cid if download_error else None, show_logs=show_logs)
@@ -3788,10 +3831,14 @@ class R1FSEngine:
         # is quick when the blocks the get stored are still local; a repository garbage collection between
         # the get and the pin removes them, and the pin then has to fetch them again.
         try:
-          # Give the pin only the time the read has left (at least 1 s), not a second full window, so the get
-          # and the pin together take about the caller's timeout at most. A failure only logs: the data is
-          # already on disk, so the read goes on.
-          self.__pin_add(cid, timeout=max(1, ipfs_timeout - download_elapsed_time))
+          # Keep the original one-second minimum unless the deadline leaves less time.
+          pin_timeout = max(1, ipfs_timeout - download_elapsed_time)
+          if deadline is not None:
+            # Include time spent starting background maintenance before the pin.
+            pin_timeout = min(pin_timeout, deadline - time.monotonic())
+          if pin_timeout > 0:
+            # The data is already on disk, so skip the optional pin when the budget has expired.
+            self.__pin_add(cid, timeout=pin_timeout)
         except Exception as e:
           # Red, not yellow: the read returns the file, but the pin failed and nothing retries it.
           self.P(f"Pin after download failed for {cid}: {e}", color='r')
@@ -4061,6 +4108,8 @@ class R1FSEngine:
       pin: bool = True,
       raise_on_error: bool = False,
       show_logs: bool = True,
+      # Expose the file read's deadline without shifting existing positional arguments.
+      max_seconds: float = None,
     ):
       """
       Retrieve and deserialize a JSON file from R1FS by CID.
@@ -4089,6 +4138,10 @@ class R1FSEngine:
       show_logs : bool, optional
         If True, logs steps via self.P / self.Pd. Default True.
 
+      max_seconds : float, optional
+        Time budget for foreground IPFS commands, passed to ``get_file``.
+        Local file decryption and JSON parsing may add to the elapsed time.
+
       Returns
       -------
       any
@@ -4097,7 +4150,7 @@ class R1FSEngine:
       Raises
       ------
       ValueError
-        If the secret is empty.
+        If ``max_seconds`` is negative or nonfinite.
 
       RuntimeError
         If multiple or zero files are found in the downloaded folder,
@@ -4124,7 +4177,9 @@ class R1FSEngine:
         pin=pin,
         raise_on_error=raise_on_error,
         show_logs=show_logs,
-        return_absolute_path=True
+        return_absolute_path=True,
+        # The file read starts and enforces the shared IPFS deadline.
+        max_seconds=max_seconds,
       )
       
       if file_path is None:
