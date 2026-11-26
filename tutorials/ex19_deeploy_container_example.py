@@ -123,9 +123,9 @@ if __name__ == '__main__':
     if progress.get('phase') == 'completed':
       break
     time.sleep(progress.get('poll_after_ms', 2000) / 1000)
-  if progress['outcome'] != 'succeeded':
+  if progress['outcome'] not in ('succeeded', 'waiting_for_source'):
     raise RuntimeError('Deployment failed; inspect the operation recovery details.')
-  print('Deployment ready. Keeping it running for 60 seconds before whole-job deletion.')
+  print(f"Deployment outcome: {progress['outcome']}. Keeping the job for 60 seconds before deletion.")
   session.sleep(60)
   close_result = session.deeploy_close(
     app_id=accepted['app_id'], job_id=job_id,
