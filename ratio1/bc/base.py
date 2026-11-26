@@ -2575,11 +2575,13 @@ class BaseBlockEngine(
     Returns
     -------
     dict or None
-      The dAuth environment keys on success. Returns an empty dictionary if the
-      last request encountered a busy oracle or if a response signature was
-      invalid. Returns None on ordinary request failure or an invalid URL.
-      With ``return_full_data=True``, returns the parsed response as described
-      above. When the EE_VPN_IMPL flag is set, always returns None.
+      By default, returns the granted environment keys. An empty dictionary
+      indicates no keys were granted, the last request met a busy oracle, or
+      a response signature was invalid. An invalid URL or other exhausted
+      request failure returns None. With ``return_full_data=True``, returns the
+      parsed HTTP 200 response, or an empty dictionary if no such response
+      was parsed or the signature was invalid. When EE_VPN_IMPL is set,
+      returns None in either mode.
 
     Notes
     -----
