@@ -2,7 +2,8 @@ import json
 import os
 
 from collections import namedtuple
-from copy import deepcopy
+# copy: each caller answered from the memory of a failed registry read gets an error object of its own.
+from copy import copy, deepcopy
 from threading import Lock
 from time import monotonic
 
@@ -20,6 +21,13 @@ EE_VPN_IMPL = str(os.environ.get(EE_VPN_IMPL_ENV_KEY, False)).lower() in [
 ]
 
 _ORACLE_REGISTRY_TTL = 10 * 60
+# A failed registry read is remembered for this many times the time the read took: until then the registry is
+# not read again and its callers get the error of that read at once. A read the endpoint never answers takes
+# about 20 s and is remembered 60 s, so a thread that asks all the time is held a quarter of the time, where
+# every call held it; a read that fails in milliseconds is made again milliseconds later, as before.
+# Public: the dAuth server of the edge node imports it to wait as long before its own next read, which would
+# otherwise fail from this memory without a read.
+ORACLE_REGISTRY_FAILURE_FACTOR = 3
 _ORACLE_REGISTRY_CACHE = {}
 _ORACLE_REGISTRY_CACHE_LOCK = Lock()
 
@@ -51,8 +59,99 @@ else:
     """
 
 
+def _rpc_provider(rpc_url):
+  """
+  Build the HTTP provider of an RPC client with a bound on what one call can cost.
+
+  One request may take 10 s, a call gets 2 tries, and the chain id of the endpoint is kept once fetched.
+  Left to the client library, one request may take 30 s, a call gets 5 tries, and every contract read fetches
+  the chain id twice (measured on web3 7.16: 3 HTTP requests per license read; with this provider 1, after the
+  first read on a thread).
+
+  Parameters
+  ----------
+  rpc_url : str
+    Address of the RPC endpoint.
+
+  Returns
+  -------
+  web3.HTTPProvider
+    The provider to hand to ``Web3``.
+
+  Notes
+  -----
+  A call the endpoint takes a connection for and never answers ends after about 20 s (2 tries of 10 s and one
+  pause of 0.125 s) by raising the timeout to the caller; before, 5 tries of 30 s could hold the calling thread
+  for over 150 s. A connection that never completes is bounded per address: each try gives 10 s to every address
+  the host name resolves to, one after the other, so the call ends after about 20 s for one address and about
+  40 s for two (measured: 20.1 s and 40.2 s). A license read is one call once its thread knows the chain id; a
+  thread's first read adds the chain id fetch.
+  The timeout is the one ``requests`` applies to the connection and to each read, so it does not limit a slow,
+  steady answer. The tries apply to the methods and errors the library already tries again (a timeout, an HTTP
+  error status): only their number changes.
+
+  Sending a signed transaction is one of the methods tried again. When the endpoint takes the transaction in
+  and answers after more than 10 s, the first try ends in a timeout, the second sends the same transaction once
+  more, and what the endpoint answers to that (for example "already known") is raised as an RPC error although
+  the transaction is pending. Left to the library the same happened for an answer slower than 30 s (measured:
+  an answer after 12 s gave the hash before and raises after 10.1 s now; an answer after 31 s raised before, at
+  30.2 s). The caller gets that error, not a hash.
+
+  The library keeps the chain id per provider and per thread, and keeps only a successful answer, so a failed
+  fetch is asked again by the next call. No other answer is kept. The provider is built with no validation
+  threshold for kept answers (``None``): a chain id answer needs none. Left unset, the library looks one up when
+  it first keeps an answer: it turns the keeping off, asks for the chain id once more and turns the keeping back
+  to what it found, with no lock. Of two threads whose first reads overlap, the second can find it off and put
+  "off" back last, and every later read on that provider is then 3 requests again. With ``None`` the lookup
+  never runs, and the first read on a provider is 2 requests (the chain id, the read), not 3.
+
+  Examples
+  --------
+  >>> w3 = Web3(_rpc_provider("https://rpc.example"))
+  >>> w3.provider.exception_retry_configuration.retries
+  2
+  """
+  # 10 s per request in place of the library's 30 s, and the chain id kept after its first fetch: of all the
+  # answers the library can keep, only eth_chainId is named, so nothing else about a call changes.
+  provider = Web3.HTTPProvider(
+    rpc_url, request_kwargs={"timeout": 10}, cache_allowed_requests=True, cacheable_requests={"eth_chainId"},
+    # No validation threshold, so the library never looks one up: its lookup turns the keeping off and back on
+    # around one more chain id request, with no lock, and two threads reading for the first time at once could
+    # leave it off for the life of the provider (3 requests per read again). A provider's first read is 2
+    # requests, was 3.
+    request_cache_validation_threshold=None,
+  )
+  # 2 tries in place of the library's 5: with the timeout, a connected call that gets no answer costs about 20 s.
+  provider.exception_retry_configuration.retries = 2
+  # The provider for the caller to wrap in a Web3 client.
+  return provider
+
 
 class _EVMMixin:
+  """Provide EVM-backed operations to the block engine.
+
+  Resolve network settings, query contracts and verify EVM identities, including
+  oracle membership used by dAuth.
+
+  Parameters
+  ----------
+  None
+
+  Returns
+  -------
+  _EVMMixin
+    An instance providing the EVM methods. The block engine supplies its
+    network configuration and logging.
+
+  Notes
+  -----
+  Registry methods share a process-wide cache. Membership decisions cannot use
+  a roster after expiry when refreshing it fails.
+
+  Examples
+  --------
+  >>> addresses = engine.web3_get_oracles(network="devnet")  # doctest: +SKIP
+  """
   _SAFE_SIGNATURE_MAGIC_VALUE = b"\x16\x26\xba\x7e"
   _SAFE_SIGNATURE_ABI = [
     {
@@ -202,13 +301,26 @@ class _EVMMixin:
     
     def get_evm_network(self) -> str:
       """
-      Get the current network
+      Get the current network and keep the engine's RPC client built for it.
+
+      The network is the value of the ``EE_EVM_NET`` environment key, or the SDK default ("mainnet") when the
+      key is not set. On the first call, and whenever it differs from the network of the previous call, the
+      engine's ``web3`` client is built for the RPC endpoint of that network.
 
       Returns
       -------
       str
-        the network name.
+        The network name, or "VPN" when the VPN implementation is enabled (no client is built then).
 
+      Notes
+      -----
+      The client is built with ``_rpc_provider``: 10 s per request, 2 tries per call, and the chain id kept
+      after its first fetch. A client built again starts without a chain id.
+
+      Examples
+      --------
+      >>> engine.get_evm_network()  # EE_EVM_NET is not set
+      'mainnet'
       """
       if EE_VPN_IMPL:
         return "VPN"        
@@ -226,7 +338,8 @@ class _EVMMixin:
         self.current_evm_network = network
         network_data = self.get_network_data(network)
         rpc_url = network_data[dAuth.EvmNetData.DAUTH_RPC_KEY]
-        self.web3 = Web3(Web3.HTTPProvider(rpc_url))
+        # The engine's client, with the per-request timeout, the 2 tries and the kept chain id of _rpc_provider.
+        self.web3 = Web3(_rpc_provider(rpc_url))
         self.P(f"Resetting Web3 for {network=} via {rpc_url=}...")
       return network
     
@@ -257,6 +370,38 @@ class _EVMMixin:
 
 
     def _get_web3_vars(self, network=None) -> Web3Vars:
+      """
+      Collect the RPC client and the chain data of a network.
+
+      Parameters
+      ----------
+      network : str, optional
+        The network to read. When omitted, the engine's own network and its kept client are used. When given,
+        a client is built for this call and not kept.
+
+      Returns
+      -------
+      Web3Vars
+        The client (``w3``), the address of the RPC endpoint, the network name, its genesis date (UTC), the
+        epoch length in seconds and the contract addresses of the network.
+
+      Raises
+      ------
+      AssertionError
+        When the network is not one of the known networks (raised by ``get_network_data``).
+
+      Notes
+      -----
+      Both clients are built with ``_rpc_provider``: 10 s per request and 2 tries per call. The client built
+      for a named network is new on every call, so it fetches the chain id again each time.
+
+      Examples
+      --------
+      >>> engine._get_web3_vars().network  # EE_EVM_NET is not set
+      'mainnet'
+      >>> engine._get_web3_vars("testnet").rpc_url == engine.get_network_data("testnet")["EE_DAUTH_RPC"]
+      True
+      """
       if network is None:
         network = self.evm_network
         w3 = self.web3
@@ -280,7 +425,9 @@ class _EVMMixin:
       )
 
       if w3 is None:
-        w3 = Web3(Web3.HTTPProvider(rpc_url))
+        # A client for this one call on a named network, with the same timeout and tries. It is not kept, so
+        # the chain id is still fetched on each such call.
+        w3 = Web3(_rpc_provider(rpc_url))
         self.P(f"Created temporary Web3 for {network=} via {rpc_url=}...", verbosity=2)
       #end if
       
@@ -989,7 +1136,13 @@ class _EVMMixin:
 
 
     def _get_cached_oracle_registry(self, w3vars, address, abi, method):
-      """Read one registry through a process-wide, ten-minute cache.
+      """Read one registry through a process-wide, ten-minute cache that remembers a failed read for a while.
+
+      The addresses a registry method returns are kept for ten minutes per network, RPC endpoint, contract and
+      method, for every engine of the process. When no list is kept, or the kept one is older than that, the
+      registry is read again. A read that fails is remembered for three times the time it took
+      (``ORACLE_REGISTRY_FAILURE_FACTOR``): until then the registry is not read, and every call for it raises
+      the error of that read at once. The expired list is never returned in its place.
 
       Parameters
       ----------
@@ -1007,21 +1160,109 @@ class _EVMMixin:
       list
         A copy of the registry addresses, including an empty registry.
 
+      Raises
+      ------
+      Exception
+        What the registry read raised (a timeout, a connection or HTTP error of the RPC client, an RPC error),
+        when no list younger than ten minutes is kept: by the read itself, and by every call made within three
+        times the read's duration after it, which gets a copy of that error made for it and makes no read.
+
       Notes
       -----
       One lock per registry serializes refreshes across engines and threads.
       Expired entries are never served on RPC failure; the exception propagates.
       Changes to registry membership can take up to ten minutes to be observed.
+
+      Before a failed read was remembered, every call made while the list was expired and the endpoint failed
+      made the read again, on its own thread: 20.2 s each against an endpoint that takes a request and never
+      answers (two tries of 10 s), and a thread that had waited for the lock then made its own. Now such a
+      read is remembered for 60 s from the moment it failed: the caller that makes it waits as before, a
+      caller waiting for the lock gets its error when it ends, and the callers after that get it at once, so a
+      thread that asks all the time is held a quarter of the time. A read that fails quickly is remembered as
+      briefly (an HTTP error answer after 0.13 s for 0.4 s, a refused connection or an RPC error answer after
+      a few milliseconds for three times as many), so one such failure costs the callers after it no more than
+      it did before: once the endpoint answers again, so does the registry, within that time. Measured with
+      one thread asking without a pause, 25% of its time went into reads that fail after 0.13 s and 34 to 38%
+      into reads that fail within milliseconds, as the time a call spends around its read is not counted. The
+      memory only turns a read into its last error: no call is given a list that a read of its own would not
+      have returned.
+
+      The time a read took is measured on the monotonic clock, so setting the wall clock does not change how
+      long a failure is remembered. That time has no upper bound here: a read that takes longer is remembered
+      longer in proportion (a connection that never completes takes about 20 s per address of the host name,
+      so 40 s and a memory of 120 s for two addresses), and the registry stays unanswered that long after such
+      an endpoint answers again.
+
+      The call whose read failed gets the read's own error. The memory keeps a copy of it (``copy.copy``: the
+      read's type, text and attributes, with no traceback, cause or context), and each call answered from the
+      memory raises a further copy made for it. So the traceback such a call logs shows only that call's own
+      frames and the error it was handling, if any: never another call's, which with one shared object reached
+      the next caller's log, its text included. The copy keeps the read error's arguments as they are, though:
+      for a timeout or a refused connection, the RPC client's error wraps the transport error it caught, and
+      that error keeps its traceback, so the memory and every copy still reach the frames of the failed read, up
+      to its caller, and their local data, as before; an HTTP error answer wraps none. The copy is let go when
+      the registry is read successfully again. An interrupt of the program during the read
+      (``KeyboardInterrupt``) is not an error of the read and is not remembered.
+
+      One line is logged when a registry's read fails after its last one answered (or as its first read), with
+      the time the read took and the error's text cut to 400 characters. Further failures and cached errors
+      are quiet. The first successful read after the outage logs recovery once, even if the roster is empty.
+      The recovery log identifies the registry method and the network. A cached
+      roster and later healthy refreshes are quiet.
+
+      Examples
+      --------
+      >>> read = engine._get_cached_oracle_registry
+      >>> read(w3vars, w3vars.controller_contract_address, EVM_ABI_DATA.CONTROLLER_ABI, "getOracles")
+      ['0x000000000000000000000000000000000000dEaD']
+      >>> read(w3vars, w3vars.controller_contract_address, EVM_ABI_DATA.CONTROLLER_ABI, "getOracles")  # no read
+      ['0x000000000000000000000000000000000000dEaD']
       """
       key = (w3vars.network.lower(), w3vars.rpc_url, address.lower(), method)
       with _ORACLE_REGISTRY_CACHE_LOCK:
-        entry = _ORACLE_REGISTRY_CACHE.setdefault(key, {"lock": Lock()})
+        # A registry starts with no failed read: none to wait out (time 0 is always past), so its first read is
+        # made at once, and no error kept, so its first failed read is logged.
+        entry = _ORACLE_REGISTRY_CACHE.setdefault(key, {"lock": Lock(), "failed_until": 0, "failure": None})
       with entry["lock"]:
         if "addresses" not in entry or monotonic() >= entry["expires_at"]:
+          if monotonic() < entry["failed_until"]:
+            # The last read failed and less than three times its own duration has passed since: its error
+            # again, at once and without a read, where each call made the failing read again (20.2 s each for
+            # an endpoint that never answers). Each call gets a copy made for it (the read's type, text and
+            # attributes), so the traceback and handled error Python gives it are this call's own. Before, every call
+            # raised one shared object, which kept the handled error of whichever call raised it before, and its
+            # text, for the next caller's log.
+            raise copy(entry["failure"])
           contract = w3vars.w3.eth.contract(address=address, abi=abi)
           started_at = monotonic()
-          addresses = tuple(getattr(contract.functions, method)().call())
-          entry.update(addresses=addresses, expires_at=started_at + _ORACLE_REGISTRY_TTL)
+          try:
+            # The registry read, as before; inside a try so that a failure can be remembered.
+            addresses = tuple(getattr(contract.functions, method)().call())
+          except Exception as failure:
+            # The moment the read failed, on the same clock as its start: one that setting the wall clock does
+            # not move, so the time the read took is the time that passed.
+            failed_at = monotonic()
+            if entry["failure"] is None:
+              self.P(f"Registry read {method} on {w3vars.network} failed after {failed_at - started_at:.3f} s; "
+                     f"its failed reads are not logged again until it answers: {failure!r:.400}", color='r')
+            # Remember the error for three times the time the read took, from now, under the registry's lock: a
+            # read that hung 20 s is not made again for 60 s, one that failed within milliseconds is made again
+            # three times as many milliseconds later. A caller that waited for the lock finds the error and makes
+            # no read of its own. What is kept is a copy, with no traceback, cause or context of its own; a transport
+            # error it wraps in its arguments (a timeout, a refused connection) keeps the frames of this call and
+            # their local data until the registry answers again, as the read's own error did.
+            entry.update(failure=copy(failure),
+                         # The end of the memory, by the public factor the edge node's dAuth server waits by too.
+                         failed_until=failed_at + ORACLE_REGISTRY_FAILURE_FACTOR * (failed_at - started_at))
+            # The caller of the failed read gets its error, as before.
+            raise
+          # A retained failure distinguishes the first successful refresh from ordinary cache fills.
+          if entry["failure"] is not None:
+            # The registry lock and the failure cleared below make recovery a one-time transition.
+            self.P(f"Registry read {method} on {w3vars.network} recovered", color='g')
+          # The list is kept for ten minutes, and the copy of an earlier failed read's error is let go; the next
+          # failed read is logged again.
+          entry.update(addresses=addresses, expires_at=started_at + _ORACLE_REGISTRY_TTL, failure=None)
         return list(entry["addresses"])
 
 

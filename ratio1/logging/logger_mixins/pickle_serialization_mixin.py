@@ -90,9 +90,32 @@ class _PickleSerializationMixin(object):
       compressed=False,
       subfolder_path=None,
       locking=True,
+      raise_on_error=False,
   ):
-    """
-    compressed: True if compression is required OR you can just add '.pklz' to `fn`
+    """Save an object by atomically replacing its pickle file.
+
+    Parameters
+    ----------
+    data : object
+      Picklable object to write.
+    fn : str
+      Filename or full path. A .pklz filename selects compression.
+    folder, subfolder_path : str, optional
+      Logger destination and optional directory within it.
+    use_prefix, verbose, compressed, locking : bool, optional
+      Prefix the filename, log progress, compress the data and lock the writer.
+    raise_on_error : bool, optional
+      Propagate serialization and replacement failures to callers that need a
+      positive acknowledgement. The default preserves the legacy path return.
+
+    Returns
+    -------
+    str
+      Target filename. In strict mode a return means the target was replaced.
+
+    Examples
+    --------
+    >>> path = log.save_pickle(state, "epochs.pkl", folder="data", raise_on_error=True)
     """
 
     def P(s):
@@ -176,13 +199,38 @@ class _PickleSerializationMixin(object):
           os.remove(tmp_path)
       except OSError:
         pass
+    if raise_on_error and tm_elapsed is None:
+      if err_msg is not None:
+        raise err_msg  # Preserve the underlying serialization or filesystem error.
+      raise OSError(f"Could not write compressed pickle {datafile}")  # The compression helper reports failure as False.
     return datafile
 
 
-  def save_pickle_to_data(self, data, fn, compressed=False, verbose=True, 
-                          subfolder_path=None, locking=True):
-    """
-    compressed: True if compression is required OR you can just add '.pklz' to `fn`
+  def save_pickle_to_data(self, data, fn, compressed=False, verbose=True,
+                          subfolder_path=None, locking=True, raise_on_error=False):
+    """Save a pickle in the logger's data directory.
+
+    Parameters
+    ----------
+    data : object
+      Picklable object to write.
+    fn : str
+      Filename. A .pklz suffix selects compression.
+    compressed, verbose, locking : bool, optional
+      Compress the file, log progress and lock the writer.
+    subfolder_path : str, optional
+      Directory within the data folder.
+    raise_on_error : bool, optional
+      Propagate a failed save after temporary-file cleanup.
+
+    Returns
+    -------
+    str
+      Target path, with the acknowledgement semantics of `save_pickle`.
+
+    Examples
+    --------
+    >>> path = log.save_pickle_to_data(state, "epochs.pkl", raise_on_error=True)
     """
     return self.save_pickle(
       data, fn,
@@ -191,6 +239,7 @@ class _PickleSerializationMixin(object):
       subfolder_path=subfolder_path,
       verbose=verbose,
       locking=locking,
+      **({"raise_on_error": True} if raise_on_error else {}),  # Preserve legacy overrides of save_pickle.
     )
 
 

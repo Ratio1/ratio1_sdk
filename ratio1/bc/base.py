@@ -2,6 +2,8 @@ import os
 # sys.modules tells whether naeural_core is already loaded (only on a node): see core_version below.
 import sys
 import base64
+# Overwrites the oracle-only secret's bytes in the C environment of a seed (see BaseBlockEngine._build).
+import ctypes
 import json
 import binascii
 import numpy as np
@@ -49,6 +51,36 @@ from .chain import _ChainMixin
 
 EVM_COMMENT = " # "
 INVALID_COMMENT = " # INVALID: "
+
+
+def _oracle_startup_fingerprint(secret):
+  """Derive the check value operators compare before enabling protected writes.
+
+  Hash the UTF-8 passphrase with a fixed startup-specific domain prefix so
+  seed and receiving oracles can compare provisioning across processes.
+
+  Parameters
+  ----------
+  secret : str
+    Shared oracle secret held in process memory.
+
+  Returns
+  -------
+  str
+    The first 16 hexadecimal digits of a domain-separated SHA-256 digest.
+
+  Notes
+  -----
+  The 16 digits represent 64 bits. Matching values are an operational check
+  and grant no identity, membership or decryption authority.
+
+  Examples
+  --------
+  >>> len(_oracle_startup_fingerprint("synthetic-example"))
+  16
+  """
+  # A dedicated domain keeps this public check distinct from other hashes of the value.
+  return sha256(b"ratio1/oracle-r1fs/startup-fingerprint/v1\0" + secret.encode("utf-8")).hexdigest()[:16]
   
   
 class _DotDict(dict):
@@ -383,6 +415,28 @@ def ripemd160(data):
   
 # END ## RIPEMD160  
 
+
+class DauthSecretRecordTooLarge(ValueError):
+  """
+  A dAuth server refused a deployment's secret record because the chain store does not accept its size.
+
+  Raised by ``BaseBlockEngine.reconcile_dauth_job_secrets`` for an authenticated refusal whose reason code is
+  ``record_too_large`` (``dAuth.DAUTH_REASON_RECORD_TOO_LARGE``), with the client's own fixed text. The record is
+  either the requested revision's copy or the copy of the job's current revision that a failed update restores.
+
+  Notes
+  -----
+  A type of its own so that a caller can end the request's work at once: the same request fails again. It is a
+  ``ValueError``, so every caller that handles the client's ``ValueError`` (a final error of the request) handles
+  it as before.
+
+  Examples
+  --------
+  >>> issubclass(DauthSecretRecordTooLarge, ValueError)
+  True
+  """
+
+
 class BaseBlockEngine(
   _EVMMixin,
   _ChainMixin,
@@ -417,6 +471,41 @@ class BaseBlockEngine(
   _lock: Lock = Lock()
   _whitelist_lock : Lock = Lock()
   __instances = {}
+  # The oracle-only secret of this process, held in memory only and never in os.environ: one per process,
+  # shared by every engine. Read through oracle_secret(); written by _build and dauth_autocomplete only.
+  __oracle_secret = None
+
+  @staticmethod
+  def oracle_secret():
+    """
+    Oracle secret: the oracle-only secret this process holds in memory.
+
+    The value is set in one of two ways. On a seed oracle it is set in the node's environment, and the
+    engine build moves it into process memory. Any other oracle receives it in its start-up dAuth
+    answer. It is never kept in ``os.environ``, written to a file or logged. It is meant as the key of
+    oracle-only R1FS files. So far its only reader is the dAuth server, which hands it to the oracles
+    that ask for it.
+
+    Returns
+    -------
+    str or None
+      The secret, or None when this process holds none: a worker, or an oracle whose start-up dAuth
+      answer did not carry it.
+
+    Notes
+    -----
+    Any code in the process can call this method, just as it could read the environment. The gain is
+    that environment copies, child processes, heartbeats and the process's environment block
+    (``/proc/<pid>/environ``, overwritten on a seed) do not show the value. A process started with
+    a copy of the environment before the engine build keeps that copy.
+
+    Examples
+    --------
+    >>> BaseBlockEngine.oracle_secret() is None   # a worker
+    True
+    """
+    # The class-wide value: the same for every engine of this process.
+    return BaseBlockEngine.__oracle_secret
   
   def __new__(
     cls, 
@@ -453,6 +542,62 @@ class BaseBlockEngine(
       user_config=False,
       eth_enabled=True,
     ):
+    """
+    Build: set up a new engine once, when the multiton creates it for a new name.
+
+    Stores the name, the logger and the key-file settings, moves the oracle-only secret from the
+    environment into process memory (see ``oracle_secret``), and prepares the counters of signature
+    versions. Then it loads or creates the private key (``_init``).
+
+    Parameters
+    ----------
+    name : str
+      The engine name; it also names the key file.
+    config : dict
+      The key-file settings: ``PEM_FILE``, ``PASSWORD`` and ``PEM_LOCATION``.
+    log : Logger
+      The logger. It is required.
+    ensure_ascii_payloads : bool, optional
+      Whether payloads are encoded as ASCII. Default False, for JS compatibility.
+    verbosity : int, optional
+      The highest verbosity of the lines the engine logs. Default 1.
+    user_config : bool, optional
+      True keeps the key in the user's private folder, False in the data folder of the local cache.
+    eth_enabled : bool, optional
+      Whether the Ethereum features are on. Default True.
+
+    Returns
+    -------
+    None
+      The engine is set up in place.
+
+    Raises
+    ------
+    AssertionError
+      When no logger is given.
+
+    Notes
+    -----
+    A seed oracle gets the oracle-only secret in ``EE_ORACLE_R1FS_SECRET``. A node builds its
+    first engine before its start-up dAuth, before its managers and plugins, and before any child
+    process except the start-up package install. Deleting the variable here therefore keeps it out of
+    every later environment copy and child process. A seed's container hands the variable to the node
+    in the process's original environment block, which ``/proc/<pid>/environ`` shows to every process
+    of the container and which ``unsetenv`` does not change. So the bytes of the value that the C
+    library's ``getenv`` finds are first overwritten with zeros in place; only the variable's name
+    stays in that block. Then ``os.environ.pop`` deletes the variable from ``os.environ`` and, through
+    ``unsetenv``, from the C environment. The overwrite calls the C library through ``ctypes``, so it
+    needs a POSIX system: the variable is meant for Linux seed nodes only. An empty value is deleted
+    and not held. A nonempty value produces a 16-digit domain-separated
+    startup fingerprint so operators can compare it with the value reported
+    after a verified dAuth receipt. The log omits the passphrase.
+
+    Examples
+    --------
+    >>> engine = DefaultBlockEngine(name="node", log=log)   # the multiton calls _build once per name
+    >>> "EE_ORACLE_R1FS_SECRET" in os.environ
+    False
+    """
 
     self.__name = name
     assert log is not None, "Logger object was not provided!"      
@@ -469,6 +614,26 @@ class BaseBlockEngine(
     self.__password = config.get(BCct.K_PASSWORD)    
     self.__config = config
     self.__ensure_ascii_payloads = ensure_ascii_payloads
+    # Move the oracle-only secret, set only on seed oracles, out of the environment and into
+    # process memory: later environment copies and child processes no longer see it.
+    env_oracle_secret = os.environ.get(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY)
+    if env_oracle_secret:
+      # The C library's getenv, which gives the address of the value's bytes in the C environment.
+      libc_getenv = ctypes.CDLL(None).getenv
+      # An address result: the default int result would cut a 64-bit address.
+      libc_getenv.restype = ctypes.c_void_p
+      # Taken before the pop below, after which getenv no longer finds it. On a seed these bytes lie in the
+      # original environment block, which unsetenv leaves as it is and /proc/<pid>/environ shows.
+      value_address = libc_getenv(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY.encode())
+      # Overwrite them with zeros in place, so that block no longer holds the value (probe: 1 match before, 0 after).
+      ctypes.memset(value_address, 0, len(ctypes.string_at(value_address)))
+      # Held by the class, so every engine of this process and the dAuth server read the same value.
+      BaseBlockEngine.__oracle_secret = env_oracle_secret
+      self.P("Oracle secret moved from the environment into process memory.", color='g')
+      # Emit the 16-digit check that receiving oracles also log after verified custody.
+      self.P(f"Oracle R1FS startup fingerprint: {_oracle_startup_fingerprint(env_oracle_secret)}", color='g')
+    # Delete it from os.environ and, through unsetenv, from the C environment; an empty value too.
+    os.environ.pop(dAuth.DAUTH_ORACLE_SECRET_ENV_KEY, None)
 
     self._verify_canon_stats_lock = Lock()
     self._verify_canon_stats = {
@@ -2063,6 +2228,10 @@ class BaseBlockEngine(
     ------
     ValueError
       If the payload, response or response authentication is invalid.
+    DauthSecretRecordTooLarge
+      If an authenticated dAuth server refused because the chain store does not
+      accept a secret record of the job for its size (final: the same request fails
+      again). It is a ValueError too.
     RuntimeError
       If signing, transport or the reconciliation operation fails.
 
@@ -2076,6 +2245,16 @@ class BaseBlockEngine(
     never logged by this method. A signed refusal is logged in red with only the
     refusing server's ``server_alias`` and the action ("job update" for a request
     without an operation) before the RuntimeError is raised.
+
+    One refusal is named. When the answer's ``reason`` field (``DAUTH_REASON``) is
+    ``record_too_large`` (``DAUTH_REASON_RECORD_TOO_LARGE``), ``DauthSecretRecordTooLarge``
+    is raised with this client's own fixed text, which a caller can pass on to the
+    job's owner. The refused record is the copy of the requested revision or the copy
+    of the job's current revision kept for a rollback, so the text names both. The
+    field is read only in a refusal, and only after the answer's
+    signature, signer and nonce were checked. Any other value of it, or none, is
+    the same RuntimeError as before, and the ``error`` text of an answer is never
+    used. A dAuth server of an earlier release sends no ``reason``.
 
     Examples
     --------
@@ -2139,6 +2318,17 @@ class BaseBlockEngine(
       # does not say which dAuth server answered. Only lifecycle requests have an action.
       self.P("dAuth server {} refused secret reconciliation ({}).".format(
         result["server_alias"], payload["action"] if operation is not None else "job update"), color='r')
+      if result.get(dAuth.DAUTH_REASON) == dAuth.DAUTH_REASON_RECORD_TOO_LARGE:
+        # The one refusal a dAuth server names, by a reason code from a closed set of one: the chain store
+        # refused the job's secret record for its size, so the same request can never succeed. Read only
+        # here, after the signature, signer and nonce checks above. The text is this client's own: of the
+        # answer nothing but the code is used. Before, this refusal raised the RuntimeError below, which
+        # callers answer as "try again". A ValueError of its own type, so that a caller can end the request's
+        # work at once. The text names both copies the server refuses for size: the requested revision's and
+        # the current revision's kept for a rollback (before, it told the owner of either to target fewer nodes).
+        raise DauthSecretRecordTooLarge("The deployment's secret record is larger than the store accepts: "
+                                        "the new revision, or the current one kept for a rollback, has too many "
+                                        "nodes or too large configurations.")
       raise RuntimeError("dAuth rejected secret reconciliation.")
     if operation is not None:
       if (
@@ -2352,6 +2542,11 @@ class BaseBlockEngine(
     a pause and, on the last try, return None, so a node start-up does not keep waiting for a dAuth that
     nobody serves. The result follows the last answer only.
 
+    Every request declares support for memory-only secrets (``sender_memory_secrets``).
+    A response can include the oracle-only secret encrypted to the requesting node. This
+    method verifies the signature, then independently checks the verified signer's dAuth
+    registry membership on the selected EVM network before attempting decryption.
+
     Parameters
     ----------
     dauth_endp : str, optional
@@ -2360,7 +2555,8 @@ class BaseBlockEngine(
     add_env : bool, optional
       When True (the default), the env keys received from dAuth are written into `os.environ`.
     debug : bool, optional
-      When True, log the request body and the answer status. Forced on for test/dev networks.
+      When True, log the names of the request's fields and the answer status. Forced on for test/dev
+      networks.
     max_tries : int, optional
       Maximum number of requests to send (default 5); at least one is always sent.
     network : str, optional
@@ -2378,16 +2574,25 @@ class BaseBlockEngine(
 
     Returns
     -------
-    None if the URL is invalid or the request failed.
-    {} if the last try met a busy oracle (429/503/504/524 or a read timeout): the caller may try again later.
-    dict with the dAuth information if the request got status 200(if errors occured, but
-    the status is still 200, an empty dictionary will be returned).
-    With `return_full_data`, the JSON answer described above instead. When the EE_VPN_IMPL flag
-    is set, always None.
+    dict or None
+      By default, returns the granted environment keys. An empty dictionary
+      indicates no keys were granted, the last request met a busy oracle, or
+      a response signature was invalid. An invalid URL or other exhausted
+      request failure returns None. With ``return_full_data=True``, returns the
+      parsed HTTP 200 response, or an empty dictionary if no such response
+      was parsed or the signature was invalid. When EE_VPN_IMPL is set,
+      returns None in either mode.
 
     Notes
     -----
     An answer with an invalid signature returns {} at once, without further tries.
+    An absent registry membership or a registry error leaves the existing
+    memory holder unchanged while ordinary dAuth fields can still be applied.
+    An eligible signer's field replaces the holder only if it decrypts to a
+    nonempty string. The field is removed from any returned full answer and
+    stays out of environment variables regardless of ``add_env``. Receipt logs
+    the same 16-digit startup fingerprint as a seed's environment provisioning.
+    Debug logs list request field names because a full signed request can be replayed.
 
     Examples
     --------
@@ -2468,10 +2673,14 @@ class BaseBlockEngine(
           if len(kwargs) == 0:
             to_send[dAuth.DAUTH_SENDER_ALIAS] = dAuth.DAUTH_SENDER_ALIAS_DEFAULT
           ######
+          # Declare that this client keeps memory-only secrets out of its environment and logs, so dAuth may
+          # send it the oracle-only secret. Set after the caller's fields, so `kwargs` cannot drop it.
+          to_send[dAuth.DAUTH_SENDER_MEMORY_SECRETS] = True
           self.sign(to_send)    
           json_to_send = {'body' : to_send}
           if debug:
-            self.P(f"Requesting dAuth (timeout={request_timeout}): {url}\n{json.dumps(json_to_send, indent=2)}")   
+            # The field names only: the signed body is a request anyone who reads this log could send again.
+            self.P(f"Requesting dAuth (timeout={request_timeout}): {url} with fields {sorted(to_send)}")
           response = requests.post(url, json=json_to_send, timeout=request_timeout)
           if debug:
             self.P(f"Received response (status {response.status_code}).")
@@ -2487,13 +2696,42 @@ class BaseBlockEngine(
             )
             # never log the response body: it carries the node's env secrets
             self.P(f"Response received from {server_alias} <{server_addr}>.")
-            ver_result = self.verify(dct_result)
+            # Verification diagnostics must not print any part of a secret-bearing response.
+            ver_result = self.verify(dct_result, log_hash_sign_fails=False)
             if ver_result.valid:
               self.P(f"Signature from {server_alias} <{server_addr}> is valid.", color='g')
             else:
-              self.P(f"Signature from {server_alias} <{server_addr}> is INVALID: {ver_result}", color='r')
+              self.P(f"Signature from {server_alias} <{server_addr}> is INVALID.", color='r')
               # Invalid response signature, thus return {}
               return {}
+
+            # The oracle-only secret, sent only to an oracle that set the flag above. It is popped out of the
+            # answer before anything else reads it, so it reaches neither os.environ, the returned answer nor a log.
+            oracle_secret = dct_dauth.pop(dAuth.DAUTH_ORACLE_SECRET, None)
+            if oracle_secret is not None:
+              # Fail closed until the supplied network's registry confirms the verified signer.
+              authorized = False
+              try:
+                # Registry failure or an invalid identity leaves authorization false.
+                authorized = self.web3_is_dauth_oracle(
+                  self.node_address_to_eth_address(ver_result.sender), network=network,
+                )
+              except Exception:
+                self.P("Could not verify the oracle secret response signer against the dAuth registry.", color='r')
+              if authorized:
+                # Decrypt with the same identity whose signature and eligibility were checked.
+                oracle_secret = self.decrypt(encrypted_data_b64=oracle_secret, sender_address=ver_result.sender)
+                if not isinstance(oracle_secret, str) or not oracle_secret:
+                  # Preserve the holder if decryption returns no usable passphrase.
+                  self.P(f"Oracle secret from {server_alias} <{server_addr}> does not decrypt: not kept.", color='r')
+                else:
+                  # Keep the shared value in memory, where this node's dAuth server reads it.
+                  BaseBlockEngine.__oracle_secret = oracle_secret
+                  self.P(f"Oracle secret from {server_alias} <{server_addr}> kept in process memory.", color='g')
+                  # Record the same startup check value as the seeds without exposing the secret.
+                  self.P(f"Oracle R1FS startup fingerprint: {_oracle_startup_fingerprint(oracle_secret)}", color='g')
+              else:
+                self.P("Oracle secret was ignored because the response signer is not a verified dAuth oracle.", color='r')
 
             # Revoked-key verdict: trusted only from a registered dAuth oracle, since
             # the node replaces its key on it. One registry read, only in this case.

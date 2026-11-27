@@ -56,6 +56,8 @@ import json
 from datetime import datetime, timezone
 import base64
 import time
+# Check deadlines before doing any work with a caller-provided budget.
+from math import isfinite
 import os
 import tempfile
 import uuid
@@ -70,7 +72,13 @@ import tempfile
 import random
 import ipaddress
 import signal
+# At module level for _PlainDataUnpickler, the loader get_pickle uses for files that other nodes name by CID.
+import pickle
+# _check_plain_pickle walks a file's opcodes with it before get_pickle loads the file.
+import pickletools
 
+# Only failed authentication should try the next passphrase.
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 DEFAULT_SECRET = "ratio1"
@@ -117,6 +125,17 @@ class IPFSCt:
   # Kubo's error for `pin rm` of a CID with no direct or recursive pin (boxo's pinner ErrNotPinned): the CLI prints
   # it on stderr as "Error: not pinned or pinned indirectly", the relay's HTTP API returns it as its error message.
   NOT_PINNED_ERROR = "not pinned or pinned indirectly"
+  # Dials of the relay at start (maybe_start_ipfs, only in the call that launched the daemon) before R1FS is left off
+  # for the whole run: a relay that restarts, or a host that reboots, is not reachable for some seconds, and one failed
+  # dial used to keep R1FS off until the next restart. 6 tries 10 s apart: the bounds of the 5 tries before the last
+  # and of the pauses after them add up to 5 x (10 s + 10 s) = 100 s (the whole worst case is in the maybe_start_ipfs
+  # Notes). In the lab a relay back about 25 s into the start was connected on the second try, about 19 s later than
+  # a normal start.
+  RELAY_START_TRIES = 6
+  # Seconds between two of those dials: a pause, not a spin, so a weak host runs at most one `ipfs` dial per 10 s.
+  RELAY_START_PAUSE_SECONDS = 10
+  # Seconds each try but the last may take; the last keeps the default TIMEOUT, as the single dial had.
+  RELAY_START_TRY_TIMEOUT_SECONDS = 10
 
   TIMEOUT = 90 # seconds
   # The reprovide operation is very heavy and should be done infrequently.
@@ -177,8 +196,312 @@ def require_ipfs_started(method):
   return wrapper  
 
 
+# get_pickle loads files whose CID usually comes from another node's message: plain pickle.load would run any
+# callable the file names, so this loader builds plain data only.
+class _PlainDataUnpickler(pickle.Unpickler):
+  """
+  Unpickler that builds plain data only and refuses everything else.
+
+  Pickle builds None, bool, int, float, str, bytes, and lists, tuples, dicts,
+  sets and frozensets of these from its own opcodes (bytearray too, with
+  protocol 5). Every other object (a class instance, a function, a numpy value,
+  a set or bytes written with a protocol older than 4 or 3) needs a class or
+  function the file names, which pickle looks up through `find_class`; here that
+  lookup always fails, so no code the file chose is ever imported or called.
+
+  Parameters
+  ----------
+  file : binary file object
+    The open pickle file, as for `pickle.Unpickler`.
+
+  Returns
+  -------
+  _PlainDataUnpickler
+    The loader; its `load()` returns the plain data or raises.
+
+  Raises
+  ------
+  pickle.UnpicklingError
+    From `load()`, when the file names any class or function.
+
+  Notes
+  -----
+  `add_pickle` writes with the default protocol (4 up to Python 3.13, 5 from
+  3.14), which encodes sets, frozensets and bytes without naming a class.
+
+  Examples
+  --------
+  >>> import io, pickle
+  >>> _PlainDataUnpickler(io.BytesIO(pickle.dumps({"a": [1, 2.5, None]}))).load()
+  {'a': [1, 2.5, None]}
+  >>> _PlainDataUnpickler(io.BytesIO(pickle.dumps(len))).load()
+  Traceback (most recent call last):
+  ...
+  _pickle.UnpicklingError: R1FS pickle refused: it names builtins.len; only plain data is loaded
+  """
+
+  def find_class(self, module, name):
+    """
+    Refuse the class or function a pickle names.
+
+    Called by pickle for every class or function the file references
+    (GLOBAL, STACK_GLOBAL, INST, and extension codes registered in copyreg);
+    plain data never reaches it.
+
+    Parameters
+    ----------
+    module : str
+      The module the file names.
+    name : str
+      The class or function name the file names in that module.
+
+    Returns
+    -------
+    None
+      Never returns.
+
+    Raises
+    ------
+    pickle.UnpicklingError
+      Always, naming what the file asked for.
+
+    Examples
+    --------
+    >>> _PlainDataUnpickler(io.BytesIO(b"")).find_class("os", "system")
+    Traceback (most recent call last):
+    ...
+    _pickle.UnpicklingError: R1FS pickle refused: it names os.system; only plain data is loaded
+    """
+    # Nothing the file names is imported or called; the error reaches get_pickle's caller like any load error.
+    raise pickle.UnpicklingError(f"R1FS pickle refused: it names {module}.{name}; only plain data is loaded")
+
+
+# Largest pickle get_pickle loads: about 16 times oracle sync's largest file at 2,000 nodes (a 0.5 MB median table).
+# A crafted file's cost grows with its size: at this bound, one-byte opcodes take 6-7 s of walk at 2 cores (26-33 s
+# at 0.35 core) and up to 0.56 GB of walk memory, and a list of 8 million empty lists takes 0.7 GB in the load, on
+# top of the interpreter.
+_PLAIN_PICKLE_MAX_BYTES = 8 * 1024 * 1024
+# Deepest nesting get_pickle loads (an empty list is 1 level): oracle-sync files nest 1 or 2 levels, while a tuple
+# nested 400,000 levels as a dict key crashes the interpreter when the load hashes it.
+_PLAIN_PICKLE_MAX_DEPTH = 32
+# Leaves a file fetches again from its memo (repeated strings) may add up to this many times its size in printed
+# characters: oracle-sync files re-use less than their own size and records with long repeated keys about 4 times,
+# so no file expands much when it is serialized.
+_PLAIN_PICKLE_MAX_REUSE = 16
+# Opcodes that put items into a container: name -> (items taken from the top of the stack, 0 for all items above the
+# newest mark; True when they go into the container below them, False when they form a new container).
+_PLAIN_PICKLE_CONTAINER_OPCODES = {
+  'TUPLE1': (1, False), 'TUPLE2': (2, False), 'TUPLE3': (3, False), 'TUPLE': (0, False), 'LIST': (0, False),
+  'DICT': (0, False), 'FROZENSET': (0, False), 'APPEND': (1, True), 'SETITEM': (2, True), 'APPENDS': (0, True),
+  'SETITEMS': (0, True), 'ADDITEMS': (0, True),
+}
+
+
+def _check_plain_pickle(data):
+  """
+  Refuse a pickle that would build a shared, deep or oversized tree, before anything of it is built.
+
+  The restricted loader (`_PlainDataUnpickler`) builds plain data only, but plain
+  data can still be built so that a few hundred bytes cost exponential time or
+  memory: one tuple used at every level of a dict key is hashed 2**levels times
+  while the load holds the GIL, and one list or dict used twice at every level
+  prints as 2**levels copies when the data is serialized or its signature is
+  checked. This walk follows the file's opcodes as the unpickler would, keeping
+  only the nesting depth of each stack item and the value of each leaf, and
+  refuses the file when it fetches a container from its memo or duplicates the
+  top item (DUP), so every container, and every bytearray (the load extends one
+  on APPEND), has exactly one place; when it nests deeper than
+  `_PLAIN_PICKLE_MAX_DEPTH`; when its memo fetches of leaves add up to more than
+  `_PLAIN_PICKLE_MAX_REUSE` times its size; when it memoizes an item past the
+  next free memo index, which makes the load allocate and clear a memo of 16
+  bytes per index; when a dict key or set item is anything but str, bytes,
+  bool, None or an int below 2**61 - 1 in size, since larger ints, tuples and
+  frozensets can be built to share one hash and make the load quadratic in
+  their count; and when it is larger than `_PLAIN_PICKLE_MAX_BYTES`. Strings and
+  other leaves stay shareable, as pickle shares every repeated string object.
+
+  Parameters
+  ----------
+  data : bytes
+    The whole pickle file.
+
+  Returns
+  -------
+  None
+    The file may be loaded.
+
+  Raises
+  ------
+  pickle.UnpicklingError
+    "R1FS pickle refused: ..." with the reason: larger than the bound, a
+    container used in two places, nested too deep, too much re-use, a memo index
+    out of order, a dict key or set item of a type or size not allowed, or an
+    opcode that builds no plain data (DUP, REDUCE, BUILD and the like).
+  ValueError
+    From `pickletools.genops`, when the bytes are not a whole pickle.
+  IndexError, KeyError
+    When an opcode reaches past the stack, a mark or the memo; the load would
+    fail at the same opcode.
+
+  Notes
+  -----
+  An opcode that names a class or function (GLOBAL, STACK_GLOBAL, INST) ends
+  the walk: the load stops at that opcode, where `_PlainDataUnpickler.find_class`
+  refuses it and names what the file asked for. The extension-code opcodes
+  (EXT1, EXT2, EXT4) end the walk too: the load looks the code up in copyreg's
+  extension registry, which the node leaves empty, and fails there with
+  ValueError "unregistered extension code <n>".
+  The walk is linear in the file's size. On the production interpreter it takes
+  35-100 ms per MB of an oracle-sync table on one core and 120-240 ms at 0.35
+  CPU (the load itself takes 2-4 ms), and 0.6-0.9 s per MB on one core, 3-3.7 s
+  at 0.35 CPU, for one-byte opcodes, the densest a file can be.
+
+  Examples
+  --------
+  >>> _check_plain_pickle(pickle.dumps({'0xai_node': 255}))
+  >>> shared = []
+  >>> _check_plain_pickle(pickle.dumps([shared, shared]))
+  Traceback (most recent call last):
+  ...
+  _pickle.UnpicklingError: R1FS pickle refused: it uses one container in two places
+  """
+  if len(data) > _PLAIN_PICKLE_MAX_BYTES:
+    # Refused before any opcode is read.
+    raise pickle.UnpicklingError(f"R1FS pickle refused: larger than {_PLAIN_PICKLE_MAX_BYTES} bytes")
+  # The unpickler's stack and memo, kept as pickle's own unpickler keeps them, with (depth, value) per item: depth 0
+  # and the value for a leaf, depth 1 or more and None for a container. `stack` holds the items above the newest
+  # mark, `metastack` the items below each mark.
+  stack, metastack, memo = [], [], {}
+  # Printed characters of leaves the file may still fetch again from its memo.
+  budget = _PLAIN_PICKLE_MAX_REUSE * len(data)
+  # Each opcode in file order, with its argument already decoded.
+  for opcode, arg, _ in pickletools.genops(data):
+    # The opcode's name, e.g. 'BINGET'.
+    name = opcode.name
+    if name in ('GLOBAL', 'STACK_GLOBAL', 'INST', 'EXT1', 'EXT2', 'EXT4'):
+      # The load stops at this opcode: find_class refuses what the file names, and names it in the error.
+      break
+    if name == 'MARK':
+      # The current items wait below the new mark.
+      metastack.append(stack)
+      # No items above it yet.
+      stack = []
+    elif name == 'POP_MARK' or (name == 'POP' and not stack):
+      # POP_MARK, and POP with no item above the newest mark, drop that mark and its items, as the unpickler does.
+      stack = metastack.pop()
+    elif name == 'POP':
+      # Drop the top item.
+      stack.pop()
+    elif name in ('PUT', 'BINPUT', 'LONG_BINPUT', 'MEMOIZE'):
+      # The memo index of the top item; MEMOIZE uses the next free index, as the unpickler does.
+      index = len(memo) if name == 'MEMOIZE' else arg
+      if index > len(memo):
+        # Picklers number memo items 0, 1, 2, ... in order. Past the next free index, the load grows its memo to twice
+        # the index and clears every slot: a 9-byte file with index 2**27 makes it touch 2 GiB.
+        raise pickle.UnpicklingError("R1FS pickle refused: memo index out of order")
+      # Memoize the top item.
+      memo[index] = stack[-1]
+    elif name in ('GET', 'BINGET', 'LONG_BINGET'):
+      # The memoized item this opcode would push again.
+      depth, value = memo[arg]
+      if depth:
+        # A container in a second place: the start of a tree that grows exponentially in a few bytes.
+        raise pickle.UnpicklingError("R1FS pickle refused: it uses one container in two places")
+      # A leaf fetched again costs its printed length, which a serializer writes out again.
+      budget -= len(str(value))
+      if budget < 0:
+        # More re-use than real files have: a long string fetched many times prints far larger than the file.
+        raise pickle.UnpicklingError(
+          f"R1FS pickle refused: its re-used values add up to more than {_PLAIN_PICKLE_MAX_REUSE} times its size"
+        )
+      # The leaf, pushed again.
+      stack.append((0, value))
+    elif name in _PLAIN_PICKLE_CONTAINER_OPCODES:
+      # How many items the opcode takes, and whether they go into the container below them.
+      count, into_below = _PLAIN_PICKLE_CONTAINER_OPCODES[name]
+      if count:
+        # The top `count` items ...
+        items = stack[-count:]
+        # ... are taken off the stack.
+        del stack[-count:]
+      else:
+        # All items above the newest mark, which is dropped.
+        items, stack = stack, metastack.pop()
+      if name in ('SETITEM', 'SETITEMS', 'DICT', 'ADDITEMS', 'FROZENSET'):
+        # The items the load hashes: a dict's keys (every other item, from the first) or every item of a set.
+        hashed = items if name in ('ADDITEMS', 'FROZENSET') else items[::2]
+        # Each must be a leaf whose hash a file cannot choose: str and bytes hashes are randomized at each start
+        # (unless PYTHONHASHSEED fixes them), None and bool have one each, and an int below 2**61 - 1 in size is its
+        # own hash. Larger ints, tuples and frozensets can be built so that thousands share one hash, and the load
+        # compares each with every earlier one while holding the GIL (20,000 int keys, 0.28 MB: 4.3 s at 2 cores).
+        if any(key_depth or not (key is None or isinstance(key, (str, bytes))
+                                 or (isinstance(key, int) and abs(key) < 2 ** 61 - 1)) for key_depth, key in hashed):
+          # Refused before the load hashes any of them.
+          raise pickle.UnpicklingError(
+            "R1FS pickle refused: a dict key or set item is not str, bytes, bool, None or an int below 2**61 - 1"
+          )
+      # A container is one level deeper than its deepest item.
+      depth = 1 + max([item[0] for item in items], default=0)
+      if into_below:
+        # The container below takes the items, and keeps its own depth when that is greater.
+        depth = max(depth, stack.pop()[0])
+      if depth > _PLAIN_PICKLE_MAX_DEPTH:
+        # Deeper than any real file; far deeper nesting crashes the interpreter in a recursive hash.
+        raise pickle.UnpicklingError(f"R1FS pickle refused: it nests deeper than {_PLAIN_PICKLE_MAX_DEPTH} levels")
+      # The container takes the items' place.
+      stack.append((depth, None))
+    elif not opcode.stack_before and len(opcode.stack_after) == 1:
+      # Any other opcode that pushes one item and takes none: an empty container (EMPTY_LIST, EMPTY_DICT, EMPTY_SET,
+      # EMPTY_TUPLE) or a bytearray, which counts as a container because the load extends it on APPEND and APPENDS,
+      # or a leaf (None, a bool, int, float, str or bytes), whose value is kept. PERSID and NEXT_BUFFER land here too;
+      # the load refuses both.
+      stack.append((1, None) if name.startswith('EMPTY_') or name == 'BYTEARRAY8' else (0, arg))
+    elif name not in ('PROTO', 'FRAME', 'STOP'):
+      # DUP (a second place for the top item), and REDUCE, BUILD and the like, which build no plain data.
+      raise pickle.UnpicklingError(f"R1FS pickle refused: opcode {name}; only plain data is loaded")
+
 
 class R1FSEngine:
+  """Manage encrypted file transfers through the local IPFS daemon.
+
+  Named engines keep their transfer state in the process. The file API stores
+  ciphertext in IPFS and restores authenticated plaintext to the downloads directory.
+
+  Parameters
+  ----------
+  name : str, optional
+    Key used to retrieve the engine instance within this process.
+  logger : object, optional
+    Logger supplied to the engine when it is constructed.
+  downloads_dir, uploads_dir : str, optional
+    Local transfer directories.
+  base64_swarm_key : str, optional
+    Base64-encoded private swarm key.
+  ipfs_relay_api, ipfs_relay : str, optional
+    Relay API endpoint and relay multiaddress.
+  ipfs_api_key_username, ipfs_api_key_password : str, optional
+    Credentials for the relay API.
+  ipfs_certificate_path : str, optional
+    Certificate path used for relay API TLS verification.
+  debug : bool, optional
+    Enable debug logging.
+  min_connection_age : int, optional
+    Legacy connection warm-up setting.
+
+  Returns
+  -------
+  R1FSEngine
+    The engine instance for ``name``.
+
+  Notes
+  -----
+  A new name constructs an engine and can start a local IPFS daemon. Reusing a
+  name returns the existing engine and preserves its configuration and state.
+
+  Examples
+  --------
+  >>> data = engine.get_json(cid, max_seconds=2, pin=False)  # doctest: +SKIP
+  """
   
   # __new__ holds this lock while constructing and starting the singleton instance.
   # Startup may re-enter code paths that need the same class-level guard, so this
@@ -256,7 +579,9 @@ class R1FSEngine:
       pass run at a time (``get_file`` hands its relay work to that pass instead of
       doing it itself). It also starts the two counters of
       ``__report_relay_data_path``: the failed reads of CIDs the relay had accepted,
-      and the time its last line was printed; the per-kind counters of
+      and the time its last line was printed; ``__relay_reconnect_peer``, the relay
+      peer id that line leaves for the background pass to reconnect (``None`` when no
+      reconnect is due); the per-kind counters of
       ``__report_rate_limited``; and ``__relay_in_flight``, the relay request the
       background pass is sending at the moment, which ``unpin_file`` marks when it
       unpins that CID meanwhile.
@@ -343,6 +668,9 @@ class R1FSEngine:
       self.__relay_data_failures = 0
       # time.time() of the last such line printed; 0 lets the first one print at once.
       self.__relay_data_logged_at = 0
+      # Peer id of the relay whose link such a line asked the background pass to close and dial again; None when
+      # no reconnect is due. Set by __report_relay_data_path, taken and cleared by __heal_remembered_cids.
+      self.__relay_reconnect_peer = None
       # Per kind of event, [events since start, time.time() of the last line]: see __report_rate_limited.
       self.__rate_limited_reports = {}
       # The relay pin/add the background pass is sending, as [cid, unpinned], set just before the pass reads the CID's
@@ -1138,7 +1466,26 @@ class R1FSEngine:
 
     def __heal_remembered_cids(self, show_logs: bool = True):
       """
-      Ask the relay to fetch the CIDs whose reads failed.
+      Reconnect the relay if a RELAY DATA PATH line asked for it, then ask it to fetch the CIDs whose reads failed.
+
+      When ``__report_relay_data_path`` printed its line, it left the relay's peer id
+      in ``__relay_reconnect_peer``. The first call after that takes it and clears it,
+      runs one ``ipfs swarm disconnect /p2p/<peer id>`` (5 s timeout; "not connected"
+      is not an error) and one ``ipfs swarm connect <relay>`` (15 s timeout), and says
+      the outcome in a boxed red line whatever ``show_logs`` is. A fresh connection is
+      one the block exchange uses: in the lab this reconnect repaired 10 of 10 blind
+      relay links; its line was logged 0.07 to 0.11 s after the failed read returned,
+      and the next read succeeded in 0.2 to 0.3 s. This runs here, on the background
+      pass, because the line is printed on the reader's thread, which two more
+      commands could hold up to 20 s more. The pass calls this before each queued publication
+      and before it ends, so a pass that is already running reconnects at its next
+      such point, before its next relay request. One already past its last such point
+      leaves it to the next pass, which the next read starts while
+      ``__relay_heal_pending`` is not empty (the read that printed the line left its CID
+      there, or found the set full), and any later failed read starts otherwise. There
+      is at most one reconnect per printed line (see ``__report_relay_data_path`` for
+      how often lines print), but a reconnect runs at the pass's next heal point, so
+      two reconnects can come closer than their lines.
 
       Runs on the background relay pass only. It heals the CIDs that are in
       ``__relay_heal_pending`` when it is called and no others: a CID that a read adds
@@ -1168,12 +1515,31 @@ class R1FSEngine:
       either makes the heal skip or marks it; a marked heal records nothing and
       undoes a pin that got through (see ``__attempt_download_self_heal``). The slot
       is cleared when the snapshot is done.
+      The reconnect request is taken and cleared in one statement that is not atomic:
+      a line printed by another thread at that very moment can be lost, and the next
+      line (600 s or more later) asks again. A failed dial is said in the boxed line
+      (and by the command runner in red); the node then has no direct link to the
+      relay until a later dial opens one.
 
       Examples
       --------
       >>> # on the background "r1fs-relay" thread
       >>> self.__heal_remembered_cids(show_logs=False)
       """
+      # The relay peer id a RELAY DATA PATH line left here, taken and cleared at once so the reconnect runs once.
+      peer_id, self.__relay_reconnect_peer = self.__relay_reconnect_peer, None
+      if peer_id:
+        # Close every connection to the relay, named by its peer id alone so it closes one from any address or port;
+        # Kubo answers "not connected" with exit code 0 when there is none, so the runner says nothing in red then.
+        self.__swarm_disconnect("/p2p/" + peer_id, timeout=5)
+        # Then one fresh dial, which the block exchange uses (in the lab it repaired 10 of 10 blind relay links, the
+        # next read succeeding in 0.2 to 0.3 s); bounded at 15 s on this background thread.
+        connected, output, errors = self.__swarm_connect(self.__ipfs_relay, timeout=15)
+        self.P(
+          f"RELAY DATA PATH: link to relay {self.__ipfs_relay} closed and dialed again: "
+          f"{'connected' if connected else 'dial failed'} ({errors or output or 'no answer in 15 s'}).",
+          color='r', boxed=True
+        )
       # A snapshot of the set: what reads add from here on is left for the next call.
       for cid in list(self.__relay_heal_pending):
         # Show unpin_file this heal before the CID is taken from the set: an unpin drops the CID from the set before
@@ -1447,7 +1813,14 @@ class R1FSEngine:
       Only when the line is printed, ``ipfs swarm peers`` and
       ``ipfs bitswap ledger <relay peer id>`` run (5 s timeout each), to tell whether
       the node has a direct connection to the relay (not through a circuit) and what
-      its Bitswap ledger with the relay holds. Nothing is repaired or reconnected.
+      its Bitswap ledger with the relay holds. Then it leaves the relay's peer id in
+      ``__relay_reconnect_peer``, and the background relay pass (``get_file`` calls
+      ``__relay_in_background`` right after this) closes the relay link and dials it
+      again once (see ``__heal_remembered_cids``): at most one reconnect per printed
+      line, but a reconnect runs at the pass's next heal point, so two reconnects can
+      come closer than their lines. That is not done here: this runs on the reader's
+      thread (a dAuth request's, for one), which the two commands could hold up to
+      20 s more.
 
       Parameters
       ----------
@@ -1473,7 +1846,8 @@ class R1FSEngine:
       joined into one.
       ``__parse_multiaddr`` returns None when the relay multiaddr has no tcp port or
       no peer id, and R1FS can still start with such a relay through
-      ``ipfs swarm connect``. The two commands are then not run and the line says so.
+      ``ipfs swarm connect``. The two commands are then not run, the line says so, and
+      no reconnect is asked for, since there is no peer id to name.
       Two reads failing at the same moment on different threads can both print, or
       count one read less.
 
@@ -1517,6 +1891,8 @@ class R1FSEngine:
         )
         # What the two commands found, for the line below.
         checks = f"Direct link: {direct}. {ledger or 'Ledger unreadable'}"
+        # Ask the background relay pass for one reconnect of the relay, off this thread (see __heal_remembered_cids).
+        self.__relay_reconnect_peer = relay_id
       self.P(
         f"RELAY DATA PATH: relay {self.__ipfs_relay} accepted {cid} at {status['relay_last_success_at']}, "
         f"but this node got nothing in {now - read_started_at:.0f} s. {checks}. "
@@ -2346,7 +2722,13 @@ class R1FSEngine:
       and loses this race on most starts. So the configured peers are held back: the
       list is emptied before the daemon is launched, and once the daemon API answers
       (the block exchange is running by then) each held-back peer is dialed and put
-      back in the list.
+      back in the list. Right before its dial, every connection to that peer is
+      closed by its peer id (``ipfs swarm disconnect /p2p/<peer id>``, 5 s timeout):
+      a connection the peer itself opened while the daemon was being built is as
+      blind, and ``swarm connect`` would keep it as already connected. In the lab,
+      without the disconnect 7 of 40 starts ended with a relay link that carries no
+      block requests (the relay's own connection was up 54 to 87 ms after the
+      launch), with it 0 of 40; it adds about 40 ms to a start.
 
       Parameters
       ----------
@@ -2399,6 +2781,11 @@ class R1FSEngine:
           self.P("IPFS daemon started successfully.", color='g')
           # Only now dial the held-back peers and give them back to the daemon.
           for multiaddr in held_back_peers:
+            # First close any connection to the peer, named by its peer id (the last part of a Bootstrap entry): one
+            # the peer opened while the daemon was being built is as blind as one dialed then, and the dial below
+            # would keep it as already connected (lab: 7 of 40 starts blind without this, 0 of 40 with it, about
+            # 40 ms more). Kubo answers "not connected" with exit code 0, so the runner says nothing in red then.
+            self.__swarm_disconnect("/p2p/" + multiaddr.split("/")[-1], timeout=5)
             # The API answers, so the block exchange is running: a connection opened now is one it uses.
             connected, output, errors = self.__swarm_connect(multiaddr)
             if not connected:
@@ -2842,9 +3229,6 @@ class R1FSEngine:
             f.write(json_data)
         #end if tempfile
         
-        if show_logs:
-          self.Pd(f"About to call add_file with: file_path={fn}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
-        
         cid = self.add_file(
           file_path=fn,
           secret=secret,
@@ -3030,9 +3414,6 @@ class R1FSEngine:
           with open(fn, "wb") as f:
             pickle.dump(data, f)
         
-        if show_logs:
-          self.Pd(f"About to call add_file with: file_path={fn}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
-        
         cid = self.add_file(
           file_path=fn,
           secret=secret,
@@ -3158,7 +3539,6 @@ class R1FSEngine:
       if show_logs:
         self.Pd(f"Original basename: {original_basename}")
         self.Pd(f"Metadata: {meta_dict}")
-        self.Pd(f"Secret hash (first 16 bytes): {key[:16].hex()}")
 
       tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
       
@@ -3257,6 +3637,95 @@ class R1FSEngine:
       return folder_cid
 
 
+    def __restore_download(self, cipher_path, key):
+      """Restore a downloaded file after its ciphertext authenticates.
+
+      Stream the body into a private temporary directory beside the encrypted
+      file. Verify the GCM tag before interpreting its metadata or publishing
+      the plaintext under the authenticated filename.
+
+      Parameters
+      ----------
+      cipher_path : str
+        Path of the downloaded encrypted file.
+      key : bytes
+        Candidate AES key.
+
+      Returns
+      -------
+      str
+        Restored file path in the original download directory.
+
+      Raises
+      ------
+      InvalidTag
+        The key did not authenticate the ciphertext.
+      ValueError
+        The ciphertext is incomplete, or authenticated metadata cannot be
+        decoded or supplies an invalid filename.
+      AttributeError
+        The authenticated JSON metadata is a value other than an object.
+      OSError
+        A local file or directory operation failed.
+
+      Notes
+      -----
+      The layout begins with a 12-byte nonce and a 4-byte metadata length and
+      ends with a 16-byte tag. Plaintext is written in chunks of up to 1 MiB.
+      The temporary output is removed after every attempt. The caller checks
+      that the input is a regular file and removes the original ciphertext
+      if restoring it did not replace that path.
+
+      Examples
+      --------
+      >>> engine._R1FSEngine__restore_download(cipher_path, key)  # doctest: +SKIP
+      """
+      # The private staging directory is on the same filesystem as the final file.
+      folder = os.path.dirname(cipher_path)
+      # Remove candidate plaintext automatically when opening, restoring or authenticating fails.
+      with tempfile.TemporaryDirectory(prefix=".r1fs-", dir=folder) as staging:
+        # The caller has already checked that this path is a regular file.
+        with open(cipher_path, "rb") as fin:
+          # Read the GCM nonce and encrypted metadata length from the fixed header.
+          nonce = fin.read(12)
+          # The metadata length occupies the following four bytes.
+          meta_len = int.from_bytes(fin.read(4), "big")
+          # Reserve the final sixteen bytes for the tag and bound the metadata by the file size.
+          remaining = os.fstat(fin.fileno()).st_size - 12 - 4 - meta_len - 16
+          if len(nonce) != 12 or remaining < 0:
+            # Refuse an incomplete header or a body shorter than the declared metadata and tag.
+            raise ValueError("Invalid R1FS ciphertext size")
+          # Authenticate the metadata and body as one AES-GCM stream.
+          decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).decryptor()
+          # The proposed filename is unavailable to the filesystem before the tag passes.
+          metadata = decryptor.update(fin.read(meta_len))
+          # Use a private path independent of that filename.
+          staging_path = os.path.join(staging, "payload")
+          # Write candidate plaintext inside the private directory until authentication succeeds.
+          with open(staging_path, "wb") as output:
+            # The metadata length and file size determine precisely how much body remains before the tag.
+            while remaining > 0:
+              # Read up to 1 MiB at a time and leave the final 16-byte tag for authentication.
+              chunk = fin.read(min(remaining, 1024 * 1024))
+              if not chunk:
+                # A truncated read must not be interpreted as a complete body.
+                raise ValueError("Incomplete R1FS ciphertext")
+              # The temporary directory is removed if the tag fails.
+              output.write(decryptor.update(chunk))
+              # Advance to the end of the encrypted body.
+              remaining -= len(chunk)
+            # Finalize before making the output visible at its requested name.
+            output.write(decryptor.finalize_with_tag(fin.read(16)))
+        # Decode only authenticated metadata.
+        filename = json.loads(metadata.decode("utf-8")).get("filename", "restored_file.bin")
+        # Refuse any path that could escape the download directory.
+        self.__refuse_unplain_name(filename, raise_on_error=True)
+        # The output can replace the ciphertext if both names match.
+        out_path = os.path.join(folder, filename)
+        # Publish only authenticated plaintext under its final filename.
+        os.replace(staging_path, out_path)
+      return out_path
+
     @require_ipfs_started
     def get_file(
       self,
@@ -3268,13 +3737,16 @@ class R1FSEngine:
       raise_on_error: bool = False,
       show_logs: bool = True,
       return_absolute_path: bool = True,
+      # Keep existing positional arguments in their original order.
+      max_seconds: float = None,
+      # Extra passphrases are tried locally against the same downloaded bytes.
+      fallback_secrets: tuple = (),
     ) -> str:
-      """
-      Retrieve an encrypted file from R1FS by CID, decrypt with AES-GCM in streaming mode.
-      The secret parameter is mandatory (default 'ratio1'). The original filename is
-      restored from JSON metadata.
+      """Fetch and decrypt an R1FS file by CID.
 
-      R1FS get can time out if it stalls. If the timeout is None, we use IPFSCt.TIMEOUT.
+      Download the ciphertext once, optionally pin it, and restore the filename
+      recorded in its authenticated metadata. Optional fallback passphrases
+      are attempted locally against the same download.
 
       Parameters
       ----------
@@ -3285,19 +3757,21 @@ class R1FSEngine:
         ``/ipfs/<cid>`` or ``<cid>/sub/path`` are refused.
 
       local_folder : str, optional
-        Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
+        Parent folder for the CID directory. Defaults to the engine's downloads folder.
 
       secret : str, optional
-        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+        Primary AES-GCM passphrase. ``None`` or an empty string selects the default, ``ratio1``.
 
-      timeout : int, optional
-        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+      timeout : float, optional
+        Maximum seconds for the fetch. ``None`` or zero selects 90 seconds.
 
       pin : bool, optional
-        If True, we optionally pin the folder. Default True.
+        Attempt to pin after fetching. Defaults to True. A failed pin is logged
+        and the file can still be restored.
 
       raise_on_error : bool, optional
-        If True, raise an Exception on command errors/timeouts. Otherwise logs them. Default False.
+        Raise for an invalid CID or a failed fetch or restore. Defaults to False.
+        Startup, budget validation and some filesystem failures can still raise.
 
       show_logs : bool, optional
         If True, logs steps via self.P / self.Pd. Default True.
@@ -3305,26 +3779,35 @@ class R1FSEngine:
       return_absolute_path : bool, optional
         If True, return the absolute path to the restored plaintext file.
 
+      max_seconds : float, optional
+        Finite, nonnegative time budget for the foreground IPFS commands. The
+        get and optional pin share a monotonic deadline. A zero budget fails
+        the read before starting a command. Defaults to None.
+
+      fallback_secrets : iterable of str or None, optional
+        Additional passphrases in attempt order. ``None`` or an empty string
+        selects the default. The next passphrase is tried only if AES-GCM
+        authentication fails.
+
       Returns
       -------
-      str
-        The full path to the restored plaintext file, or None when the read
-        fails and raise_on_error=False (an invalid ``cid`` included).
+      str or None
+        The restored plaintext path, absolute by default. Returns None for a
+        refused CID or an unsuccessful fetch or restore when ``raise_on_error``
+        is False.
 
       Raises
       ------
       ValueError
-        If ``cid`` is not a bare CID (see ``cid``) and raise_on_error=True.
+        If ``max_seconds`` is negative or nonfinite, or if ``cid`` is not a
+        bare CID (see ``cid``) and raise_on_error=True.
 
       RuntimeError
-        If multiple or zero files are found in the downloaded folder,
-        or if we fail to parse the JSON metadata, or if the file name stored in
-        the metadata is not a plain file name, or if the download or its single
-        entry is a link or not a regular folder / file, and raise_on_error=True.
-
-      Exception
-        If the GCM tag is invalid or the IPFS command times out
-        and raise_on_error=True.
+        If IPFS has not started. With ``raise_on_error=True``, also raised for
+        a zero or exhausted budget, fetch failure, invalid download layout, or
+        a file that cannot be authenticated or restored.
+      OSError
+        If local setup, directory inspection, or removal of a failed download fails.
 
       Notes
       -----
@@ -3339,10 +3822,11 @@ class R1FSEngine:
       object's own metadata, which whoever added the object chose. It must be a plain
       file name (no path part, not '', '.' or '..'), so the plaintext is written only
       inside ``local_folder/<cid>``; any other name is refused through the decryption
-      error path. The GCM tag is checked only after all plaintext was written, so when
-      decryption fails (refused name and bad tag included) ``local_folder/<cid>``, which
-      this call made and which holds only the ciphertext and that plaintext, is removed
-      before the error is raised or logged: no unauthenticated plaintext stays on disk.
+      error path. The candidate file stays in a private directory until the GCM
+      tag passes. Failed candidate files are removed before trying another key.
+      Errors during decryption or restoration remove the whole download directory.
+      A failed fetch or a refused root directory may leave an entry for the next
+      attempt to remove.
 
       ``ipfs get`` writes a UnixFS symlink as a link that can point anywhere on this
       node, while an R1FS object is one regular file by construction. So when
@@ -3353,12 +3837,12 @@ class R1FSEngine:
       that is a link or not a regular file is refused before it is opened, through
       the decryption error path, which removes the folder with the link.
 
-      ``ipfs get`` runs first and is bounded by ``timeout``; when ``pin`` is True the
+      Without ``max_seconds``, ``ipfs get`` runs first and is bounded by ``timeout``; when ``pin`` is True the
       CID is pinned only after a successful get, with only the time the get left
       (at least 1 s), so the get and the pin together take about ``timeout`` at most,
       about 1 s more when the get used nearly all of it. Starting the ``ipfs``
       commands and decryption are not counted in that time. A failed pin is logged in red and not retried; the read
-      still returns the file. Relay work never runs on the caller's thread: after a failed
+      still returns the file if decryption succeeds. Relay maintenance runs in the background. After a failed
       get the CID is remembered for the background relay pass (see
       ``__relay_in_background``), which asks the relay to fetch it so a later read
       can find it and also retries the queued relay publications. The failed read
@@ -3366,12 +3850,23 @@ class R1FSEngine:
       read began also prints a boxed red "RELAY DATA PATH" line, whatever
       ``show_logs`` is, at most once per 600 s (see ``__report_relay_data_path``).
 
+      With ``max_seconds``, the get also respects the remaining time, the pin
+      uses only what remains even below 1 s, and relay diagnostics that run IPFS
+      commands on the caller's thread are skipped. Relay maintenance stays in
+      the background. Local filesystem work, process startup and decryption
+      are synchronous and may add to the elapsed time.
+
       Examples
       --------
       >>> # Simple usage with default passphrase
       >>> local_file = engine.get_file("QmEncFolderXYZ")
       >>> print(local_file)
       /app/downloads/QmEncFolderXYZ/original_filename.bin
+
+      >>> engine.get_file("QmEncFolderXYZ", max_seconds=2, pin=False)
+      '/app/downloads/QmEncFolderXYZ/original_filename.bin'
+
+      >>> path = engine.get_file(cid, secret=shared_secret, fallback_secrets=(None,))  # doctest: +SKIP
       
       >>> # Not a bare CID: refused, nothing is deleted
       >>> print(engine.get_file("../.."))
@@ -3385,11 +3880,23 @@ class R1FSEngine:
       if self.__refuse_invalid_cid(cid, raise_on_error=raise_on_error, show_logs=show_logs):
         # Refused and logged before anything was deleted: the read fails.
         return None
-      
-      if secret in ["", None]:
-        secret = self.__DEFAULT_SECRET
-        
-      key = self._hash_secret(secret)
+
+      # Leave the existing fetch and pin timeouts in control when no budget is provided.
+      deadline = None
+      if max_seconds is not None:
+        if not isfinite(max_seconds) or max_seconds < 0:
+          # Reject values that cannot describe a finite interval.
+          raise ValueError("max_seconds must be finite and nonnegative")
+        if max_seconds == 0:
+          # Avoid removing or creating any paths when the caller allowed no time.
+          message = f"Failed to download CID {cid}: IPFS read deadline expired"
+          if raise_on_error:
+            # Report expiry the same way as a timed-out download.
+            raise RuntimeError(message)
+          self.P(message, color='r')
+          return None
+        # Use a single clock independent of wall time across download setup, fetch and pin.
+        deadline = time.monotonic() + max_seconds
 
       if local_folder is None:
         local_folder = self.__downloads_dir # default downloads directory
@@ -3427,17 +3934,25 @@ class R1FSEngine:
       start_time = time.time()
       download_error = None
       try:
+        # Cap the requested fetch timeout by the budget remaining after local setup.
+        fetch_timeout = min(ipfs_timeout, deadline - time.monotonic()) if deadline is not None else ipfs_timeout
+        if deadline is not None and fetch_timeout <= 0:
+          # Do not start a subprocess with an exhausted deadline.
+          raise TimeoutError("IPFS read deadline expired")
+        # Use the remaining budget for the single fetch attempt.
         self.__run_command(
           ["ipfs", "get", cid, "-o", local_folder],
-          timeout=ipfs_timeout,
+          timeout=fetch_timeout,
           raise_on_error=True,
           show_logs=show_logs
         )
       except Exception as e:
         download_error = str(e)
         self.P(f"Initial ipfs get failed for {cid}: {download_error}", color='y')
-        # Read the CID's relay status now: the background heal started below marks it unpublished while it runs.
-        self.__report_relay_data_path(cid, start_time)
+        # The legacy diagnostic can invoke extra IPFS commands and is skipped for deadline-bound reads.
+        if deadline is None:
+          # With no budget, check the relay before background healing marks this CID unpublished.
+          self.__report_relay_data_path(cid, start_time)
       # Relay work never runs on the reader's thread. A CID this get missed is remembered for the background
       # pass, which asks the relay to fetch it so a later read can find it.
       self.__relay_in_background(heal_cid=cid if download_error else None, show_logs=show_logs)
@@ -3452,10 +3967,16 @@ class R1FSEngine:
         # is quick when the blocks the get stored are still local; a repository garbage collection between
         # the get and the pin removes them, and the pin then has to fetch them again.
         try:
-          # Give the pin only the time the read has left (at least 1 s), not a second full window, so the get
-          # and the pin together take about the caller's timeout at most. A failure only logs: the data is
-          # already on disk, so the read goes on.
-          self.__pin_add(cid, timeout=max(1, ipfs_timeout - download_elapsed_time))
+          # Keep the original one-second minimum unless the deadline leaves less time.
+          pin_timeout = max(1, ipfs_timeout - download_elapsed_time)
+          # Only an explicit budget can reduce the legacy pin allowance below one second.
+          if deadline is not None:
+            # Include time spent starting background maintenance before the pin.
+            pin_timeout = min(pin_timeout, deadline - time.monotonic())
+          # The data is already on disk, so skip the optional pin when the budget has expired.
+          if pin_timeout > 0:
+            # Pass the remaining allowance through to the IPFS command.
+            self.__pin_add(cid, timeout=pin_timeout)
         except Exception as e:
           # Red, not yellow: the read returns the file, but the pin failed and nothing retries it.
           self.P(f"Pin after download failed for {cid}: {e}", color='r')
@@ -3493,61 +4014,32 @@ class R1FSEngine:
         if os.path.islink(cipher_path) or not os.path.isfile(cipher_path):
           # Into the except below, before anything is opened.
           raise ValueError(f"{contents[0]!r} is not a regular file")
-        with open(cipher_path, "rb") as fin:
-          nonce = fin.read(12)
-          meta_len_bytes = fin.read(4)
-          meta_len = int.from_bytes(meta_len_bytes, "big")
-
-          decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).decryptor()
-          
-          # Read the metadata and decrypt it
-          enc_meta_data = fin.read(meta_len)
-          meta_data = decryptor.update(enc_meta_data) # TODO: verify if this is correct
-          meta_dict = json.loads(meta_data.decode("utf-8"))
-
-          original_filename = meta_dict.get("filename", "restored_file.bin")
-          # Whoever added the object chose this name, and the plaintext is written under it: only a plain file
-          # name keeps it inside local_folder. A refused name raises into the error path below.
-          self.__refuse_unplain_name(original_filename, raise_on_error=True)
-
-          # File size + chunk logic to isolate last 16 bytes as GCM tag
-          fin.seek(0, os.SEEK_END)
-          total_size = fin.tell()
-          data_start = 12 + 4 + meta_len
-          tag_size = 16
-          content_size = total_size - data_start - tag_size
-          fin.seek(data_start, os.SEEK_SET)
-
-          out_path = os.path.join(local_folder, original_filename)
-          if return_absolute_path:
-            out_path = os.path.abspath(out_path)
-          chunk_size = 1024 * 1024
-
-          with open(out_path, "wb") as fout:
-            remaining = content_size
-            while remaining > 0:
-              read_len = min(chunk_size, remaining)
-              chunk = fin.read(read_len)
-              if not chunk:
-                break
-              fout.write(decryptor.update(chunk))
-              remaining -= read_len
-            #end while there are still bytes to read
-            # Final 16 bytes => GCM tag
-            tag = fin.read(16)
-            # decryptor.authenticate_tag(tag)
-            # final_pt = decryptor.finalize()
-            final_pt = decryptor.finalize_with_tag(tag)
-            if final_pt:
-              fout.write(final_pt)
-          #end with fout 
-        #end with fin
+        # Try the caller's primary passphrase before local compatibility candidates.
+        for candidate in (secret, *fallback_secrets):
+          # Preserve the default for both None and the empty passphrase.
+          key = self._hash_secret(self.__DEFAULT_SECRET if candidate in (None, "") else candidate)
+          try:
+            # Every candidate uses the single local download.
+            out_path = self.__restore_download(cipher_path, key)
+          except InvalidTag:
+            # Only authentication failure advances to another candidate.
+            continue
+          # An authenticated result finishes the local search.
+          break
+        else:
+          # Report exhaustion through the restore error path after all candidates fail authentication.
+          raise InvalidTag("No candidate secret authenticated the R1FS file")
+        if cipher_path != out_path:
+          # Leave the restored file in place when its name replaced the ciphertext's name.
+          os.remove(cipher_path)
+        if return_absolute_path:
+          # Keep the return-path policy independent of which key worked.
+          out_path = os.path.abspath(out_path)
+        # The reported decryption time includes all local key attempts.
         decrypt_elapsed_time = time.time() - start_time
       except Exception as e:
         out_path = None
-        # The tag is checked only after all plaintext was written, so a failed read can leave unauthenticated
-        # plaintext next to the ciphertext. This call made local_folder and only those two are in it: remove it,
-        # so nothing unverified stays on disk (the ciphertext removal below is then skipped).
+        # Remove the failed download after the candidate's private directory has been cleaned up.
         shutil.rmtree(local_folder)
         msg = f"Error decrypting file {cipher_path}: {e}"
         if raise_on_error:
@@ -3556,9 +4048,6 @@ class R1FSEngine:
           self.P(msg, color='r')
           return
       #end try
-
-      # Optionally remove the ciphertext
-      os.remove(cipher_path)      
 
       if out_path:
         if show_logs:
@@ -3579,8 +4068,26 @@ class R1FSEngine:
       show_logs: bool = True,
     ):
       """
-      Retrieve and deserialize a pickle file from R1FS by CID.
-      Uses get_file under the hood to download and decrypt the file, then loads it with pickle.
+      Retrieve and deserialize a pickle file from R1FS by CID, as plain data only.
+
+      Uses get_file under the hood to download and decrypt the file, then loads it
+      with `_PlainDataUnpickler`: only None, bool, int, float, str, bytes, and
+      lists, tuples, dicts, sets and frozensets of these are built. A file that
+      names any class or function (a class instance, a numpy value) is refused
+      before anything it names is imported or called, because the CID usually
+      comes from another node's message and a full pickle load would run whatever
+      the file asks for. Before the load, `_check_plain_pickle` refuses a file
+      larger than `_PLAIN_PICKLE_MAX_BYTES` (8 MiB), one that uses one container
+      object in two places (a few hundred bytes of such a file can take
+      exponential time to hash or serialize), one nested deeper than
+      `_PLAIN_PICKLE_MAX_DEPTH` (32) levels, one whose re-used strings and other
+      leaves add up to more than `_PLAIN_PICKLE_MAX_REUSE` (16) times its size,
+      one that memoizes an item past the next free memo index (the load would
+      allocate 16 bytes per index), and one with a dict key or set item other
+      than str, bytes, bool, None or an int below 2**61 - 1 in size (larger
+      ints, tuples and frozensets can be built to share one hash, which makes
+      the load quadratic); data with a container in two places must be stored as
+      copies, and dicts keyed by tuples or floats are not loaded.
 
       Parameters
       ----------
@@ -3591,10 +4098,10 @@ class R1FSEngine:
         Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
 
       secret : str, optional
-        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+        Passphrase for AES-GCM. None or '' means the default, 'ratio1'.
 
       timeout : int, optional
-        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+        Maximum seconds for the IPFS get. If None, get_file uses 90 s.
 
       pin : bool, optional
         If True, we optionally pin the folder. Default True.
@@ -3608,20 +4115,30 @@ class R1FSEngine:
       Returns
       -------
       any
-        The deserialized Python object from the pickle file.
+        The plain data from the pickle file, or None when the read or the load
+        fails (a refused file included) and raise_on_error=False.
 
       Raises
       ------
-      ValueError
-        If the secret is empty.
-
       RuntimeError
-        If multiple or zero files are found in the downloaded folder,
-        or if we fail to parse the JSON metadata.
+        When R1FS is not started (always). With raise_on_error=True: when the
+        download or decryption fails (see get_file), and when the file does not
+        load; a refused file gives "Error loading pickle file <path>: R1FS pickle
+        refused: <reason>", where the reason is "it names <module>.<name>; only
+        plain data is loaded", "larger than <n> bytes", "it uses one container in
+        two places", "it nests deeper than <n> levels", "its re-used values add up
+        to more than <n> times its size", "memo index out of order", "a dict key
+        or set item is not str, bytes, bool, None or an int below 2**61 - 1" or
+        "opcode <name>; only plain data is loaded".
 
-      Exception
-        If the GCM tag is invalid or the IPFS command times out
-        and raise_on_error=True.
+      ValueError
+        With raise_on_error=True, when ``cid`` is not a bare CID (see get_file).
+
+      Notes
+      -----
+      The decrypted file is removed after a successful load. A file that does not
+      load (a refused one included) is left in the downloads folder unloaded; the
+      next get_file of that CID clears it.
 
       Examples
       --------
@@ -3630,9 +4147,14 @@ class R1FSEngine:
       >>> print(data)
       {'key': 'value', 'list': [1, 2, 3]}
       
+      >>> # A file that holds a class instance: refused, nothing of it runs
+      >>> print(engine.get_pickle("QmFileWithAnObject"))
+      None
+
+      >>> # A file that uses one list in two places: refused before anything is built
+      >>> print(engine.get_pickle("QmFileWithASharedList"))
+      None
       """
-      import pickle
-      
       # Use get_file to download and decrypt the file
       file_path = self.get_file(
         cid=cid,
@@ -3656,8 +4178,13 @@ class R1FSEngine:
       # Load the pickle file
       try:
         with open(file_path, "rb") as f:
-          data = pickle.load(f)
-        
+          # One byte past the bound at most, so a larger file is refused without reading all of it.
+          raw = f.read(_PLAIN_PICKLE_MAX_BYTES + 1)
+        # Refused before anything is built: larger than the bound, a container in two places, too deep, too much re-use.
+        _check_plain_pickle(raw)
+        # Plain data only: a file that names a class or function raises here, before anything of it runs.
+        data = _PlainDataUnpickler(BytesIO(raw)).load()
+
         if show_logs:
           self.Pd(f"Successfully loaded pickle data from {file_path}")
         
@@ -3687,51 +4214,75 @@ class R1FSEngine:
       pin: bool = True,
       raise_on_error: bool = False,
       show_logs: bool = True,
+      # Expose the file read's deadline without shifting existing positional arguments.
+      max_seconds: float = None,
+      # Existing file reader overrides receive this keyword only for an explicit fallback.
+      fallback_secrets: tuple = (),
     ):
-      """
-      Retrieve and deserialize a JSON file from R1FS by CID.
-      Uses get_file under the hood to download and decrypt the file, then loads it with json.
+      """Read a JSON document from R1FS by CID.
+
+      Delegate the ciphertext fetch and authentication to ``get_file``. Decode
+      the restored UTF-8 document and remove its local file after parsing.
 
       Parameters
       ----------
       cid : str
-        The folder CID (wrapped single file).
+        Bare CID of the folder wrapping the single encrypted JSON file.
 
       local_folder : str, optional
-        Destination folder. If None, we default to something like self.__downloads_dir/<CID>.
+        Parent folder for the CID directory. Defaults to the engine's downloads folder.
 
       secret : str, optional
-        Passphrase for AES-GCM. Must not be empty. Defaults to 'ratio1'.
+        Primary AES-GCM passphrase. ``None`` or an empty string selects the default, ``ratio1``.
 
-      timeout : int, optional
-        Maximum seconds for the IPFS get. If None, use IPFSCt.TIMEOUT.
+      timeout : float, optional
+        Maximum seconds for the fetch. ``None`` or zero selects 90 seconds.
 
       pin : bool, optional
-        If True, we optionally pin the folder. Default True.
+        Attempt to pin after fetching. Defaults to True.
 
       raise_on_error : bool, optional
-        If True, raise an Exception on command errors/timeouts. Otherwise logs them. Default False.
+        Raise for an invalid CID, failed fetch or restore, or failure to read,
+        parse or remove the restored JSON file. Defaults to False.
 
       show_logs : bool, optional
         If True, logs steps via self.P / self.Pd. Default True.
 
+      max_seconds : float, optional
+        Time budget for foreground IPFS commands, passed to ``get_file`` when supplied.
+        Local file decryption and JSON parsing may add to the elapsed time.
+
+      fallback_secrets : iterable of str or None, optional
+        Additional passphrases tried locally, in order, after authentication
+        failure using the primary secret or a previous candidate. ``None`` or
+        an empty string as a candidate selects the default passphrase.
+
       Returns
       -------
-      any
-        The deserialized JSON object from the file.
+      object or None
+        The decoded JSON value. None represents JSON null or an unsuccessful
+        read or parse when ``raise_on_error`` is False.
 
       Raises
       ------
       ValueError
-        If the secret is empty.
+        If ``max_seconds`` is negative or nonfinite, or if the CID is refused
+        and ``raise_on_error`` is True.
 
       RuntimeError
-        If multiple or zero files are found in the downloaded folder,
-        or if we fail to parse the JSON metadata.
+        If IPFS has not started. When ``raise_on_error`` is True, also raised
+        if the read fails or the restored JSON file cannot be read, parsed or removed.
+      OSError
+        If an unhandled local filesystem error from ``get_file`` propagates.
 
-      Exception
-        If the GCM tag is invalid or the IPFS command times out
-        and raise_on_error=True.
+      Notes
+      -----
+      All passphrase attempts share one fetch. A supplied ``max_seconds``
+      bounds the foreground fetch and optional pin; local file work and JSON
+      parsing can add to the elapsed time. Zero is forwarded and fails before
+      any IPFS command starts. Calls with neither a deadline nor fallback
+      candidates still work with overrides using the original ``get_file`` signature.
+      A JSON decoding failure leaves the restored file in its downloads directory.
 
       Examples
       --------
@@ -3739,9 +4290,16 @@ class R1FSEngine:
       >>> data = engine.get_json("QmEncFolderXYZ")
       >>> print(data)
       {'key': 'value', 'list': [1, 2, 3]}
+
+      >>> data = engine.get_json(cid, secret=shared_secret, max_seconds=2, fallback_secrets=(None,))  # doctest: +SKIP
       
       """
-      # Use get_file to download and decrypt the file
+      # Preserve existing get_file overrides when no deadline was requested.
+      read_options = {} if max_seconds is None else {"max_seconds": max_seconds}
+      if fallback_secrets:
+        # Forward local candidates only when supplied, preserving the delegation contract.
+        read_options["fallback_secrets"] = fallback_secrets
+      # Use get_file to download and decrypt the file.
       file_path = self.get_file(
         cid=cid,
         local_folder=local_folder,
@@ -3750,7 +4308,9 @@ class R1FSEngine:
         pin=pin,
         raise_on_error=raise_on_error,
         show_logs=show_logs,
-        return_absolute_path=True
+        return_absolute_path=True,
+        # Forward only supplied read options, including an explicit zero deadline.
+        **read_options,
       )
       
       if file_path is None:
@@ -4690,7 +5250,6 @@ class R1FSEngine:
         self.Pd(f"Nonce input: {nonce}, Generated nonce bytes: {nonce_bytes.hex()}")
         self.Pd(f"Original basename: {original_basename}")
         self.Pd(f"Metadata: {meta_dict}")
-        self.Pd(f"Secret hash (first 16 bytes): {key[:16].hex()}")
 
       # Create temporary encrypted file (same as in add_file)
       tmp_cipher_path = os.path.join(tempfile.gettempdir(), uuid.uuid4().hex + ".bin")
@@ -4832,9 +5391,6 @@ class R1FSEngine:
         with open(tmp_json_path, "w") as f:
           f.write(json_data)
         
-        if show_logs:
-          self.Pd(f"About to call calculate_file_cid with: file_path={tmp_json_path}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
-        
         # Use calculate_file_cid to get the CID
         file_cid = self.calculate_file_cid(
           file_path=tmp_json_path,
@@ -4952,9 +5508,6 @@ class R1FSEngine:
         # Write pickle data to temporary file
         with open(tmp_pickle_path, "wb") as f:
           f.write(pickle_data)
-        
-        if show_logs:
-          self.Pd(f"About to call calculate_file_cid with: file_path={tmp_pickle_path}, nonce={nonce}, secret={secret[:10] if secret else 'None'}...")
         
         # Use calculate_file_cid to get the CID
         file_cid = self.calculate_file_cid(
@@ -5077,9 +5630,49 @@ class R1FSEngine:
 
       Returns
       -------
-      bool
+      bool or None
           ``True`` when the daemon is running and connected to the relay,
-          otherwise ``False``.
+          otherwise ``False``. ``None`` when R1FS was already started, or when
+          checking or starting the daemon raised (that error is logged in red).
+
+      Raises
+      ------
+      OSError
+          When the IPFS home folder cannot be created, or the same-host clean-up
+          cannot remove its marker file.
+      Exception
+          From the command runner, when the same-host clean-up cannot write
+          ``Swarm.AddrFilters``.
+
+      Notes
+      -----
+      It runs once per process, on the thread that builds the engine: in the node's
+      main process from the managers' start-up, before the communication, serving and
+      plugin managers start, and in each serving process before its model start-up
+      (the serving manager waits for that without a deadline). When the relay is not
+      found among the swarm peers, the call that launched the daemon dials it up to
+      ``IPFSCt.RELAY_START_TRIES`` (6) times, ``IPFSCt.RELAY_START_PAUSE_SECONDS``
+      (10 s) apart: a relay that restarts, or a host that reboots, is unreachable for
+      some seconds. A call that found the daemon already running, as a serving process
+      does, dials once as before, so the tries never hold up a serving start. Each
+      try but the last returns on a failure, bounded at
+      ``IPFSCt.RELAY_START_TRY_TIMEOUT_SECONDS`` (10 s). The last try is the single
+      dial of before (``IPFSCt.TIMEOUT``, 90 s): a failure raises, ends with the same
+      red line as before and leaves R1FS off for the run. Each failed try before it
+      also prints the command runner's red line and a yellow next-try line.
+      With the relay down for the whole start, the bounds the launching call waits
+      for the relay add up to 285 s: in ``__start_daemon`` the disconnect (5 s) and
+      the held-back dial (``IPFSCt.TIMEOUT``, 90 s), here the five tries and the
+      pauses after them (5 x (10 s + 10 s) = 100 s) and the last try (90 s). In the
+      lab, where each dial failed after 4 to 5 s, such a start ended about 84 s later
+      than a normal one; a relay back about 25 s into the start was connected on the
+      second try, about 19 s later than a normal start.
+
+      Examples
+      --------
+      >>> # in startup(), once per engine; True when the relay is connected
+      >>> self.maybe_start_ipfs(base64_swarm_key=key, ipfs_relay="/ip4/<ip>/tcp/4001/p2p/<relay peer id>")
+      True
       """
       if self.ipfs_started:
         return
@@ -5090,9 +5683,9 @@ class R1FSEngine:
       if base64_swarm_key is None:
         base64_swarm_key = os.getenv(IPFSCt.EE_SWARM_KEY_CONTENT_BASE64_ENV_KEY)
         if base64_swarm_key is not None:
-          self.P(f"Found env IPFS swarm key: {str(base64_swarm_key)[:4]}...", color='d')
+          self.P("Found env IPFS swarm key.", color='d')
           if len(base64_swarm_key) < 10:
-            self.P(f"Invalid IPFS swarm key: `{base64_swarm_key}`", color='r')
+            self.P(f"Invalid IPFS swarm key: {len(base64_swarm_key)} characters", color='r')
             return False
         
       if ipfs_relay is None:
@@ -5163,7 +5756,6 @@ class R1FSEngine:
       self.__ipfs_api_key_username = ipfs_api_key_username
       self.__ipfs_api_key_password = ipfs_api_key_password
       self.__ipfs_certificate_path = ipfs_certificate_path
-      hidden_base64_swarm_key = base64_swarm_key[:8] + "..." + base64_swarm_key[-8:]
       
       existing_ipfs_home = os.getenv("IPFS_PATH")
       home_ready = False
@@ -5191,7 +5783,6 @@ class R1FSEngine:
       msg += f"\n  Relay:    {self.__ipfs_relay}"
       msg += f"\n  Download: {self.__downloads_dir}"
       msg += f"\n  Upload:   {self.__uploads_dir}"
-      msg += f"\n  SwarmKey: {hidden_base64_swarm_key}"
       msg += f"\n  Debug:    {self.__debug}"
       msg += f"\n  Repo:     {self.ipfs_home}"
       self.P(msg, color='d')
@@ -5234,6 +5825,9 @@ class R1FSEngine:
             time.sleep(2)
         #end for
         
+        # True when no daemon answers, so this call launches one: only then is the relay dialed more than once below.
+        # An engine that finds the daemon running (a serving process) dials once, so the tries never hold up its start.
+        launched = not ipfs_daemon_running
         if ipfs_daemon_running:
           self.P("IPFS daemon already running", color='g')
         else:
@@ -5310,7 +5904,27 @@ class R1FSEngine:
           msg += f"\n  IPFS Agent: {self.__ipfs_agent}"
           msg += f"\n  Relay:      {ipfs_relay}"
           self.P(msg, color='m')
-          result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
+          # Up to RELAY_START_TRIES dials, RELAY_START_PAUSE_SECONDS apart, before R1FS is left off for the run, when
+          # this call launched the daemon (lab: a relay back about 25 s into the start was connected on the second try,
+          # about 19 s later than a normal start); none of these tries when it found the daemon running.
+          for attempt in range(1, IPFSCt.RELAY_START_TRIES if launched else 1):
+            # A try that is not the last: a failed dial returns "" (the runner logs it) instead of raising.
+            result = self.__run_command(
+              ["ipfs", "swarm", "connect", ipfs_relay], raise_on_error=False,
+              timeout=IPFSCt.RELAY_START_TRY_TIMEOUT_SECONDS,
+            )
+            if result:
+              break
+            self.P(
+              f"Relay {ipfs_relay} could not be dialed (try {attempt} of {IPFSCt.RELAY_START_TRIES}), "
+              f"next try in {IPFSCt.RELAY_START_PAUSE_SECONDS} s.", color='y'
+            )
+            # Wait before the next dial instead of dialing again at once.
+            time.sleep(IPFSCt.RELAY_START_PAUSE_SECONDS)
+          else:
+            # The last try, or the only one when the daemon was found running, as the single dial was: a failure
+            # raises, is said in red below and leaves R1FS off.
+            result = self.__run_command(["ipfs", "swarm", "connect", ipfs_relay])
           if "connect" in result.lower() and "success" in result.lower():
             self.P(f"{my_id} connected to: {relay_ip}", color='g', boxed=True)
             self.__ipfs_started = True
