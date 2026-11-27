@@ -39,6 +39,28 @@ class PickleSaveTempCleanupTest(unittest.TestCase):
       _Saver().save_pickle({"ok": 1}, fn=path, verbose=False)
       self.assertEqual(os.listdir(folder), ["object.pickle"])
 
+  def test_strict_data_save_reports_replace_failure_and_preserves_previous_file(self):
+    with tempfile.TemporaryDirectory() as folder:
+      path = os.path.join(folder, "object.pickle")
+      saver = _Saver()
+      self.assertEqual(saver.save_pickle_to_data(1, fn=path, raise_on_error=True), path)
+      with mock.patch.object(os, "replace", side_effect=OSError("disk full")):
+        with self.assertRaisesRegex(OSError, "disk full"):
+          saver.save_pickle_to_data(3, fn=path, raise_on_error=True)
+        self.assertEqual(saver.save_pickle_to_data(4, fn=path), path)  # Legacy filename return.
+      with open(path, "rb") as source:
+        self.assertEqual(pickle.load(source), 1)
+      self.assertEqual(os.listdir(folder), ["object.pickle"])  # Both failure paths release their temporary files.
+
+  def test_strict_data_save_reports_serialization_failures(self):
+    with tempfile.TemporaryDirectory() as folder:
+      saver = _Saver()
+      with self.assertRaisesRegex(RuntimeError, "cannot pickle"):
+        saver.save_pickle_to_data(_Unpicklable(), fn=os.path.join(folder, "object.pkl"), raise_on_error=True)
+      with self.assertRaises(OSError):
+        saver.save_pickle_to_data(_Unpicklable(), fn=os.path.join(folder, "object.pklz"), raise_on_error=True)
+      self.assertEqual(os.listdir(folder), [])
+
 
 class _CountingRaw(io.RawIOBase):
   """A raw file that counts the write() calls reaching it, i.e. the write syscalls."""
